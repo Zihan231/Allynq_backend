@@ -26,6 +26,12 @@ export class User {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
+  @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
+  email!: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true, select: false })
+  password!: string | null;
+
   @Column({ type: 'varchar', length: 512, nullable: true })
   dpUrl!: string | null;
 

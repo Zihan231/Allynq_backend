@@ -49,3 +49,9 @@ export enum CommunityRole {
   SCOUT = 'Scout',
   MEMBER = 'Member',
 }
+
+export enum LineupStatus {
+  STARTER = 'Starter',
+  SUB = 'Sub',
+  NONE = 'None',
+}

@@ -3,12 +3,20 @@ import {
   CreateDateColumn,
   Entity,
   JoinColumn,
+  ManyToOne,
   OneToOne,
   PrimaryGeneratedColumn,
   type Relation,
   UpdateDateColumn,
 } from 'typeorm';
-import { ClubRole, CommunityRole, SquadTeam } from '../enums/user-attributes.enum.js';
+import { Club } from '../../clubs/entities/club.entity.js';
+import { Team } from '../../clubs/entities/team.entity.js';
+import {
+  ClubRole,
+  CommunityRole,
+  LineupStatus,
+  SquadTeam,
+} from '../enums/user-attributes.enum.js';
 import { User } from './user.entity.js';
 
 /**
@@ -42,8 +50,22 @@ export class EfootballProfile {
   @Column({ type: 'int', default: 0 })
   points!: number;
 
+  @ManyToOne(() => Club, (club) => club.members, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'clubId' })
+  club?: Relation<Club> | null;
+
   @Column({ type: 'uuid', nullable: true })
   clubId!: string | null;
+
+  @ManyToOne(() => Team, (team) => team.members, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'teamId' })
+  team?: Relation<Team> | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  teamId!: string | null;
+
+  @Column({ type: 'enum', enum: LineupStatus, default: LineupStatus.NONE })
+  lineupStatus!: LineupStatus;
 
   @Column({ type: 'enum', enum: ClubRole, nullable: true })
   clubRole!: ClubRole | null;

@@ -3,6 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AuthModule } from './auth/auth.module.js';
+import { ClubsModule } from './clubs/clubs.module.js';
 import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -14,7 +16,9 @@ import { UsersModule } from './users/users.module.js';
       inject: [ConfigService],
       useFactory: buildTypeOrmOptions,
     }),
+    AuthModule,
     UsersModule,
+    ClubsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
