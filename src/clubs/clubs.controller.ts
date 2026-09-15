@@ -9,7 +9,9 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ClubsService } from './clubs.service.js';
 import { RequireClubRoles } from './decorators/require-club-roles.decorator.js';
@@ -23,8 +25,8 @@ export class ClubsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() dto: CreateClubDto) {
-    return this.clubsService.create(dto);
+  create(@CurrentUser() user: User, @Body() dto: CreateClubDto) {
+    return this.clubsService.create(user, dto);
   }
 
   @Get()

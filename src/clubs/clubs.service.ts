@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
+import { User } from '../users/entities/user.entity.js';
+import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
 import { Club } from './entities/club.entity.js';
@@ -15,9 +17,27 @@ export class ClubsService {
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
   ) {}
 
-  create(dto: CreateClubDto): Promise<Club> {
+  async create(user: User, dto: CreateClubDto): Promise<Club> {
+    const profile = await this.efootballProfilesRepository.findOne({
+      where: { userId: user.id },
+    });
+
+    if (profile?.clubId) {
+      throw new BadRequestException(
+        'You are already a member of a club. You cannot create a new club while belonging to an existing one. Please leave your current club first.',
+      );
+    }
+
     const club = this.clubsRepository.create(dto);
-    return this.clubsRepository.save(club);
+    const savedClub = await this.clubsRepository.save(club);
+
+    if (profile) {
+      profile.clubId = savedClub.id;
+      profile.clubRole = ClubRole.PRESIDENT;
+      await this.efootballProfilesRepository.save(profile);
+    }
+
+    return savedClub;
   }
 
   findAll(): Promise<Club[]> {
