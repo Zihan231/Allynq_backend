@@ -38,6 +38,25 @@ export class UsersController {
     return serializeUser(user, true);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  async updateMyProfile(
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() caller: User,
+  ) {
+    const user = await this.usersService.update(caller.id, dto);
+    return serializeUser(user, true);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('me/efootball-profile')
+  upsertMyEfootballProfile(
+    @Body() dto: CreateEfootballProfileDto | UpdateEfootballProfileDto,
+    @CurrentUser() caller: User,
+  ) {
+    return this.usersService.upsertEfootballProfile(caller.id, dto);
+  }
+
   @Get()
   async findAll() {
     const users = await this.usersService.findAll();

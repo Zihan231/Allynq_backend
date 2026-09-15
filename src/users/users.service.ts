@@ -23,13 +23,25 @@ export class UsersService {
   }
 
   findAll(): Promise<User[]> {
-    return this.usersRepository.find({ relations: { efootballProfile: true } });
+    return this.usersRepository.find({
+      relations: {
+        efootballProfile: {
+          club: true,
+          team: true,
+        },
+      },
+    });
   }
 
   async findOne(id: string): Promise<User> {
     const user = await this.usersRepository.findOne({
       where: { id },
-      relations: { efootballProfile: true },
+      relations: {
+        efootballProfile: {
+          club: true,
+          team: true,
+        },
+      },
     });
     if (!user) {
       throw new NotFoundException(`User ${id} not found`);
@@ -40,7 +52,15 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
     Object.assign(user, dto);
-    return this.usersRepository.save(user);
+    await this.usersRepository.save(user);
+
+    if (dto.inGameId && user.efootballProfile) {
+      await this.efootballProfilesRepository.update(user.efootballProfile.id, {
+        konamiUid: dto.inGameId,
+      });
+    }
+
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<void> {
