@@ -7,6 +7,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.use(cookieParser());
+  // Render (and most PaaS) terminate TLS at a reverse proxy and forward
+  // plain HTTP internally. Without this, req.secure is always false, so the
+  // auth cookie always fell back to sameSite=lax/secure=false in production —
+  // which browsers silently drop on cross-site requests (Vercel -> Render),
+  // logging users out on every refresh.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   // Collect configured origins from environment variables
   const configuredOrigins = [
