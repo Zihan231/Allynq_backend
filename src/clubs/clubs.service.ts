@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
+import { ChangeManagerDto } from './dto/change-manager.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
 import { Club } from './entities/club.entity.js';
@@ -93,5 +94,124 @@ export class ClubsService {
         points: 'DESC',
       },
     });
+  }
+
+  async getManager(clubId: string): Promise<EfootballProfile | null> {
+    await this.findOne(clubId);
+    return this.efootballProfilesRepository.findOne({
+      where: {
+        clubId,
+        clubRole: ClubRole.MANAGER,
+      },
+      relations: {
+        user: true,
+      },
+    });
+  }
+
+  async changeManager(
+    clubId: string,
+    caller: User,
+    dto: ChangeManagerDto,
+  ) {
+    if (!dto.targetUserId && !dto.targetProfileId) {
+      throw new BadRequestException('Either targetUserId or targetProfileId must be provided');
+    }
+
+    const club = await this.findOne(clubId);
+
+    // Verify caller's membership and permissions in this club
+    const callerProfile = await this.efootballProfilesRepository.findOne({
+      where: { userId: caller.id },
+      relations: { user: true },
+    });
+
+    if (!callerProfile || callerProfile.clubId !== club.id) {
+      throw new ForbiddenException('You are not a member of this club');
+    }
+
+    const allowedRoles: (ClubRole | null)[] = [
+      ClubRole.PRESIDENT,
+      ClubRole.GENERAL_SECRETARY,
+      ClubRole.MANAGER,
+    ];
+
+    if (!callerProfile.clubRole || !allowedRoles.includes(callerProfile.clubRole)) {
+      throw new ForbiddenException(
+        'Only the Club President, General Secretary, or current Manager can change the club manager',
+      );
+    }
+
+    // Find target member in this club
+    const targetQuery: any = { clubId: club.id };
+    if (dto.targetProfileId) {
+      targetQuery.id = dto.targetProfileId;
+    } else if (dto.targetUserId) {
+      targetQuery.userId = dto.targetUserId;
+    }
+
+    const targetProfile = await this.efootballProfilesRepository.findOne({
+      where: targetQuery,
+      relations: { user: true },
+    });
+
+    if (!targetProfile) {
+      throw new BadRequestException('Target member is not a member of this club');
+    }
+
+    if (targetProfile.clubRole === ClubRole.MANAGER) {
+      throw new BadRequestException('The target member is already the manager of this club');
+    }
+
+    if (targetProfile.clubRole === ClubRole.PRESIDENT) {
+      throw new BadRequestException('Cannot reassign the Club President as Manager');
+    }
+
+    // Find current manager of the club (if any)
+    const currentManager = await this.efootballProfilesRepository.findOne({
+      where: {
+        clubId: club.id,
+        clubRole: ClubRole.MANAGER,
+      },
+      relations: { user: true },
+    });
+
+    let previousManagerData: { id: string; userId: string; name: string; role: ClubRole } | null = null;
+
+    // If an existing manager exists, demote them to Player
+    if (currentManager) {
+      currentManager.clubRole = ClubRole.PLAYER;
+      await this.efootballProfilesRepository.save(currentManager);
+      previousManagerData = {
+        id: currentManager.id,
+        userId: currentManager.userId,
+        name: currentManager.user?.name ?? 'Previous Manager',
+        role: ClubRole.PLAYER,
+      };
+    }
+
+    // Promote the target member to Manager
+    targetProfile.clubRole = ClubRole.MANAGER;
+    const savedTarget = await this.efootballProfilesRepository.save(targetProfile);
+
+    const isSelfTransfer =
+      callerProfile.clubRole === ClubRole.MANAGER ||
+      (currentManager && currentManager.id === callerProfile.id);
+
+    return {
+      success: true,
+      message: isSelfTransfer
+        ? `Manager role successfully handed over to ${savedTarget.user?.name ?? 'new manager'}. You are now a normal Player.`
+        : `Manager for ${club.name} successfully changed to ${savedTarget.user?.name ?? 'new manager'}.`,
+      clubId: club.id,
+      clubName: club.name,
+      previousManager: previousManagerData,
+      newManager: {
+        id: savedTarget.id,
+        userId: savedTarget.userId,
+        name: savedTarget.user?.name ?? 'New Manager',
+        role: ClubRole.MANAGER,
+      },
+    };
   }
 }
