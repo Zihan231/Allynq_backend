@@ -20,6 +20,9 @@ export class Team {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
+  @Column({ type: 'varchar', length: 50, default: '4-3-3' })
+  formation!: string;
+
   @ManyToOne(() => Club, (club) => club.teams, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'clubId' })
   club!: Relation<Club>;
