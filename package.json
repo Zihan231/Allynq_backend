@@ -24,7 +24,8 @@
     "migration:generate": "npm run typeorm -- migration:generate",
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
-    "seed": "node dist/seeds/seed-demo.js"
+    "seed": "node dist/seeds/seed-demo.js",
+    "seed:massive": "node dist/seeds/seed-massive.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

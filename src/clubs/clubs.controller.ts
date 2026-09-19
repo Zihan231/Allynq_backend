@@ -85,4 +85,16 @@ export class ClubsController {
   ) {
     return this.clubsService.changeManager(id, user, dto);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/join')
+  join(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.clubsService.join(id, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/leave')
+  leave(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.clubsService.leave(id, user);
+  }
 }

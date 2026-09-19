@@ -2,11 +2,13 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ManyToMany,
   OneToMany,
   PrimaryGeneratedColumn,
   type Relation,
   UpdateDateColumn,
 } from 'typeorm';
+import { Community } from '../../communities/entities/community.entity.js';
 import { EfootballProfile } from '../../users/entities/efootball-profile.entity.js';
 import { ClubStage, JoinPolicy } from '../enums/club.enum.js';
 import { Team } from './team.entity.js';
@@ -66,6 +68,9 @@ export class Club {
 
   @OneToMany(() => Team, (team) => team.club)
   teams?: Relation<Team[]>;
+
+  @ManyToMany(() => Community, (community) => community.clubs)
+  communities?: Relation<Community[]>;
 
   @CreateDateColumn()
   createdAt!: Date;

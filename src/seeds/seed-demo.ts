@@ -6,14 +6,18 @@ import { Team } from '../clubs/entities/team.entity.js';
 import { ClubStage, JoinPolicy } from '../clubs/enums/club.enum.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
-import { ClubRole, LineupStatus, SquadTeam } from '../users/enums/user-attributes.enum.js';
+import { ClubRole, CommunityRole, LineupStatus, SquadTeam } from '../users/enums/user-attributes.enum.js';
 import { EfootballPosition } from '../users/enums/efootball-position.enum.js';
+import { Community } from '../communities/entities/community.entity.js';
+import { CommunityMember } from '../communities/entities/community-member.entity.js';
+import { CommunityJoinRequest } from '../communities/entities/community-join-request.entity.js';
+import { CommunityTier } from '../communities/enums/community.enum.js';
 
 const dataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
-  entities: [User, EfootballProfile, Club, Team],
+  entities: [User, EfootballProfile, Club, Team, Community, CommunityMember, CommunityJoinRequest],
   synchronize: false,
 });
 
@@ -294,6 +298,64 @@ async function seed() {
   console.log(`- Team A Substitutes: 5`);
   console.log(`- Team A Manager: 1`);
   console.log(`- Free Club Members: ${totalMembers - 17}`);
+
+  // 3. Create or find Dhaka Elite Community
+  const commRepo = dataSource.getRepository(Community);
+  const commMemberRepo = dataSource.getRepository(CommunityMember);
+
+  let comm = await commRepo.findOne({ where: { name: 'Dhaka Elite Community' }, relations: { clubs: true } });
+  if (!comm) {
+    const adminUser = await userRepo.findOne({ where: { email: 'admin@allynq.com' } }) ||
+                      await userRepo.findOne({ where: {}, order: { createdAt: 'ASC' } });
+    if (adminUser) {
+      comm = commRepo.create({
+        name: 'Dhaka Elite Community',
+        rules: '1. Show up on time or forfeit. 2. Screenshot or clip evidence is mandatory on every result. 3. No smurfing — one account per player.',
+        points: 2400,
+        joinPolicy: JoinPolicy.APPROVAL,
+        color: '#4c8dff',
+        initials: 'DE',
+        tier: CommunityTier.FEATURED,
+        location: 'Dhaka',
+        motto: 'One community, every club held to the same standard.',
+        facebookUrl: 'https://facebook.com/dhakaeliteefootball',
+        creatorId: adminUser.id,
+      });
+      comm = await commRepo.save(comm);
+      console.log(`Created community: ${comm.name} (${comm.id})`);
+    }
+  }
+
+  if (comm) {
+    // Enroll Red Falcons into Dhaka Elite Community
+    await dataSource.query(
+      `INSERT INTO community_clubs ("communityId", "clubId") VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [comm.id, club.id],
+    );
+
+    const existingCommIds = new Set(club.communityIds || []);
+    existingCommIds.add(comm.id);
+    club.communityIds = Array.from(existingCommIds);
+    await clubRepo.save(club);
+
+    // Auto-join all Red Falcons members into community_members
+    const members = await profileRepo.find({ where: { clubId: club.id } });
+    for (const m of members) {
+      const isPresident = m.clubRole === ClubRole.PRESIDENT;
+      const role = isPresident ? CommunityRole.PRESIDENT : CommunityRole.MEMBER;
+      await dataSource.query(
+        `INSERT INTO community_members ("id", "communityId", "profileId", "role", "isDirectMember", "sourceClubIds")
+         VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5)
+         ON CONFLICT ("communityId", "profileId") DO NOTHING`,
+        [comm.id, m.id, role, isPresident, JSON.stringify([club.id])],
+      );
+    }
+    await dataSource.query(
+      `UPDATE efootball_profiles SET "communityId" = $1, "communityRole" = 'Member' WHERE "clubId" = $2 AND "communityId" IS NULL`,
+      [comm.id, club.id],
+    );
+    console.log(`Enrolled ${club.name} and auto-joined ${members.length} members into ${comm.name}!`);
+  }
 
   await dataSource.destroy();
 }

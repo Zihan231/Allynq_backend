@@ -4,6 +4,7 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   OneToOne,
   PrimaryGeneratedColumn,
   type Relation,
@@ -11,6 +12,7 @@ import {
 } from 'typeorm';
 import { Club } from '../../clubs/entities/club.entity.js';
 import { Team } from '../../clubs/entities/team.entity.js';
+import { CommunityMember } from '../../communities/entities/community-member.entity.js';
 import {
   ClubRole,
   CommunityRole,
@@ -75,6 +77,9 @@ export class EfootballProfile {
 
   @Column({ type: 'enum', enum: CommunityRole, nullable: true })
   communityRole!: CommunityRole | null;
+
+  @OneToMany(() => CommunityMember, (cm) => cm.profile)
+  communityMemberships?: Relation<CommunityMember[]>;
 
   @CreateDateColumn()
   createdAt!: Date;

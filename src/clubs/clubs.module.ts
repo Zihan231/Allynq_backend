@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CommunitiesModule } from '../communities/communities.module.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { ClubsController } from './clubs.controller.js';
 import { ClubsService } from './clubs.service.js';
@@ -14,6 +15,7 @@ import { TeamsService } from './teams.service.js';
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     TypeOrmModule.forFeature([Club, Team, EfootballProfile]),
+    CommunitiesModule,
   ],
   controllers: [ClubsController, TeamsController],
   providers: [ClubsService, TeamsService, ClubRoleGuard],

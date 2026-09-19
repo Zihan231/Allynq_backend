@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CommunitiesService } from '../communities/communities.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
@@ -16,6 +17,7 @@ export class ClubsService {
     private readonly clubsRepository: Repository<Club>,
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
+    private readonly communitiesService: CommunitiesService,
   ) {}
 
   async create(user: User, dto: CreateClubDto): Promise<Club> {
@@ -212,6 +214,68 @@ export class ClubsService {
         name: savedTarget.user?.name ?? 'New Manager',
         role: ClubRole.MANAGER,
       },
+    };
+  }
+
+  async join(clubId: string, user: User) {
+    const club = await this.findOne(clubId);
+
+    let profile = await this.efootballProfilesRepository.findOne({
+      where: { userId: user.id },
+    });
+
+    if (!profile) {
+      profile = this.efootballProfilesRepository.create({
+        userId: user.id,
+        points: 0,
+      });
+      profile = await this.efootballProfilesRepository.save(profile);
+    }
+
+    if (profile.clubId) {
+      throw new BadRequestException('You are already a member of a club. Please leave your current club first.');
+    }
+
+    profile.clubId = club.id;
+    profile.clubRole = ClubRole.PLAYER;
+    await this.efootballProfilesRepository.save(profile);
+
+    // Auto-join to all communities the club belongs to
+    await this.communitiesService.onClubMemberAdded(club.id, profile.id);
+
+    return {
+      success: true,
+      message: `Successfully joined ${club.name}`,
+      clubId: club.id,
+    };
+  }
+
+  async leave(clubId: string, user: User) {
+    const profile = await this.efootballProfilesRepository.findOne({
+      where: { userId: user.id },
+    });
+
+    if (!profile || profile.clubId !== clubId) {
+      throw new BadRequestException('You are not a member of this club');
+    }
+
+    if (profile.clubRole === ClubRole.PRESIDENT) {
+      throw new BadRequestException(
+        'Club President cannot leave the club without transferring presidency or deleting the club',
+      );
+    }
+
+    profile.clubId = null;
+    profile.clubRole = null;
+    profile.teamId = null;
+    await this.efootballProfilesRepository.save(profile);
+
+    // Revoke inherited community memberships
+    await this.communitiesService.onClubMemberRemoved(clubId, profile.id);
+
+    return {
+      success: true,
+      message: 'Successfully left the club',
     };
   }
 }

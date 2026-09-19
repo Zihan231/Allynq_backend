@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ClubsModule } from './clubs/clubs.module.js';
+import { CommunitiesModule } from './communities/communities.module.js';
 import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -19,6 +20,7 @@ import { UsersModule } from './users/users.module.js';
     AuthModule,
     UsersModule,
     ClubsModule,
+    CommunitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
