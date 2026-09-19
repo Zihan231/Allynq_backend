@@ -23,6 +23,9 @@ import {
   CommunityJoinRequestType,
   CommunityTier,
 } from './enums/community.enum.js';
+import { CommunityQueryDto } from './dto/community-query.dto.js';
+import { CommunityMembersQueryDto } from './dto/community-members-query.dto.js';
+import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 
 @Injectable()
 export class CommunitiesService {
@@ -94,7 +97,7 @@ export class CommunitiesService {
     return this.findOne(savedCommunity.id);
   }
 
-  async findAll(query?: { search?: string; tier?: CommunityTier }): Promise<any[]> {
+  async findAll(query?: CommunityQueryDto): Promise<any> {
     const qb = this.communitiesRepository
       .createQueryBuilder('community')
       .leftJoinAndSelect('community.clubs', 'club')
@@ -114,9 +117,24 @@ export class CommunitiesService {
       qb.andWhere('community.tier = :tier', { tier: query.tier });
     }
 
-    const communities = await qb.getMany();
+    const isPaginated = Boolean(query?.page || query?.limit);
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
 
-    return communities.map((c) => {
+    let communities: Community[];
+    let total = 0;
+
+    if (isPaginated) {
+      qb.skip((page - 1) * limit).take(limit);
+      const [data, count] = await qb.getManyAndCount();
+      communities = data;
+      total = count;
+    } else {
+      communities = await qb.getMany();
+      total = communities.length;
+    }
+
+    const mapped = communities.map((c) => {
       const clubs = c.clubs || [];
       const members = c.members || [];
       const memberClubIds = clubs.map((club) => club.id);
@@ -132,6 +150,11 @@ export class CommunitiesService {
         clubCount: clubs.length,
       };
     });
+
+    if (isPaginated) {
+      return createPaginatedResult(mapped, total, page, limit);
+    }
+    return mapped;
   }
 
   async findOne(id: string): Promise<any> {
@@ -608,24 +631,47 @@ export class CommunitiesService {
     }
   }
 
-  async getMembers(communityId: string): Promise<any[]> {
+  async getMembers(communityId: string, query?: CommunityMembersQueryDto): Promise<any> {
     await this.findOne(communityId);
 
-    const members = await this.communityMembersRepository.find({
-      where: { communityId },
-      relations: {
-        profile: {
-          user: true,
-          club: true,
-        },
-      },
-      order: {
-        role: 'ASC',
-        joinedAt: 'ASC',
-      },
-    });
+    const qb = this.communityMembersRepository
+      .createQueryBuilder('cm')
+      .leftJoinAndSelect('cm.profile', 'profile')
+      .leftJoinAndSelect('profile.user', 'user')
+      .leftJoinAndSelect('profile.club', 'club')
+      .where('cm.communityId = :communityId', { communityId })
+      .orderBy('cm.role', 'ASC')
+      .addOrderBy('cm.joinedAt', 'ASC');
 
-    return members.map((m) => {
+    if (query?.search) {
+      qb.andWhere(
+        '(LOWER(user.name) LIKE :search OR LOWER(profile.inGameId) LIKE :search)',
+        { search: `%${query.search.toLowerCase()}%` },
+      );
+    }
+
+    if (query?.role) {
+      qb.andWhere('cm.role = :role', { role: query.role });
+    }
+
+    const isPaginated = Boolean(query?.page || query?.limit);
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+
+    let members: CommunityMember[];
+    let total = 0;
+
+    if (isPaginated) {
+      qb.skip((page - 1) * limit).take(limit);
+      const [data, count] = await qb.getManyAndCount();
+      members = data;
+      total = count;
+    } else {
+      members = await qb.getMany();
+      total = members.length;
+    }
+
+    const mapped = members.map((m) => {
       const p = m.profile;
       const u = p?.user;
       return {
@@ -645,6 +691,11 @@ export class CommunitiesService {
         points: p?.points || 0,
       };
     });
+
+    if (isPaginated) {
+      return createPaginatedResult(mapped, total, page, limit);
+    }
+    return mapped;
   }
 
   async getRequests(communityId: string, user: User): Promise<any[]> {

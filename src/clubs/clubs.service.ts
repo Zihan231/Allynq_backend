@@ -8,6 +8,9 @@ import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
+import { ClubQueryDto } from './dto/club-query.dto.js';
+import { ClubMembersQueryDto } from './dto/club-members-query.dto.js';
+import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { Club } from './entities/club.entity.js';
 
 @Injectable()
@@ -43,18 +46,31 @@ export class ClubsService {
     return savedClub;
   }
 
-  findAll(): Promise<Club[]> {
-    return this.clubsRepository.find({
-      relations: {
-        members: {
-          user: true,
-        },
-      },
-      order: {
-        points: 'DESC',
-        createdAt: 'DESC',
-      },
-    });
+  async findAll(query?: ClubQueryDto): Promise<any> {
+    const qb = this.clubsRepository
+      .createQueryBuilder('club')
+      .leftJoinAndSelect('club.members', 'member')
+      .leftJoinAndSelect('member.user', 'user')
+      .orderBy('club.points', 'DESC')
+      .addOrderBy('club.createdAt', 'DESC');
+
+    if (query?.search) {
+      qb.andWhere('(LOWER(club.name) LIKE :search OR LOWER(club.location) LIKE :search)', {
+        search: `%${query.search.toLowerCase()}%`,
+      });
+    }
+
+    const isPaginated = Boolean(query?.page || query?.limit);
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+
+    if (isPaginated) {
+      qb.skip((page - 1) * limit).take(limit);
+      const [data, total] = await qb.getManyAndCount();
+      return createPaginatedResult(data, total, page, limit);
+    }
+
+    return qb.getMany();
   }
 
   async findOne(id: string): Promise<Club> {
@@ -85,17 +101,37 @@ export class ClubsService {
     }
   }
 
-  async getMembers(id: string): Promise<EfootballProfile[]> {
+  async getMembers(id: string, query?: ClubMembersQueryDto): Promise<any> {
     await this.findOne(id);
-    return this.efootballProfilesRepository.find({
-      where: { clubId: id },
-      relations: {
-        user: true,
-      },
-      order: {
-        points: 'DESC',
-      },
-    });
+
+    const qb = this.efootballProfilesRepository
+      .createQueryBuilder('profile')
+      .leftJoinAndSelect('profile.user', 'user')
+      .where('profile.clubId = :clubId', { clubId: id })
+      .orderBy('profile.points', 'DESC');
+
+    if (query?.search) {
+      qb.andWhere(
+        '(LOWER(user.name) LIKE :search OR LOWER(user.inGameId) LIKE :search)',
+        { search: `%${query.search.toLowerCase()}%` },
+      );
+    }
+
+    if (query?.role) {
+      qb.andWhere('profile.clubRole = :role', { role: query.role });
+    }
+
+    const isPaginated = Boolean(query?.page || query?.limit);
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+
+    if (isPaginated) {
+      qb.skip((page - 1) * limit).take(limit);
+      const [data, total] = await qb.getManyAndCount();
+      return createPaginatedResult(data, total, page, limit);
+    }
+
+    return qb.getMany();
   }
 
   async getManager(clubId: string): Promise<EfootballProfile | null> {

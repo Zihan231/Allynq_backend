@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -18,6 +19,8 @@ import { RequireClubRoles } from './decorators/require-club-roles.decorator.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
+import { ClubQueryDto } from './dto/club-query.dto.js';
+import { ClubMembersQueryDto } from './dto/club-members-query.dto.js';
 import { ClubRoleGuard } from './guards/club-role.guard.js';
 
 @Controller('clubs')
@@ -31,8 +34,8 @@ export class ClubsController {
   }
 
   @Get()
-  findAll() {
-    return this.clubsService.findAll();
+  findAll(@Query() query: ClubQueryDto) {
+    return this.clubsService.findAll(query);
   }
 
   @Get(':id')
@@ -55,8 +58,11 @@ export class ClubsController {
   }
 
   @Get(':id/members')
-  getMembers(@Param('id', ParseUUIDPipe) id: string) {
-    return this.clubsService.getMembers(id);
+  getMembers(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ClubMembersQueryDto,
+  ) {
+    return this.clubsService.getMembers(id, query);
   }
 
   @Get(':id/manager')

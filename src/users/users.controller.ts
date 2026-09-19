@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -18,6 +19,8 @@ import { CreateEfootballProfileDto } from './dto/create-efootball-profile.dto.js
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateEfootballProfileDto } from './dto/update-efootball-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
+import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { User } from './entities/user.entity.js';
 import { serializeUser, serializeUsers } from './serializers/user.serializer.js';
 import { UsersService } from './users.service.js';
@@ -58,9 +61,13 @@ export class UsersController {
   }
 
   @Get()
-  async findAll() {
-    const users = await this.usersService.findAll();
-    return serializeUsers(users);
+  async findAll(@Query() query: UserQueryDto) {
+    const res = await this.usersService.findAll(query);
+    const serialized = serializeUsers(res.users);
+    if (res.isPaginated) {
+      return createPaginatedResult(serialized, res.total, res.page, res.limit);
+    }
+    return serialized;
   }
 
   @UseGuards(OptionalJwtAuthGuard)

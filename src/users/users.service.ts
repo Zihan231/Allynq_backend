@@ -5,6 +5,7 @@ import { CreateEfootballProfileDto } from './dto/create-efootball-profile.dto.js
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateEfootballProfileDto } from './dto/update-efootball-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
 import { EfootballProfile } from './entities/efootball-profile.entity.js';
 import { User } from './entities/user.entity.js';
 
@@ -22,15 +23,63 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
-  findAll(): Promise<User[]> {
-    return this.usersRepository.find({
-      relations: {
-        efootballProfile: {
-          club: true,
-          team: true,
-        },
-      },
-    });
+  async findAll(query?: UserQueryDto): Promise<{
+    users: User[];
+    total: number;
+    page: number;
+    limit: number;
+    isPaginated: boolean;
+  }> {
+    const qb = this.usersRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.efootballProfile', 'efootballProfile')
+      .leftJoinAndSelect('efootballProfile.club', 'club')
+      .leftJoinAndSelect('efootballProfile.team', 'team')
+      .orderBy('user.createdAt', 'DESC');
+
+    if (query?.search) {
+      qb.andWhere(
+        '(LOWER(user.name) LIKE :search OR LOWER(user.email) LIKE :search OR LOWER(user.inGameId) LIKE :search)',
+        { search: `%${query.search.toLowerCase()}%` },
+      );
+    }
+
+    if (query?.district) {
+      qb.andWhere('LOWER(user.district) = LOWER(:district)', {
+        district: query.district,
+      });
+    }
+
+    if (query?.clubId) {
+      qb.andWhere('efootballProfile.clubId = :clubId', {
+        clubId: query.clubId,
+      });
+    }
+
+    const isPaginated = Boolean(query?.page || query?.limit);
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+
+    if (isPaginated) {
+      qb.skip((page - 1) * limit).take(limit);
+      const [users, total] = await qb.getManyAndCount();
+      return {
+        users,
+        total,
+        page,
+        limit,
+        isPaginated: true,
+      };
+    }
+
+    const users = await qb.getMany();
+    return {
+      users,
+      total: users.length,
+      page: 1,
+      limit: users.length,
+      isPaginated: false,
+    };
   }
 
   async findOne(id: string): Promise<User> {

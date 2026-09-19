@@ -20,6 +20,8 @@ import { AssignRoleDto } from './dto/assign-role.dto.js';
 import { CreateCommunityDto } from './dto/create-community.dto.js';
 import { ReviewJoinRequestDto } from './dto/review-join-request.dto.js';
 import { UpdateCommunityDto } from './dto/update-community.dto.js';
+import { CommunityQueryDto } from './dto/community-query.dto.js';
+import { CommunityMembersQueryDto } from './dto/community-members-query.dto.js';
 import { CommunityTier } from './enums/community.enum.js';
 import { CommunityRoleGuard } from './guards/community-role.guard.js';
 
@@ -34,11 +36,8 @@ export class CommunitiesController {
   }
 
   @Get()
-  findAll(
-    @Query('search') search?: string,
-    @Query('tier') tier?: CommunityTier,
-  ) {
-    return this.communitiesService.findAll({ search, tier });
+  findAll(@Query() query: CommunityQueryDto) {
+    return this.communitiesService.findAll(query);
   }
 
   @Get(':id')
@@ -103,8 +102,11 @@ export class CommunitiesController {
   }
 
   @Get(':id/members')
-  getMembers(@Param('id', ParseUUIDPipe) id: string) {
-    return this.communitiesService.getMembers(id);
+  getMembers(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: CommunityMembersQueryDto,
+  ) {
+    return this.communitiesService.getMembers(id, query);
   }
 
   @UseGuards(JwtAuthGuard, CommunityRoleGuard)
