@@ -89,6 +89,33 @@ const CLUB_COLORS = [
   '#475569', '#E11D48', '#2563EB', '#0D9488',
 ];
 
+const CLUB_CRESTS = [
+  '/Bangladesh/bangladesh-football-federation-seeklogo.png',
+  '/barca/barca-logo-transparent.png',
+  '/real madrid/real-madrid-logo-preview.png',
+  '/manu/manu-logo-transparent.png',
+  '/arsenal/arsenal-logo-transparent.png',
+  '/chelsea/chelsea-logo-transparent.png',
+  '/man city/mancity-logo-transparent.png',
+  '/bayern/bayern-logo-transparent.png',
+  '/atleteco di madrid/atletico-logo-transparent.png',
+  '/efootball.png',
+];
+
+const STADIUM_COVERS = [
+  '/community 1.jpg',
+  '/community 2.jpg',
+  '/community 3.jpg',
+  '/barca.jpg',
+  '/Manu.jpg',
+  '/real.jpg',
+  '/arsenal/Arsenal HD Wallpaper For Desktop iPhone iPad And Android.jpg',
+  '/chelsea/Chelsea Fc Wallpaper By Shangeeth Sugumar Shangeeths On.jpg',
+  '/bayern/wallppaer.jpg',
+  '/man city/Manchester City Vs United Full Time Win Derby.jpg',
+  '/atleteco di madrid/wallpaperflare.com_wallpaper.jpg',
+];
+
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -128,10 +155,12 @@ async function seedMassive() {
     if (existing.length > 0) {
       communityMap.set(c.name, existing[0].id);
     } else {
+      const dpUrl = CLUB_CRESTS[communityMap.size % CLUB_CRESTS.length];
+      const coverUrl = STADIUM_COVERS[communityMap.size % STADIUM_COVERS.length];
       const res = await dataSource.query(
         `INSERT INTO communities
-         ("id", "name", "rules", "tier", "joinPolicy", "points", "color", "initials", "location", "motto", "facebookUrl", "creatorId")
-         VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ("id", "name", "rules", "tier", "joinPolicy", "points", "color", "initials", "location", "motto", "facebookUrl", "dpUrl", "coverUrl", "creatorId")
+         VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING id`,
         [
           c.name,
@@ -144,6 +173,8 @@ async function seedMassive() {
           c.location,
           c.motto,
           `https://facebook.com/${c.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          dpUrl,
+          coverUrl,
           creatorId,
         ],
       );
@@ -166,10 +197,12 @@ async function seedMassive() {
       const color = CLUB_COLORS[i % CLUB_COLORS.length];
       const initials = getInitials(name);
       const location = DISTRICTS[i % DISTRICTS.length];
+      const dpUrl = CLUB_CRESTS[(i + 3) % CLUB_CRESTS.length];
+      const coverUrl = STADIUM_COVERS[(i + 2) % STADIUM_COVERS.length];
       const res = await dataSource.query(
         `INSERT INTO clubs
-         ("id", "name", "color", "initials", "description", "points", "joinPolicy", "minRoster", "maxRoster", "location", "motto", "facebookUrl")
-         VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, 'instant', 4, 30, $6, $7, $8)
+         ("id", "name", "color", "initials", "description", "points", "joinPolicy", "minRoster", "maxRoster", "location", "motto", "facebookUrl", "dpUrl", "coverUrl")
+         VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, 'instant', 4, 30, $6, $7, $8, $9, $10)
          RETURNING id`,
         [
           name,
@@ -180,6 +213,8 @@ async function seedMassive() {
           location,
           `Victory through unity and precision.`,
           `https://facebook.com/${name.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          dpUrl,
+          coverUrl,
         ],
       );
       clubMap.set(name, res[0].id);
