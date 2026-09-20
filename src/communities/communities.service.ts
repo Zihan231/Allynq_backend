@@ -26,6 +26,7 @@ import {
 import { CommunityQueryDto } from './dto/community-query.dto.js';
 import { CommunityMembersQueryDto } from './dto/community-members-query.dto.js';
 import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
+import { FileStorageService } from '../common/services/file-storage.service.js';
 
 @Injectable()
 export class CommunitiesService {
@@ -40,6 +41,7 @@ export class CommunitiesService {
     private readonly clubsRepository: Repository<Club>,
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
+    private readonly fileStorageService: FileStorageService,
   ) {}
 
   private getInitials(name: string): string {
@@ -61,6 +63,13 @@ export class CommunitiesService {
         points: 0,
       });
       profile = await this.efootballProfilesRepository.save(profile);
+    }
+
+    if (dto.dpUrl) {
+      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'communities', 'dp');
+    }
+    if (dto.coverUrl) {
+      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'communities', 'cover');
     }
 
     const rules = dto.rules || dto.description || 'Community rules to be announced.';
@@ -199,6 +208,13 @@ export class CommunitiesService {
     const community = await this.communitiesRepository.findOne({ where: { id } });
     if (!community) {
       throw new NotFoundException(`Community ${id} not found`);
+    }
+
+    if (dto.dpUrl) {
+      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'communities', 'dp');
+    }
+    if (dto.coverUrl) {
+      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'communities', 'cover');
     }
 
     if (dto.description && !dto.rules) {

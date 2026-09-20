@@ -8,6 +8,7 @@ import { UpdateUserDto } from './dto/update-user.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { EfootballProfile } from './entities/efootball-profile.entity.js';
 import { User } from './entities/user.entity.js';
+import { FileStorageService } from '../common/services/file-storage.service.js';
 
 @Injectable()
 export class UsersService {
@@ -16,9 +17,16 @@ export class UsersService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
+    private readonly fileStorageService: FileStorageService,
   ) {}
 
-  create(dto: CreateUserDto): Promise<User> {
+  async create(dto: CreateUserDto): Promise<User> {
+    if (dto.dpUrl) {
+      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'users', 'dp');
+    }
+    if (dto.coverUrl) {
+      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'users', 'cover');
+    }
     const user = this.usersRepository.create(dto);
     return this.usersRepository.save(user);
   }
@@ -102,6 +110,12 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
+    if (dto.dpUrl) {
+      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'users', 'dp');
+    }
+    if (dto.coverUrl) {
+      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'users', 'cover');
+    }
     Object.assign(user, dto);
     await this.usersRepository.save(user);
 

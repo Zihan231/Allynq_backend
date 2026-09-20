@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ClubsModule } from './clubs/clubs.module.js';
+import { FileStorageModule } from './common/file-storage.module.js';
 import { CommunitiesModule } from './communities/communities.module.js';
 import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { UsersModule } from './users/users.module.js';
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module.js';
       inject: [ConfigService],
       useFactory: buildTypeOrmOptions,
     }),
+    FileStorageModule,
     AuthModule,
     UsersModule,
     ClubsModule,

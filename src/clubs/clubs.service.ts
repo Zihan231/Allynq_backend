@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommunitiesService } from '../communities/communities.service.js';
+import { FileStorageService } from '../common/services/file-storage.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
@@ -21,6 +22,7 @@ export class ClubsService {
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
     private readonly communitiesService: CommunitiesService,
+    private readonly fileStorageService: FileStorageService,
   ) {}
 
   async create(user: User, dto: CreateClubDto): Promise<Club> {
@@ -32,6 +34,13 @@ export class ClubsService {
       throw new BadRequestException(
         'You are already a member of a club. You cannot create a new club while belonging to an existing one. Please leave your current club first.',
       );
+    }
+
+    if (dto.dpUrl) {
+      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'clubs', 'dp');
+    }
+    if (dto.coverUrl) {
+      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'clubs', 'cover');
     }
 
     const club = this.clubsRepository.create(dto);
@@ -90,6 +99,12 @@ export class ClubsService {
 
   async update(id: string, dto: UpdateClubDto): Promise<Club> {
     const club = await this.findOne(id);
+    if (dto.dpUrl) {
+      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'clubs', 'dp');
+    }
+    if (dto.coverUrl) {
+      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'clubs', 'cover');
+    }
     Object.assign(club, dto);
     return this.clubsRepository.save(club);
   }
