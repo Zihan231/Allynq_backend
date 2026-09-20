@@ -17,6 +17,7 @@ import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ClubsService } from './clubs.service.js';
 import { RequireClubRoles } from './decorators/require-club-roles.decorator.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
+import { TransferPresidentDto } from './dto/transfer-president.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
 import { ClubQueryDto } from './dto/club-query.dto.js';
@@ -71,7 +72,7 @@ export class ClubsController {
   }
 
   @UseGuards(JwtAuthGuard, ClubRoleGuard)
-  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY, ClubRole.MANAGER)
+  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY)
   @Patch(':id/manager')
   changeManager(
     @Param('id', ParseUUIDPipe) id: string,
@@ -82,7 +83,7 @@ export class ClubsController {
   }
 
   @UseGuards(JwtAuthGuard, ClubRoleGuard)
-  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY, ClubRole.MANAGER)
+  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY)
   @Post(':id/manager/transfer')
   transferManager(
     @Param('id', ParseUUIDPipe) id: string,
@@ -90,6 +91,17 @@ export class ClubsController {
     @Body() dto: ChangeManagerDto,
   ) {
     return this.clubsService.changeManager(id, user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, ClubRoleGuard)
+  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY)
+  @Post(':id/president/transfer')
+  transferPresident(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Body() dto: TransferPresidentDto,
+  ) {
+    return this.clubsService.transferPresidency(id, user, dto);
   }
 
   @UseGuards(JwtAuthGuard)

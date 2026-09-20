@@ -149,4 +149,15 @@ export class CommunitiesController {
   ) {
     return this.communitiesService.assignRole(id, user, dto);
   }
+
+  @UseGuards(JwtAuthGuard, CommunityRoleGuard)
+  @RequireCommunityRoles(CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT)
+  @Post(':id/president/transfer')
+  transferPresident(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Body() dto: AssignRoleDto,
+  ) {
+    return this.communitiesService.handoverAuthority(id, user, dto);
+  }
 }

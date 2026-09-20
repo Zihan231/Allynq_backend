@@ -63,6 +63,10 @@ export class CommunitiesService {
         points: 0,
       });
       profile = await this.efootballProfilesRepository.save(profile);
+    } else if (profile.communityId) {
+      throw new BadRequestException(
+        'You are already a member of a community. You cannot create a new community while belonging to an existing one. Please leave your current community first.',
+      );
     }
 
     if (dto.dpUrl) {
@@ -342,9 +346,14 @@ export class CommunitiesService {
       throw new BadRequestException('You are not a member of this community');
     }
 
-    if (member.role === CommunityRole.PRESIDENT) {
+    const executiveRoles: (CommunityRole | string)[] = [
+      CommunityRole.PRESIDENT,
+      CommunityRole.VICE_PRESIDENT,
+      'General Secretary',
+    ];
+    if (executiveRoles.includes(member.role)) {
       throw new BadRequestException(
-        'Community President cannot leave the community. Transfer presidency or delete the community instead.',
+        `Community ${member.role} cannot leave the community without transferring authority first.`,
       );
     }
 
@@ -881,6 +890,110 @@ export class CommunitiesService {
       success: true,
       message: `Assigned role ${dto.role} to ${targetProfile.user?.name ?? 'member'}`,
       member,
+    };
+  }
+
+  async handoverAuthority(
+    communityId: string,
+    caller: User,
+    dto: { targetUserId?: string; targetProfileId?: string },
+  ) {
+    if (!dto.targetUserId && !dto.targetProfileId) {
+      throw new BadRequestException('Either targetUserId or targetProfileId must be provided');
+    }
+
+    const community = await this.communitiesRepository.findOne({ where: { id: communityId } });
+    if (!community) {
+      throw new NotFoundException(`Community ${communityId} not found`);
+    }
+
+    const callerProfile = await this.efootballProfilesRepository.findOne({
+      where: { userId: caller.id },
+      relations: { user: true },
+    });
+
+    if (!callerProfile) {
+      throw new ForbiddenException('User profile not found');
+    }
+
+    const callerMember = await this.communityMembersRepository.findOne({
+      where: { communityId, profileId: callerProfile.id },
+    });
+
+    if (!callerMember) {
+      throw new ForbiddenException('You are not a member of this community');
+    }
+
+    const allowedRoles: (CommunityRole | string)[] = [
+      CommunityRole.PRESIDENT,
+      CommunityRole.VICE_PRESIDENT,
+      'General Secretary',
+    ];
+    if (!allowedRoles.includes(callerMember.role)) {
+      throw new ForbiddenException('Authority handover is only for President and General Secretary');
+    }
+
+    let targetProfile: EfootballProfile | null = null;
+    if (dto.targetProfileId) {
+      targetProfile = await this.efootballProfilesRepository.findOne({
+        where: { id: dto.targetProfileId },
+        relations: { user: true },
+      });
+    } else if (dto.targetUserId) {
+      targetProfile = await this.efootballProfilesRepository.findOne({
+        where: { userId: dto.targetUserId },
+        relations: { user: true },
+      });
+    }
+
+    if (!targetProfile) {
+      throw new NotFoundException('Target player profile not found');
+    }
+
+    if (targetProfile.id === callerProfile.id) {
+      throw new BadRequestException('You cannot handover authority to yourself');
+    }
+
+    const targetMember = await this.communityMembersRepository.findOne({
+      where: { communityId, profileId: targetProfile.id },
+    });
+
+    if (!targetMember) {
+      throw new BadRequestException('Target player is not a member of this community');
+    }
+
+    const handoverRole = callerMember.role;
+
+    if (handoverRole === CommunityRole.PRESIDENT) {
+      callerMember.role = CommunityRole.MEMBER;
+      await this.communityMembersRepository.save(callerMember);
+      callerProfile.communityRole = CommunityRole.MEMBER;
+      await this.efootballProfilesRepository.save(callerProfile);
+
+      community.creatorId = targetProfile.userId;
+      await this.communitiesRepository.save(community);
+    } else {
+      callerMember.role = CommunityRole.MEMBER;
+      await this.communityMembersRepository.save(callerMember);
+      if (callerProfile.communityId === communityId) {
+        callerProfile.communityRole = CommunityRole.MEMBER;
+        await this.efootballProfilesRepository.save(callerProfile);
+      }
+    }
+
+    targetMember.role = handoverRole;
+    await this.communityMembersRepository.save(targetMember);
+
+    if (targetProfile.communityId === communityId) {
+      targetProfile.communityRole = handoverRole;
+      await this.efootballProfilesRepository.save(targetProfile);
+    }
+
+    return {
+      success: true,
+      message: `${handoverRole} authority successfully handed over to ${targetProfile.user?.name ?? 'member'}. You are now a regular member.`,
+      handoverRole,
+      newHolderId: targetProfile.id,
     };
   }
 }

@@ -7,6 +7,7 @@ import { EfootballProfile } from '../users/entities/efootball-profile.entity.js'
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
+import { TransferPresidentDto } from './dto/transfer-president.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
 import { ClubQueryDto } from './dto/club-query.dto.js';
@@ -186,12 +187,11 @@ export class ClubsService {
     const allowedRoles: (ClubRole | null)[] = [
       ClubRole.PRESIDENT,
       ClubRole.GENERAL_SECRETARY,
-      ClubRole.MANAGER,
     ];
 
     if (!callerProfile.clubRole || !allowedRoles.includes(callerProfile.clubRole)) {
       throw new ForbiddenException(
-        'Only the Club President, General Secretary, or current Manager can change the club manager',
+        'Only the Club President or General Secretary can change the club manager',
       );
     }
 
@@ -301,6 +301,67 @@ export class ClubsService {
     };
   }
 
+  async transferPresidency(clubId: string, caller: User, dto: TransferPresidentDto) {
+    if (!dto.targetUserId && !dto.targetProfileId) {
+      throw new BadRequestException('Either targetUserId or targetProfileId must be provided');
+    }
+
+    const club = await this.findOne(clubId);
+
+    const callerProfile = await this.efootballProfilesRepository.findOne({
+      where: { userId: caller.id },
+      relations: { user: true },
+    });
+
+    if (!callerProfile || callerProfile.clubId !== club.id) {
+      throw new ForbiddenException('You are not a member of this club');
+    }
+
+    const eligibleRoles = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
+    if (!callerProfile.clubRole || !eligibleRoles.includes(callerProfile.clubRole)) {
+      throw new ForbiddenException('Authority handover is only for President and General Secretary');
+    }
+
+    const targetQuery: any = { clubId: club.id };
+    if (dto.targetProfileId) {
+      targetQuery.id = dto.targetProfileId;
+    } else if (dto.targetUserId) {
+      targetQuery.userId = dto.targetUserId;
+    }
+
+    const targetProfile = await this.efootballProfilesRepository.findOne({
+      where: targetQuery,
+      relations: { user: true },
+    });
+
+    if (!targetProfile) {
+      throw new BadRequestException('Target member is not a member of this club');
+    }
+
+    if (targetProfile.id === callerProfile.id) {
+      throw new BadRequestException('You cannot handover authority to yourself');
+    }
+
+    const roleToHandover = callerProfile.clubRole;
+
+    // Demote caller to Player
+    callerProfile.clubRole = ClubRole.PLAYER;
+    await this.efootballProfilesRepository.save(callerProfile);
+
+    // Promote target member to the executive role
+    targetProfile.clubRole = roleToHandover;
+    const savedTarget = await this.efootballProfilesRepository.save(targetProfile);
+
+    return {
+      success: true,
+      message: `${roleToHandover} authority successfully handed over to ${savedTarget.user?.name ?? 'member'}. You are now a Club Player.`,
+      clubId: club.id,
+      handoverRole: roleToHandover,
+      newPresidentId: savedTarget.id,
+      newPresidentUserId: savedTarget.userId,
+    };
+  }
+
   async leave(clubId: string, user: User) {
     const profile = await this.efootballProfilesRepository.findOne({
       where: { userId: user.id },
@@ -310,9 +371,9 @@ export class ClubsService {
       throw new BadRequestException('You are not a member of this club');
     }
 
-    if (profile.clubRole === ClubRole.PRESIDENT) {
+    if (profile.clubRole === ClubRole.PRESIDENT || profile.clubRole === ClubRole.GENERAL_SECRETARY) {
       throw new BadRequestException(
-        'Club President cannot leave the club without transferring presidency or deleting the club',
+        `Club ${profile.clubRole} cannot leave the club without transferring authority first.`,
       );
     }
 
