@@ -8,6 +8,7 @@ import { ClubsModule } from './clubs/clubs.module.js';
 import { FileStorageModule } from './common/file-storage.module.js';
 import { CommunitiesModule } from './communities/communities.module.js';
 import { buildTypeOrmOptions } from './config/typeorm.config.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -23,6 +24,7 @@ import { UsersModule } from './users/users.module.js';
     UsersModule,
     ClubsModule,
     CommunitiesModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -28,6 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromExtractors([
         cookieExtractor,
         ExtractJwt.fromAuthHeaderAsBearerToken(),
+        ExtractJwt.fromUrlQueryParameter('token'),
       ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET') ?? 'allync_jwt_secret_key_2026',

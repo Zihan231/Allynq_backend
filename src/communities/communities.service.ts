@@ -27,6 +27,7 @@ import { CommunityQueryDto } from './dto/community-query.dto.js';
 import { CommunityMembersQueryDto } from './dto/community-members-query.dto.js';
 import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { FileStorageService } from '../common/services/file-storage.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class CommunitiesService {
@@ -42,6 +43,7 @@ export class CommunitiesService {
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
     private readonly fileStorageService: FileStorageService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private getInitials(name: string): string {
@@ -314,6 +316,15 @@ export class CommunitiesService {
       });
 
       await this.joinRequestsRepository.save(req);
+
+      // Real-time notification to community authorities (President, Vice President, Team Manager)
+      await this.notificationsService.notifyCommunityAuthorities(
+        community.id,
+        'Community Join Request',
+        `${user.name} requested to join ${community.name}`,
+        `/dashboard/efootball/community/${community.id}/requests`,
+      );
+
       return {
         status: 'pending',
         message: 'Join request submitted for approval by community administrators',
@@ -799,30 +810,37 @@ export class CommunitiesService {
           where: { userId: request.requesterUserId },
         });
 
-        if (profile) {
-          let member = await this.communityMembersRepository.findOne({
-            where: { communityId, profileId: profile.id },
+        if (!profile) {
+          profile = this.efootballProfilesRepository.create({
+            userId: request.requesterUserId,
+            points: 0,
+            communityId,
+            communityRole: CommunityRole.MEMBER,
           });
+          await this.efootballProfilesRepository.save(profile);
+        } else {
+          profile.communityId = communityId;
+          profile.communityRole = CommunityRole.MEMBER;
+          await this.efootballProfilesRepository.save(profile);
+        }
 
-          if (member) {
-            member.isDirectMember = true;
-            await this.communityMembersRepository.save(member);
-          } else {
-            member = this.communityMembersRepository.create({
-              communityId,
-              profileId: profile.id,
-              role: CommunityRole.MEMBER,
-              isDirectMember: true,
-              sourceClubIds: [],
-            });
-            await this.communityMembersRepository.save(member);
-          }
+        let member = await this.communityMembersRepository.findOne({
+          where: { communityId, profileId: profile.id },
+        });
 
-          if (!profile.communityId) {
-            profile.communityId = communityId;
-            profile.communityRole = CommunityRole.MEMBER;
-            await this.efootballProfilesRepository.save(profile);
-          }
+        if (member) {
+          member.isDirectMember = true;
+          member.role = CommunityRole.MEMBER;
+          await this.communityMembersRepository.save(member);
+        } else {
+          member = this.communityMembersRepository.create({
+            communityId,
+            profileId: profile.id,
+            role: CommunityRole.MEMBER,
+            isDirectMember: true,
+            sourceClubIds: [],
+          });
+          await this.communityMembersRepository.save(member);
         }
       } else if (request.targetType === CommunityJoinRequestType.CLUB && request.clubId) {
         const club = await this.clubsRepository.findOne({
@@ -834,12 +852,41 @@ export class CommunitiesService {
           await this.executeClubJoin(community, club);
         }
       }
+      await this.notificationsService.createNotification(request.requesterUserId, {
+        title: 'Community Join Request Approved',
+        message: `Your request to join ${community.name} has been approved!`,
+        type: 'community_join_request',
+        link: `/dashboard/efootball/community/${community.id}`,
+      });
+    } else {
+      const community = await this.communitiesRepository.findOne({ where: { id: communityId } });
+      await this.notificationsService.createNotification(request.requesterUserId, {
+        title: 'Community Join Request Rejected',
+        message: `Your request to join ${community?.name ?? 'the community'} was declined.`,
+        type: 'community_join_request',
+        link: `/dashboard/efootball/community/${communityId}`,
+      });
     }
 
     return {
       success: true,
       message: `Request ${dto.status} successfully`,
       request,
+    };
+  }
+
+  async getMyRequest(communityId: string, user: User) {
+    const request = await this.joinRequestsRepository.findOne({
+      where: {
+        communityId,
+        requesterUserId: user.id,
+        status: CommunityJoinRequestStatus.PENDING,
+      },
+    });
+
+    return {
+      hasPendingRequest: Boolean(request),
+      request: request ?? null,
     };
   }
 

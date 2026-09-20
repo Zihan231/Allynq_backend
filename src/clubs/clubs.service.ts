@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommunitiesService } from '../communities/communities.service.js';
 import { FileStorageService } from '../common/services/file-storage.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
@@ -12,8 +13,11 @@ import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
 import { ClubQueryDto } from './dto/club-query.dto.js';
 import { ClubMembersQueryDto } from './dto/club-members-query.dto.js';
+import { ReviewClubJoinRequestDto } from './dto/review-club-join-request.dto.js';
 import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { Club } from './entities/club.entity.js';
+import { ClubJoinRequest } from './entities/club-join-request.entity.js';
+import { JoinPolicy } from './enums/club.enum.js';
 
 @Injectable()
 export class ClubsService {
@@ -22,8 +26,11 @@ export class ClubsService {
     private readonly clubsRepository: Repository<Club>,
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
+    @InjectRepository(ClubJoinRequest)
+    private readonly clubJoinRequestsRepository: Repository<ClubJoinRequest>,
     private readonly communitiesService: CommunitiesService,
     private readonly fileStorageService: FileStorageService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(user: User, dto: CreateClubDto): Promise<Club> {
@@ -312,6 +319,42 @@ export class ClubsService {
       throw new BadRequestException('You are already a member of a club. Please leave your current club first.');
     }
 
+    // Handle approval-based join policy
+    if (club.joinPolicy === JoinPolicy.APPROVAL) {
+      const existingReq = await this.clubJoinRequestsRepository.findOne({
+        where: {
+          clubId,
+          requesterUserId: user.id,
+          status: 'pending',
+        },
+      });
+
+      if (existingReq) {
+        throw new BadRequestException('You already have a pending join request for this club');
+      }
+
+      const req = this.clubJoinRequestsRepository.create({
+        clubId,
+        requesterUserId: user.id,
+        status: 'pending',
+      });
+      await this.clubJoinRequestsRepository.save(req);
+
+      // Real-time notification to club authorities (President, GS, Manager, Captain, Vice-Captain)
+      await this.notificationsService.notifyClubAuthorities(
+        club.id,
+        'Club Join Request',
+        `${user.name} requested to join ${club.name}`,
+        `/dashboard/efootball/clubs/${club.id}/requests`,
+      );
+
+      return {
+        status: 'pending',
+        message: 'Join request submitted for approval by club leadership',
+        clubId: club.id,
+      };
+    }
+
     profile.clubId = club.id;
     profile.clubRole = ClubRole.PLAYER;
     await this.efootballProfilesRepository.save(profile);
@@ -320,10 +363,138 @@ export class ClubsService {
     await this.communitiesService.onClubMemberAdded(club.id, profile.id);
 
     return {
+      status: 'joined',
       success: true,
       message: `Successfully joined ${club.name}`,
       clubId: club.id,
     };
+  }
+
+  async getMyRequest(clubId: string, user: User) {
+    const request = await this.clubJoinRequestsRepository.findOne({
+      where: {
+        clubId,
+        requesterUserId: user.id,
+        status: 'pending',
+      },
+    });
+
+    return {
+      hasPendingRequest: Boolean(request),
+      request: request ?? null,
+    };
+  }
+
+  async getRequests(clubId: string, user: User) {
+    await this.findOne(clubId);
+    await this.verifyClubAuthority(clubId, user.id);
+
+    return this.clubJoinRequestsRepository.find({
+      where: { clubId, status: 'pending' },
+      relations: { requesterUser: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async reviewRequest(
+    clubId: string,
+    requestId: string,
+    user: User,
+    dto: ReviewClubJoinRequestDto,
+  ) {
+    const club = await this.findOne(clubId);
+    await this.verifyClubAuthority(clubId, user.id);
+
+    const request = await this.clubJoinRequestsRepository.findOne({
+      where: { id: requestId, clubId },
+      relations: { requesterUser: true },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Join request ${requestId} not found for this club`);
+    }
+
+    if (request.status !== 'pending') {
+      throw new BadRequestException(`Request is already ${request.status}`);
+    }
+
+    request.status = dto.status;
+    request.reviewedByUserId = user.id;
+    await this.clubJoinRequestsRepository.save(request);
+
+    if (dto.status === 'approved') {
+      let profile = await this.efootballProfilesRepository.findOne({
+        where: { userId: request.requesterUserId },
+      });
+
+      if (!profile) {
+        profile = this.efootballProfilesRepository.create({
+          userId: request.requesterUserId,
+          points: 0,
+        });
+      }
+
+      profile.clubId = club.id;
+      profile.clubRole = ClubRole.PLAYER;
+      await this.efootballProfilesRepository.save(profile);
+      await this.communitiesService.onClubMemberAdded(club.id, profile.id);
+
+      await this.notificationsService.createNotification(request.requesterUserId, {
+        title: 'Club Join Request Approved',
+        message: `Your request to join ${club.name} has been approved! Welcome to the club.`,
+        type: 'club_join_request',
+        link: `/dashboard/efootball/clubs/${club.id}`,
+      });
+    } else {
+      await this.notificationsService.createNotification(request.requesterUserId, {
+        title: 'Club Join Request Rejected',
+        message: `Your request to join ${club.name} was declined.`,
+        type: 'club_join_request',
+        link: `/dashboard/efootball/clubs/${club.id}`,
+      });
+    }
+
+    return {
+      success: true,
+      message: `Join request ${dto.status}`,
+      requestId: request.id,
+      status: request.status,
+    };
+  }
+
+  private async verifyClubAuthority(clubId: string, userId: string) {
+    let profile = await this.efootballProfilesRepository.findOne({
+      where: { userId, clubId },
+    });
+
+    if (!profile) {
+      profile = await this.efootballProfilesRepository.findOne({
+        where: { userId },
+      });
+      if (profile?.clubId !== clubId) {
+        profile = null;
+      }
+    }
+
+    const authorityRoles = [
+      ClubRole.PRESIDENT,
+      ClubRole.GENERAL_SECRETARY,
+      ClubRole.MANAGER,
+      ClubRole.CAPTAIN,
+      ClubRole.VICE_CAPTAIN,
+    ];
+
+    const isAuthority =
+      profile?.clubRole &&
+      authorityRoles.some(
+        (r) => r.toLowerCase() === profile!.clubRole!.toLowerCase(),
+      );
+
+    if (!profile || !isAuthority) {
+      throw new ForbiddenException('Only club authorities can view or review join requests');
+    }
+
+    return profile;
   }
 
   async transferPresidency(clubId: string, caller: User, dto: TransferPresidentDto) {

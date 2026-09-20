@@ -61,12 +61,24 @@ describe('CommunitiesService', () => {
       })),
     };
 
+    const fileStorageService = {
+      saveBase64Image: vi.fn(async (url) => url),
+      deleteFile: vi.fn(async () => true),
+    } as any;
+
+    const notificationsService = {
+      notifyCommunityAuthorities: vi.fn().mockResolvedValue([]),
+      createNotification: vi.fn().mockResolvedValue({}),
+    } as any;
+
     service = new CommunitiesService(
       communitiesRepo,
       communityMembersRepo,
       joinRequestsRepo,
       clubsRepo,
       profilesRepo,
+      fileStorageService,
+      notificationsService,
     );
   });
 

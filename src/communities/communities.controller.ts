@@ -73,6 +73,15 @@ export class CommunitiesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/my-request')
+  getMyRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.communitiesService.getMyRequest(id, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(':id/leave')
   leaveIndividual(
     @Param('id', ParseUUIDPipe) id: string,

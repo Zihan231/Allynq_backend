@@ -22,6 +22,7 @@ import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
 import { ClubQueryDto } from './dto/club-query.dto.js';
 import { ClubMembersQueryDto } from './dto/club-members-query.dto.js';
+import { ReviewClubJoinRequestDto } from './dto/review-club-join-request.dto.js';
 import { ClubRoleGuard } from './guards/club-role.guard.js';
 
 @Controller('clubs')
@@ -108,6 +109,29 @@ export class ClubsController {
   @Post(':id/join')
   join(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
     return this.clubsService.join(id, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/my-request')
+  getMyRequest(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.clubsService.getMyRequest(id, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/requests')
+  getRequests(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.clubsService.getRequests(id, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/requests/:requestId/review')
+  reviewRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @CurrentUser() user: User,
+    @Body() dto: ReviewClubJoinRequestDto,
+  ) {
+    return this.clubsService.reviewRequest(id, requestId, user, dto);
   }
 
   @UseGuards(JwtAuthGuard)
