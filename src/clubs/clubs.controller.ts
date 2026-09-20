@@ -52,7 +52,7 @@ export class ClubsController {
   }
 
   @UseGuards(JwtAuthGuard, ClubRoleGuard)
-  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY)
+  @RequireClubRoles(ClubRole.PRESIDENT)
   @Delete(':id')
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.clubsService.remove(id);
