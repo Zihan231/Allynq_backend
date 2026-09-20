@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { Club } from '../../clubs/entities/club.entity.js';
 import { Team } from '../../clubs/entities/team.entity.js';
+import { Community } from '../../communities/entities/community.entity.js';
 import { CommunityMember } from '../../communities/entities/community-member.entity.js';
 import {
   ClubRole,
@@ -71,6 +72,10 @@ export class EfootballProfile {
 
   @Column({ type: 'enum', enum: ClubRole, nullable: true })
   clubRole!: ClubRole | null;
+
+  @ManyToOne(() => Community, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'communityId' })
+  community?: Relation<Community> | null;
 
   @Column({ type: 'uuid', nullable: true })
   communityId!: string | null;

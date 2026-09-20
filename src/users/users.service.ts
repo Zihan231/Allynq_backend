@@ -35,6 +35,7 @@ export class UsersService {
       .leftJoinAndSelect('user.efootballProfile', 'efootballProfile')
       .leftJoinAndSelect('efootballProfile.club', 'club')
       .leftJoinAndSelect('efootballProfile.team', 'team')
+      .leftJoinAndSelect('efootballProfile.community', 'community')
       .orderBy('user.createdAt', 'DESC');
 
     if (query?.search) {
@@ -89,6 +90,7 @@ export class UsersService {
         efootballProfile: {
           club: true,
           team: true,
+          community: true,
         },
       },
     });

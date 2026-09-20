@@ -41,6 +41,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         efootballProfile: {
           club: true,
           team: true,
+          community: true,
         },
       },
     });
