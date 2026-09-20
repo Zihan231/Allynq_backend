@@ -29,10 +29,10 @@ export class Community {
   @Column({ type: 'text' })
   rules!: string;
 
-  @Column({ type: 'varchar', length: 512, nullable: true })
+  @Column({ type: 'text', nullable: true })
   dpUrl!: string | null;
 
-  @Column({ type: 'varchar', length: 512, nullable: true })
+  @Column({ type: 'text', nullable: true })
   coverUrl!: string | null;
 
   @Column({ type: 'varchar', length: 32, default: '#4c8dff' })

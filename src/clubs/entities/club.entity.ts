@@ -27,10 +27,10 @@ export class Club {
   @Column({ type: 'varchar', length: 16 })
   initials!: string;
 
-  @Column({ type: 'varchar', length: 512, nullable: true })
+  @Column({ type: 'text', nullable: true })
   dpUrl!: string | null;
 
-  @Column({ type: 'varchar', length: 512, nullable: true })
+  @Column({ type: 'text', nullable: true })
   coverUrl!: string | null;
 
   @Column({ type: 'text', nullable: true })
