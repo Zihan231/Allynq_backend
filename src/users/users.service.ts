@@ -110,12 +110,25 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
-    if (dto.dpUrl) {
-      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'users', 'dp');
+
+    if (dto.dpUrl !== undefined && dto.dpUrl !== user.dpUrl) {
+      if (user.dpUrl) {
+        await this.fileStorageService.deleteFile(user.dpUrl);
+      }
+      if (dto.dpUrl) {
+        dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'users', 'dp');
+      }
     }
-    if (dto.coverUrl) {
-      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'users', 'cover');
+
+    if (dto.coverUrl !== undefined && dto.coverUrl !== user.coverUrl) {
+      if (user.coverUrl) {
+        await this.fileStorageService.deleteFile(user.coverUrl);
+      }
+      if (dto.coverUrl) {
+        dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'users', 'cover');
+      }
     }
+
     Object.assign(user, dto);
     await this.usersRepository.save(user);
 
@@ -129,6 +142,18 @@ export class UsersService {
   }
 
   async remove(id: string): Promise<void> {
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
+
+    if (user.dpUrl) {
+      await this.fileStorageService.deleteFile(user.dpUrl);
+    }
+    if (user.coverUrl) {
+      await this.fileStorageService.deleteFile(user.coverUrl);
+    }
+
     const result = await this.usersRepository.delete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`User ${id} not found`);

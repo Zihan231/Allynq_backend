@@ -100,17 +100,42 @@ export class ClubsService {
 
   async update(id: string, dto: UpdateClubDto): Promise<Club> {
     const club = await this.findOne(id);
-    if (dto.dpUrl) {
-      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'clubs', 'dp');
+
+    if (dto.dpUrl !== undefined && dto.dpUrl !== club.dpUrl) {
+      if (club.dpUrl) {
+        await this.fileStorageService.deleteFile(club.dpUrl);
+      }
+      if (dto.dpUrl) {
+        dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'clubs', 'dp');
+      }
     }
-    if (dto.coverUrl) {
-      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'clubs', 'cover');
+
+    if (dto.coverUrl !== undefined && dto.coverUrl !== club.coverUrl) {
+      if (club.coverUrl) {
+        await this.fileStorageService.deleteFile(club.coverUrl);
+      }
+      if (dto.coverUrl) {
+        dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'clubs', 'cover');
+      }
     }
+
     Object.assign(club, dto);
     return this.clubsRepository.save(club);
   }
 
   async remove(id: string): Promise<void> {
+    const club = await this.clubsRepository.findOne({ where: { id } });
+    if (!club) {
+      throw new NotFoundException(`Club ${id} not found`);
+    }
+
+    if (club.dpUrl) {
+      await this.fileStorageService.deleteFile(club.dpUrl);
+    }
+    if (club.coverUrl) {
+      await this.fileStorageService.deleteFile(club.coverUrl);
+    }
+
     const result = await this.clubsRepository.delete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`Club ${id} not found`);

@@ -79,4 +79,46 @@ export class FileStorageService {
       return dataUrl;
     }
   }
+
+  /**
+   * Deletes a file from the server filesystem if it resides within the uploads folder.
+   * Silently ignores external URLs, base64 strings, or nonexistent files.
+   */
+  async deleteFile(fileUrl: string | null | undefined): Promise<boolean> {
+    if (!fileUrl) {
+      return false;
+    }
+
+    const uploadsPrefix = '/uploads/';
+    const uploadsPrefixNoSlash = 'uploads/';
+    let relativePath: string | null = null;
+
+    if (fileUrl.startsWith(uploadsPrefix)) {
+      relativePath = fileUrl.slice(uploadsPrefix.length);
+    } else if (fileUrl.startsWith(uploadsPrefixNoSlash)) {
+      relativePath = fileUrl.slice(uploadsPrefixNoSlash.length);
+    }
+
+    if (!relativePath) {
+      return false;
+    }
+
+    try {
+      const resolvedPath = join(this.uploadsRoot, relativePath);
+      if (!resolvedPath.startsWith(this.uploadsRoot)) {
+        this.logger.warn(`Security: Prevented directory traversal attempt for path: ${fileUrl}`);
+        return false;
+      }
+
+      if (existsSync(resolvedPath)) {
+        await fs.unlink(resolvedPath);
+        this.logger.log(`Deleted previous image file from disk: ${resolvedPath}`);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      this.logger.error(`Failed to delete file from disk (${fileUrl}):`, err);
+      return false;
+    }
+  }
 }

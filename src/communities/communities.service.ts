@@ -214,11 +214,22 @@ export class CommunitiesService {
       throw new NotFoundException(`Community ${id} not found`);
     }
 
-    if (dto.dpUrl) {
-      dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'communities', 'dp');
+    if (dto.dpUrl !== undefined && dto.dpUrl !== community.dpUrl) {
+      if (community.dpUrl) {
+        await this.fileStorageService.deleteFile(community.dpUrl);
+      }
+      if (dto.dpUrl) {
+        dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'communities', 'dp');
+      }
     }
-    if (dto.coverUrl) {
-      dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'communities', 'cover');
+
+    if (dto.coverUrl !== undefined && dto.coverUrl !== community.coverUrl) {
+      if (community.coverUrl) {
+        await this.fileStorageService.deleteFile(community.coverUrl);
+      }
+      if (dto.coverUrl) {
+        dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'communities', 'cover');
+      }
     }
 
     if (dto.description && !dto.rules) {
@@ -234,6 +245,13 @@ export class CommunitiesService {
     const community = await this.communitiesRepository.findOne({ where: { id } });
     if (!community) {
       throw new NotFoundException(`Community ${id} not found`);
+    }
+
+    if (community.dpUrl) {
+      await this.fileStorageService.deleteFile(community.dpUrl);
+    }
+    if (community.coverUrl) {
+      await this.fileStorageService.deleteFile(community.coverUrl);
     }
 
     // Reset community on any profile whose current community is this one
