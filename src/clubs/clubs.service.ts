@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommunitiesService } from '../communities/communities.service.js';
@@ -21,6 +21,8 @@ import { JoinPolicy } from './enums/club.enum.js';
 
 @Injectable()
 export class ClubsService {
+  private readonly logger = new Logger(ClubsService.name);
+
   constructor(
     @InjectRepository(Club)
     private readonly clubsRepository: Repository<Club>,
@@ -341,12 +343,17 @@ export class ClubsService {
       await this.clubJoinRequestsRepository.save(req);
 
       // Real-time notification to club authorities (President, GS, Manager, Captain, Vice-Captain)
-      await this.notificationsService.notifyClubAuthorities(
-        club.id,
-        'Club Join Request',
-        `${user.name} requested to join ${club.name}`,
-        `/dashboard/efootball/clubs/${club.id}/requests`,
-      );
+      // Dispatched non-blocking in the background to keep the join response fast
+      void this.notificationsService
+        .notifyClubAuthorities(
+          club.id,
+          'Club Join Request',
+          `${user.name} requested to join ${club.name}`,
+          `/dashboard/efootball/clubs/${club.id}/requests`,
+        )
+        .catch((err) => {
+          this.logger.error(`Failed to notify club authorities for club ${club.id}: ${err.message}`);
+        });
 
       return {
         status: 'pending',

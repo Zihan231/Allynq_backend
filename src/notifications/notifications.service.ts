@@ -99,16 +99,16 @@ export class NotificationsService {
       new Set(profiles.map((p) => p.userId).filter((id): id is string => Boolean(id))),
     );
 
-    const sentNotifications: Notification[] = [];
-    for (const userId of targetUserIds) {
-      const notif = await this.createNotification(userId, {
-        title,
-        message,
-        type: 'club_join_request',
-        link,
-      });
-      sentNotifications.push(notif);
-    }
+    const sentNotifications = await Promise.all(
+      targetUserIds.map((userId) =>
+        this.createNotification(userId, {
+          title,
+          message,
+          type: 'club_join_request',
+          link,
+        }),
+      ),
+    );
 
     return sentNotifications;
   }
@@ -128,10 +128,6 @@ export class NotificationsService {
       CommunityRole.TEAM_MANAGER,
     ];
 
-    const community = await this.communitiesRepository.findOne({
-      where: { id: communityId },
-    });
-
     const members = await this.communityMembersRepository.find({
       where: {
         communityId,
@@ -140,29 +136,24 @@ export class NotificationsService {
       relations: { profile: true },
     });
 
-    const userIds = new Set<string>();
+    const targetUserIds = Array.from(
+      new Set(
+        members
+          .map((m) => m.profile?.userId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
 
-    for (const member of members) {
-      if (member.profile?.userId) {
-        userIds.add(member.profile.userId);
-      }
-    }
-
-    // Community creator is also considered an authority if not already included
-    if (community?.creatorId) {
-      userIds.add(community.creatorId);
-    }
-
-    const sentNotifications: Notification[] = [];
-    for (const userId of userIds) {
-      const notif = await this.createNotification(userId, {
-        title,
-        message,
-        type: 'community_join_request',
-        link,
-      });
-      sentNotifications.push(notif);
-    }
+    const sentNotifications = await Promise.all(
+      targetUserIds.map((userId) =>
+        this.createNotification(userId, {
+          title,
+          message,
+          type: 'community_join_request',
+          link,
+        }),
+      ),
+    );
 
     return sentNotifications;
   }
