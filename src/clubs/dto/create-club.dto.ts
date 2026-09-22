@@ -25,11 +25,11 @@ export class CreateClubDto {
 
   @IsOptional()
   @IsString()
-  dpUrl?: string;
+  dpUrl?: string | null;
 
   @IsOptional()
   @IsString()
-  coverUrl?: string;
+  coverUrl?: string | null;
 
   @IsOptional()
   @IsString()

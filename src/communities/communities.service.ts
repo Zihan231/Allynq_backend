@@ -386,19 +386,25 @@ export class CommunitiesService {
       );
     }
 
-    if (member.sourceClubIds && member.sourceClubIds.length > 0) {
-      member.isDirectMember = false;
-      if (member.role !== CommunityRole.MEMBER) {
-        member.role = CommunityRole.MEMBER;
-      }
-      await this.communityMembersRepository.save(member);
-    } else {
-      await this.communityMembersRepository.remove(member);
-      if (profile.communityId === communityId) {
-        profile.communityId = null;
-        profile.communityRole = null;
-        await this.efootballProfilesRepository.save(profile);
-      }
+    const isClubInCommunity = profile.clubId
+      ? await this.communitiesRepository
+          .createQueryBuilder('community')
+          .innerJoin('community.clubs', 'club', 'club.id = :clubId', { clubId: profile.clubId })
+          .where('community.id = :communityId', { communityId })
+          .getExists()
+      : false;
+
+    if (isClubInCommunity || (member.sourceClubIds && member.sourceClubIds.length > 0)) {
+      throw new BadRequestException(
+        'You cannot leave this community individually because your club is a member. You must leave your club or your club must leave the community.',
+      );
+    }
+
+    await this.communityMembersRepository.remove(member);
+    if (profile.communityId === communityId) {
+      profile.communityId = null;
+      profile.communityRole = null;
+      await this.efootballProfilesRepository.save(profile);
     }
 
     return { message: 'Successfully left community' };
@@ -427,7 +433,7 @@ export class CommunitiesService {
       throw new BadRequestException('Club is already a member of this community');
     }
 
-    // Check permissions: Caller must be Community President OR Club President/Manager
+    // Check permissions: Caller must be Community President OR Club President/General Secretary
     const userProfile = await this.efootballProfilesRepository.findOne({
       where: { userId: user.id },
     });
@@ -437,12 +443,11 @@ export class CommunitiesService {
       userProfile &&
       userProfile.clubId === club.id &&
       (userProfile.clubRole === ClubRole.PRESIDENT ||
-        userProfile.clubRole === ClubRole.GENERAL_SECRETARY ||
-        userProfile.clubRole === ClubRole.MANAGER);
+        userProfile.clubRole === ClubRole.GENERAL_SECRETARY);
 
     if (!isCommunityPresident && !isClubLeadership) {
       throw new ForbiddenException(
-        'Only the Community President or Club President/Manager can enroll a club in a community',
+        'Only the Community President or Club President/General Secretary can enroll a club in a community',
       );
     }
 
@@ -555,12 +560,11 @@ export class CommunitiesService {
       userProfile &&
       userProfile.clubId === club.id &&
       (userProfile.clubRole === ClubRole.PRESIDENT ||
-        userProfile.clubRole === ClubRole.GENERAL_SECRETARY ||
-        userProfile.clubRole === ClubRole.MANAGER);
+        userProfile.clubRole === ClubRole.GENERAL_SECRETARY);
 
     if (!isCommunityPresident && !isClubLeadership) {
       throw new ForbiddenException(
-        'Only the Community President or Club President/Manager can remove a club from a community',
+        'Only the Community President or Club President/General Secretary can remove a club from a community',
       );
     }
 
@@ -764,7 +768,9 @@ export class CommunitiesService {
         requesterUser: {
           efootballProfile: true,
         },
-        club: true,
+        club: {
+          members: true,
+        },
       },
       order: {
         createdAt: 'DESC',
@@ -876,17 +882,39 @@ export class CommunitiesService {
   }
 
   async getMyRequest(communityId: string, user: User) {
-    const request = await this.joinRequestsRepository.findOne({
+    const profile = await this.efootballProfilesRepository.findOne({
+      where: { userId: user.id },
+    });
+
+    let clubRequest: CommunityJoinRequest | null = null;
+    if (profile?.clubId) {
+      clubRequest = await this.joinRequestsRepository.findOne({
+        where: {
+          communityId,
+          clubId: profile.clubId,
+          targetType: CommunityJoinRequestType.CLUB,
+          status: CommunityJoinRequestStatus.PENDING,
+        },
+      });
+    }
+
+    const playerRequest = await this.joinRequestsRepository.findOne({
       where: {
         communityId,
         requesterUserId: user.id,
+        targetType: CommunityJoinRequestType.PLAYER,
         status: CommunityJoinRequestStatus.PENDING,
       },
     });
 
+    const activeReq = clubRequest || playerRequest;
+
     return {
-      hasPendingRequest: Boolean(request),
-      request: request ?? null,
+      hasPendingRequest: Boolean(activeReq),
+      isClubRequest: Boolean(clubRequest),
+      request: activeReq ?? null,
+      clubRequest: clubRequest ?? null,
+      playerRequest: playerRequest ?? null,
     };
   }
 
