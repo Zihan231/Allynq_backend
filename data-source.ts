@@ -7,6 +7,8 @@ import { CommunityJoinRequest } from './src/communities/entities/community-join-
 import { CommunityMember } from './src/communities/entities/community-member.entity.js';
 import { Community } from './src/communities/entities/community.entity.js';
 import { Notification } from './src/notifications/entities/notification.entity.js';
+import { TournamentParticipant } from './src/tournaments/entities/tournament-participant.entity.js';
+import { Tournament } from './src/tournaments/entities/tournament.entity.js';
 import { EfootballProfile } from './src/users/entities/efootball-profile.entity.js';
 import { User } from './src/users/entities/user.entity.js';
 
@@ -24,6 +26,8 @@ export default new DataSource({
     CommunityMember,
     CommunityJoinRequest,
     Notification,
+    Tournament,
+    TournamentParticipant,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

@@ -7,6 +7,8 @@ import { CommunityJoinRequest } from '../communities/entities/community-join-req
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { Notification } from '../notifications/entities/notification.entity.js';
+import { TournamentParticipant } from '../tournaments/entities/tournament-participant.entity.js';
+import { Tournament } from '../tournaments/entities/tournament.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 
@@ -25,6 +27,8 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       CommunityMember,
       CommunityJoinRequest,
       Notification,
+      Tournament,
+      TournamentParticipant,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,
