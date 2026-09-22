@@ -6,7 +6,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
   ValidateNested,
 } from 'class-validator';
 import { BloodGroup, DocumentType, VerificationLevel } from '../enums/user-attributes.enum.js';
@@ -20,11 +19,11 @@ export class CreateUserDto {
   name!: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsString()
   dpUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsString()
   coverUrl?: string;
 
   @IsOptional()
@@ -32,7 +31,7 @@ export class CreateUserDto {
   bio?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsString()
   facebookUrl?: string;
 
   @IsOptional()
@@ -40,11 +39,11 @@ export class CreateUserDto {
   facebookProfileName?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsString()
   instagramUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsString()
   discordUrl?: string;
 
   @IsOptional()
