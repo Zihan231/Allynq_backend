@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -26,8 +27,12 @@ export class CreateTournamentDto {
   communityId!: string;
 
   @IsOptional()
-  @IsEnum(TournamentPreset)
-  preset?: TournamentPreset;
+  @IsString()
+  preset?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPaid?: boolean;
 
   @IsOptional()
   @IsInt()

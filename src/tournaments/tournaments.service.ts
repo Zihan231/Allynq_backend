@@ -67,12 +67,17 @@ export class TournamentsService {
       where: { communityId: dto.communityId, profileId: callerProfile.id },
     });
 
-    const isAuthority =
+    const isCreator = community.creatorId === userId;
+    const isProfileAuthority =
+      callerProfile.communityId === dto.communityId &&
+      (callerProfile.communityRole === CommunityRole.PRESIDENT ||
+        callerProfile.communityRole === CommunityRole.VICE_PRESIDENT);
+    const isMembershipAuthority =
       membership &&
       (membership.role === CommunityRole.PRESIDENT ||
         membership.role === CommunityRole.VICE_PRESIDENT);
 
-    if (!isAuthority) {
+    if (!isCreator && !isProfileAuthority && !isMembershipAuthority) {
       throw new ForbiddenException(
         'Only the Community President or Vice President can create tournaments',
       );
@@ -87,17 +92,32 @@ export class TournamentsService {
     const teamSubmissionDeadline = new Date(startAt.getTime() - 2 * 60 * 60 * 1000);
 
     // Preset configurations
-    let startersCount = dto.startersCount ?? 11;
-    let subsCount = dto.subsCount ?? 5;
-    const preset = dto.preset ?? TournamentPreset.ELEVEN_V_ELEVEN;
+    const rawPreset = String(dto.preset || '').toLowerCase();
+    let preset: TournamentPreset = TournamentPreset.CUSTOM;
+    let startersCount = dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
+    let subsCount = dto.subsCount ?? 0;
 
-    if (preset === TournamentPreset.ELEVEN_V_ELEVEN) {
+    if (rawPreset === 'preset_11v11' || rawPreset === '11v11') {
+      preset = TournamentPreset.ELEVEN_V_ELEVEN;
       startersCount = 11;
       subsCount = 5;
-    } else if (preset === TournamentPreset.EIGHT_V_EIGHT) {
+    } else if (rawPreset === 'preset_8v8' || rawPreset === '8v8') {
+      preset = TournamentPreset.EIGHT_V_EIGHT;
       startersCount = 8;
       subsCount = 4;
+    } else if (rawPreset === 'custom') {
+      preset = TournamentPreset.CUSTOM;
+      startersCount = dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
+      subsCount = dto.subsCount ?? 0;
+    } else if (!dto.preset) {
+      preset = dto.type === TournamentType.PVP ? TournamentPreset.CUSTOM : TournamentPreset.ELEVEN_V_ELEVEN;
+      if (preset === TournamentPreset.ELEVEN_V_ELEVEN) {
+        startersCount = 11;
+        subsCount = 5;
+      }
     }
+
+    const entryFeeBdt = dto.isPaid === false ? 0 : (dto.entryFeeBdt ?? 0);
 
     const tournament = this.tournamentsRepository.create({
       name: dto.name,
@@ -108,7 +128,7 @@ export class TournamentsService {
       startersCount,
       subsCount,
       maxParticipants: dto.maxParticipants ?? 16,
-      entryFeeBdt: dto.entryFeeBdt ?? 0,
+      entryFeeBdt,
       prizePoolBdt: dto.prizePoolBdt ?? 0,
       registrationDeadline: dto.registrationDeadline
         ? new Date(dto.registrationDeadline)
@@ -224,8 +244,7 @@ export class TournamentsService {
       // Check that the player is a member of this tournament's community
       const isCommunityMember =
         callerProfile.communityId === tournament.communityId ||
-        tournament.community?.presidentId === userId ||
-        tournament.community?.vicePresidentId === userId;
+        tournament.community?.creatorId === userId;
 
       const membership = await this.communityMembersRepository.findOne({
         where: { communityId: tournament.communityId, profileId: callerProfile.id },
