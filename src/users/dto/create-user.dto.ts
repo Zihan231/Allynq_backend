@@ -20,6 +20,10 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
+  password?: string;
+
+  @IsOptional()
+  @IsString()
   dpUrl?: string;
 
   @IsOptional()

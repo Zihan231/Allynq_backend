@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 import { CreateEfootballProfileDto } from './dto/create-efootball-profile.dto.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
@@ -127,6 +128,11 @@ export class UsersService {
       if (dto.coverUrl) {
         dto.coverUrl = await this.fileStorageService.saveBase64Image(dto.coverUrl, 'users', 'cover');
       }
+    }
+
+    if (dto.password && dto.password.trim()) {
+      user.password = await bcrypt.hash(dto.password.trim(), 10);
+      delete dto.password;
     }
 
     Object.assign(user, dto);
