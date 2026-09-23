@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToMany,
@@ -49,6 +50,7 @@ export class Tournament {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  @Index()
   @Column({ type: 'enum', enum: TournamentType })
   type!: TournamentType;
 
@@ -92,6 +94,7 @@ export class Tournament {
   @JoinColumn({ name: 'communityId' })
   community!: Relation<Community>;
 
+  @Index()
   @Column({ type: 'uuid' })
   communityId!: string;
 

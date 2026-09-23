@@ -295,17 +295,29 @@ export class CommunitiesService {
     }
 
     if (community.joinPolicy === JoinPolicy.APPROVAL) {
-      const existingReq = await this.joinRequestsRepository.findOne({
+      // 1 person cannot send join req if he has already one pending
+      const anyPendingReq = await this.joinRequestsRepository.findOne({
         where: {
-          communityId,
           requesterUserId: user.id,
           targetType: CommunityJoinRequestType.PLAYER,
           status: CommunityJoinRequestStatus.PENDING,
         },
+        relations: { community: true },
       });
 
-      if (existingReq) {
-        throw new BadRequestException('You already have a pending join request for this community');
+      if (anyPendingReq) {
+        if (anyPendingReq.communityId === communityId) {
+          throw new BadRequestException('You already have a pending join request for this community');
+        }
+        throw new BadRequestException(
+          `You already have a pending join request for ${anyPendingReq.community?.name || 'another community'}. A player cannot have more than one pending join request.`,
+        );
+      }
+
+      if (profile.communityId && profile.communityId !== communityId) {
+        throw new BadRequestException(
+          'You are already a member of another community. You must leave your current community first.',
+        );
       }
 
       const req = this.joinRequestsRepository.create({
@@ -907,6 +919,15 @@ export class CommunitiesService {
       },
     });
 
+    const anyPendingPlayerRequest = await this.joinRequestsRepository.findOne({
+      where: {
+        requesterUserId: user.id,
+        targetType: CommunityJoinRequestType.PLAYER,
+        status: CommunityJoinRequestStatus.PENDING,
+      },
+      relations: { community: true },
+    });
+
     const activeReq = clubRequest || playerRequest;
 
     return {
@@ -915,6 +936,9 @@ export class CommunitiesService {
       request: activeReq ?? null,
       clubRequest: clubRequest ?? null,
       playerRequest: playerRequest ?? null,
+      hasAnyPendingRequest: Boolean(anyPendingPlayerRequest),
+      pendingCommunityId: anyPendingPlayerRequest?.communityId ?? null,
+      pendingCommunityName: anyPendingPlayerRequest?.community?.name ?? null,
     };
   }
 
