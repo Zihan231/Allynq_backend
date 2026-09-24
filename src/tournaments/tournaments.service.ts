@@ -7,7 +7,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Club } from '../clubs/entities/club.entity.js';
-import { ClubRole, CommunityRole } from '../users/enums/user-attributes.enum.js';
+import {
+  ClubRole,
+  CommunityRole,
+} from '../users/enums/user-attributes.enum.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
@@ -16,10 +19,7 @@ import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
-import {
-  BracketMatch,
-  Tournament,
-} from './entities/tournament.entity.js';
+import { BracketMatch, Tournament } from './entities/tournament.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
 import {
   ParticipantStatus,
@@ -89,12 +89,15 @@ export class TournamentsService {
     }
 
     // Automatically calculate lineup submission deadline = 2 hours before startAt
-    const teamSubmissionDeadline = new Date(startAt.getTime() - 2 * 60 * 60 * 1000);
+    const teamSubmissionDeadline = new Date(
+      startAt.getTime() - 2 * 60 * 60 * 1000,
+    );
 
     // Preset configurations
     const rawPreset = String(dto.preset || '').toLowerCase();
     let preset: TournamentPreset = TournamentPreset.CUSTOM;
-    let startersCount = dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
+    let startersCount =
+      dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
     let subsCount = dto.subsCount ?? 0;
 
     if (rawPreset === 'preset_11v11' || rawPreset === '11v11') {
@@ -107,10 +110,14 @@ export class TournamentsService {
       subsCount = 4;
     } else if (rawPreset === 'custom') {
       preset = TournamentPreset.CUSTOM;
-      startersCount = dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
+      startersCount =
+        dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
       subsCount = dto.subsCount ?? 0;
     } else if (!dto.preset) {
-      preset = dto.type === TournamentType.PVP ? TournamentPreset.CUSTOM : TournamentPreset.ELEVEN_V_ELEVEN;
+      preset =
+        dto.type === TournamentType.PVP
+          ? TournamentPreset.CUSTOM
+          : TournamentPreset.ELEVEN_V_ELEVEN;
       if (preset === TournamentPreset.ELEVEN_V_ELEVEN) {
         startersCount = 11;
         subsCount = 5;
@@ -157,7 +164,9 @@ export class TournamentsService {
     }
 
     if (query.communityId) {
-      qb.andWhere('t.communityId = :communityId', { communityId: query.communityId });
+      qb.andWhere('t.communityId = :communityId', {
+        communityId: query.communityId,
+      });
     }
 
     if (query.search) {
@@ -215,21 +224,34 @@ export class TournamentsService {
     return tournament;
   }
 
-  async join(userId: string, tournamentId: string, dto: JoinTournamentDto): Promise<TournamentParticipant> {
+  async join(
+    userId: string,
+    tournamentId: string,
+    dto: JoinTournamentDto,
+  ): Promise<TournamentParticipant> {
     const tournament = await this.findOne(tournamentId);
 
     if (tournament.status !== TournamentStatus.REGISTRATION_OPEN) {
-      throw new BadRequestException('Tournament registration is not currently open');
+      throw new BadRequestException(
+        'Tournament registration is not currently open',
+      );
     }
 
     const now = new Date();
-    if (tournament.registrationDeadline && now > new Date(tournament.registrationDeadline)) {
-      throw new BadRequestException('Registration deadline has passed for this tournament');
+    if (
+      tournament.registrationDeadline &&
+      now > new Date(tournament.registrationDeadline)
+    ) {
+      throw new BadRequestException(
+        'Registration deadline has passed for this tournament',
+      );
     }
 
     const participantCount = tournament.participants?.length ?? 0;
     if (participantCount >= tournament.maxParticipants) {
-      throw new BadRequestException('Tournament is already at maximum capacity');
+      throw new BadRequestException(
+        'Tournament is already at maximum capacity',
+      );
     }
 
     const callerProfile = await this.profilesRepository.findOne({
@@ -240,15 +262,33 @@ export class TournamentsService {
       throw new BadRequestException('User profile not found');
     }
 
+    const membership = await this.communityMembersRepository.findOne({
+      where: {
+        communityId: tournament.communityId,
+        profileId: callerProfile.id,
+      },
+    });
+
+    const isCommunityCreator = tournament.community?.creatorId === userId;
+    const isProfileLeader =
+      callerProfile.communityId === tournament.communityId &&
+      (callerProfile.communityRole === CommunityRole.PRESIDENT ||
+        callerProfile.communityRole === CommunityRole.VICE_PRESIDENT);
+    const isMembershipLeader =
+      membership?.role === CommunityRole.PRESIDENT ||
+      membership?.role === CommunityRole.VICE_PRESIDENT;
+
+    if (isCommunityCreator || isProfileLeader || isMembershipLeader) {
+      throw new ForbiddenException(
+        'Community Presidents and Vice Presidents cannot join tournaments hosted by their community',
+      );
+    }
+
     if (tournament.type === TournamentType.PVP) {
       // Check that the player is a member of this tournament's community
       const isCommunityMember =
         callerProfile.communityId === tournament.communityId ||
         tournament.community?.creatorId === userId;
-
-      const membership = await this.communityMembersRepository.findOne({
-        where: { communityId: tournament.communityId, profileId: callerProfile.id },
-      });
 
       if (!isCommunityMember && !membership) {
         throw new ForbiddenException(
@@ -262,7 +302,9 @@ export class TournamentsService {
       });
 
       if (existing) {
-        throw new BadRequestException('You are already registered for this tournament');
+        throw new BadRequestException(
+          'You are already registered for this tournament',
+        );
       }
 
       const participant = this.participantsRepository.create({
@@ -278,7 +320,9 @@ export class TournamentsService {
 
     // CvC Tournament registration
     if (!dto.clubId) {
-      throw new BadRequestException('clubId is required to register for a CvC tournament');
+      throw new BadRequestException(
+        'clubId is required to register for a CvC tournament',
+      );
     }
 
     const club = await this.clubsRepository.findOne({
@@ -291,8 +335,9 @@ export class TournamentsService {
     }
 
     // 1. Club must be a member of the tournament's hosting community
-    const isCommunityMember =
-      club.communityIds?.includes(tournament.communityId);
+    const isCommunityMember = club.communityIds?.includes(
+      tournament.communityId,
+    );
 
     if (!isCommunityMember) {
       throw new BadRequestException(
@@ -319,7 +364,9 @@ export class TournamentsService {
     });
 
     if (existingClub) {
-      throw new BadRequestException('This club is already registered for this tournament');
+      throw new BadRequestException(
+        'This club is already registered for this tournament',
+      );
     }
 
     const participant = this.participantsRepository.create({
@@ -369,7 +416,9 @@ export class TournamentsService {
       }
 
       const club = participant.club;
-      const memberRecord = club?.members?.find((m) => m.id === callerProfile.id);
+      const memberRecord = club?.members?.find(
+        (m) => m.id === callerProfile.id,
+      );
       const canSubmit =
         memberRecord &&
         (memberRecord.clubRole === ClubRole.PRESIDENT ||
@@ -409,17 +458,25 @@ export class TournamentsService {
     return this.participantsRepository.save(participant);
   }
 
-  async generateBracket(userId: string, tournamentId: string): Promise<Tournament> {
+  async generateBracket(
+    userId: string,
+    tournamentId: string,
+  ): Promise<Tournament> {
     const tournament = await this.findOne(tournamentId);
 
     // Authority: Community President/VP or Tournament creator
-    const callerProfile = await this.profilesRepository.findOne({ where: { userId } });
+    const callerProfile = await this.profilesRepository.findOne({
+      where: { userId },
+    });
     if (!callerProfile) {
       throw new ForbiddenException('Profile not found');
     }
 
     const membership = await this.communityMembersRepository.findOne({
-      where: { communityId: tournament.communityId, profileId: callerProfile.id },
+      where: {
+        communityId: tournament.communityId,
+        profileId: callerProfile.id,
+      },
     });
 
     const isAuthority =
@@ -436,7 +493,9 @@ export class TournamentsService {
 
     const participants = tournament.participants ?? [];
     if (participants.length < 2) {
-      throw new BadRequestException('At least 2 participants are required to generate a bracket');
+      throw new BadRequestException(
+        'At least 2 participants are required to generate a bracket',
+      );
     }
 
     // Build single-elimination tournament bracket
