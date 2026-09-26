@@ -67,7 +67,7 @@ async function seed() {
     console.log(`Created team: ${teamA.name} (${teamA.id})`);
   }
 
-  const defaultPasswordHash = await bcrypt.hash('password123', 10);
+  const defaultPasswordHash = await bcrypt.hash('123456', 10);
 
   // 3. Define 50 Members:
   // - 11 Starters for Team A (Full 4-3-3 starting lineup)
