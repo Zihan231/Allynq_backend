@@ -87,12 +87,11 @@ describe('CommunitiesService', () => {
       const user = { id: 'user-1', name: 'Zihan' } as User;
       const profile = { id: 'prof-1', userId: 'user-1', points: 0 } as EfootballProfile;
       profilesRepo.findOne.mockResolvedValue(profile);
-      communitiesRepo.findOne.mockResolvedValue({
+      vi.spyOn(service, 'findOne').mockResolvedValue({
         id: 'comm-1',
         name: 'Dhaka Elite',
         creatorId: 'user-1',
-        clubs: [],
-        members: [],
+        memberClubIds: [],
       });
 
       const res = await service.create(user, {

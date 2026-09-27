@@ -187,42 +187,23 @@ export class CommunitiesService {
     return rows.map((r) => r.location);
   }
 
+  /**
+   * Community header data plus counts. Club and member lists have their own endpoints; loading them
+   * here as nested relations produced a clubs × club-members × community-members cartesian join
+   * that never finished for communities with a few hundred members.
+   */
   async findOne(id: string): Promise<any> {
-    const community = await this.communitiesRepository.findOne({
-      where: { id },
-      relations: {
-        clubs: {
-          members: {
-            user: true,
-          },
-        },
-        members: {
-          profile: {
-            user: true,
-          },
-        },
-        creator: true,
-      },
-    });
-
+    const [community] = await this.findAll({ id });
     if (!community) {
       throw new NotFoundException(`Community ${id} not found`);
     }
+    return community;
+  }
 
-    const clubs = community.clubs || [];
-    const members = community.members || [];
-    const memberClubIds = clubs.map((club) => club.id);
-    const freeAgentCount = members.filter(
-      (m) => (!m.sourceClubIds || m.sourceClubIds.length === 0) && (!m.profile || !m.profile.clubId),
-    ).length;
-
-    return {
-      ...community,
-      memberClubIds,
-      freeAgentCount,
-      memberCount: members.length,
-      clubCount: clubs.length,
-    };
+  private async ensureExists(id: string): Promise<void> {
+    if (!(await this.communitiesRepository.exists({ where: { id } }))) {
+      throw new NotFoundException(`Community ${id} not found`);
+    }
   }
 
   async update(id: string, user: User, dto: UpdateCommunityDto): Promise<Community> {
@@ -717,7 +698,7 @@ export class CommunitiesService {
   }
 
   async getMembers(communityId: string, query?: CommunityMembersQueryDto): Promise<any> {
-    await this.findOne(communityId);
+    await this.ensureExists(communityId);
 
     const qb = this.communityMembersRepository
       .createQueryBuilder('cm')
@@ -784,7 +765,7 @@ export class CommunitiesService {
   }
 
   async getRequests(communityId: string, user: User): Promise<any[]> {
-    await this.findOne(communityId);
+    await this.ensureExists(communityId);
 
     return this.joinRequestsRepository.find({
       where: {
