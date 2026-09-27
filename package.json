@@ -27,7 +27,8 @@
     "seed": "node dist/seeds/seed-demo.js",
     "seed:massive": "node dist/seeds/seed-massive.js",
     "seed:communities": "node dist/seeds/seed-communities.js",
-    "seed:community-directory": "node dist/seeds/seed-community-directory.js"
+    "seed:community-directory": "node dist/seeds/seed-community-directory.js",
+    "seed:full-demo": "node dist/seeds/seed-full-demo.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
