@@ -504,6 +504,14 @@ export class CommunitiesService {
       });
 
       await this.joinRequestsRepository.save(req);
+
+      await this.notificationsService.notifyCommunityAuthorities(
+        community.id,
+        'Community Join Request',
+        `${club.name} requested to join ${community.name}`,
+        `/dashboard/efootball/community/${community.id}/requests`,
+      );
+
       return {
         status: 'pending',
         message: 'Club join request submitted for approval by community administrators',

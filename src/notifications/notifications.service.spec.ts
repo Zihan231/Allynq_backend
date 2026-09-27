@@ -105,6 +105,24 @@ describe('NotificationsService', () => {
     expect(notifiedUserIds).toContain('comm-creator-1');
   });
 
+  it('streams only notifications for the subscribed user, with periodic heartbeats', async () => {
+    vi.useFakeTimers();
+    try {
+      const events: Array<{ type?: string; data: unknown }> = [];
+      const sub = service.getStream('user-1').subscribe((e) => events.push(e));
+
+      await service.createNotification('user-2', { title: 'Other', message: 'not mine' });
+      await service.createNotification('user-1', { title: 'Mine', message: 'hello' });
+      vi.advanceTimersByTime(NotificationsService.HEARTBEAT_MS);
+      sub.unsubscribe();
+
+      expect(events.filter((e) => !e.type).map((e) => (e.data as Notification).title)).toEqual(['Mine']);
+      expect(events.filter((e) => e.type === 'ping')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('should mark notification as read', async () => {
     const res = await service.markAsRead('notif-1', 'user-1');
     expect(res).toBeDefined();

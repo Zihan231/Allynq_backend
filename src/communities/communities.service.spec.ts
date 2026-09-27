@@ -18,6 +18,7 @@ describe('CommunitiesService', () => {
   let joinRequestsRepo: any;
   let clubsRepo: any;
   let profilesRepo: any;
+  let notificationsService: any;
 
   beforeEach(() => {
     communitiesRepo = {
@@ -66,7 +67,7 @@ describe('CommunitiesService', () => {
       deleteFile: vi.fn(async () => true),
     } as any;
 
-    const notificationsService = {
+    notificationsService = {
       notifyCommunityAuthorities: vi.fn().mockResolvedValue([]),
       createNotification: vi.fn().mockResolvedValue({}),
     } as any;
@@ -234,6 +235,36 @@ describe('CommunitiesService', () => {
       expect(communityMembersRepo.create).toHaveBeenCalledTimes(2);
       expect(player1.communityId).toBe('comm-1');
       expect(player2.communityId).toBe('comm-1');
+    });
+
+    it('files a pending request and notifies community officers when approval is required', async () => {
+      const user = { id: 'user-leader' } as User;
+      profilesRepo.findOne.mockResolvedValue({
+        id: 'prof-leader',
+        userId: 'user-leader',
+        clubId: 'club-1',
+        clubRole: ClubRole.PRESIDENT,
+      });
+      communitiesRepo.findOne.mockResolvedValue({
+        id: 'comm-1',
+        name: 'Chittagong Arena',
+        joinPolicy: JoinPolicy.APPROVAL,
+        creatorId: 'user-admin',
+        clubs: [],
+      });
+      clubsRepo.findOne.mockResolvedValue({ id: 'club-1', name: 'Red Falcons', communityIds: [] });
+      joinRequestsRepo.findOne.mockResolvedValue(null);
+
+      const res = await service.addClub('comm-1', 'club-1', user);
+
+      expect(res.status).toBe('pending');
+      expect(joinRequestsRepo.save).toHaveBeenCalled();
+      expect(notificationsService.notifyCommunityAuthorities).toHaveBeenCalledWith(
+        'comm-1',
+        'Community Join Request',
+        'Red Falcons requested to join Chittagong Arena',
+        '/dashboard/efootball/community/comm-1/requests',
+      );
     });
   });
 

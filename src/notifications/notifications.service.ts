@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { filter, map, Observable, Subject } from 'rxjs';
+import { filter, interval, map, merge, Observable, Subject } from 'rxjs';
 import { In, Repository } from 'typeorm';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
@@ -22,6 +22,7 @@ export interface NotificationEvent {
 
 @Injectable()
 export class NotificationsService {
+  static readonly HEARTBEAT_MS = 20_000;
   private readonly logger = new Logger(NotificationsService.name);
   private readonly notificationSubject$ = new Subject<NotificationEvent>();
 
@@ -63,12 +64,16 @@ export class NotificationsService {
 
   /**
    * Observable stream of notifications for a specific user (Server-Sent Events).
+   * A named `ping` event every 20s keeps idle proxies (e.g. the Next.js rewrite proxy, which drops
+   * connections after 30s of silence) from closing the stream; EventSource.onmessage ignores it.
    */
-  getStream(userId: string): Observable<{ data: Notification }> {
-    return this.notificationSubject$.asObservable().pipe(
+  getStream(userId: string): Observable<{ data: Notification | string; type?: string }> {
+    const notifications$ = this.notificationSubject$.asObservable().pipe(
       filter((event) => event.userId === userId),
       map((event) => ({ data: event.notification })),
     );
+    const heartbeat$ = interval(NotificationsService.HEARTBEAT_MS).pipe(map(() => ({ type: 'ping', data: '' })));
+    return merge(notifications$, heartbeat$);
   }
 
   /**
@@ -114,7 +119,8 @@ export class NotificationsService {
   }
 
   /**
-   * Notify all authority members of a community (President, Vice President, Team Manager).
+   * Notify all authority members of a community (President, Vice President, Team Manager)
+   * plus the community's creator.
    */
   async notifyCommunityAuthorities(
     communityId: string,
@@ -136,10 +142,14 @@ export class NotificationsService {
       relations: { profile: true },
     });
 
+    const community = await this.communitiesRepository.findOne({
+      where: { id: communityId },
+      select: { id: true, creatorId: true },
+    });
+
     const targetUserIds = Array.from(
       new Set(
-        members
-          .map((m) => m.profile?.userId)
+        [...members.map((m) => m.profile?.userId), community?.creatorId]
           .filter((id): id is string => Boolean(id)),
       ),
     );
