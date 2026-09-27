@@ -46,6 +46,12 @@ export class ClubsService {
       );
     }
 
+    if (await this.communitiesService.isCommunityLeader(user.id)) {
+      throw new ForbiddenException(
+        'Community Presidents and Vice Presidents cannot create a club. Hand over your community role first.',
+      );
+    }
+
     if (dto.dpUrl) {
       dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'clubs', 'dp');
     }

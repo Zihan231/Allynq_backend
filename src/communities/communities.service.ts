@@ -65,6 +65,13 @@ export class CommunitiesService {
         points: 0,
       });
       profile = await this.efootballProfilesRepository.save(profile);
+    } else if (
+      profile.clubId &&
+      (profile.clubRole === ClubRole.PRESIDENT || profile.clubRole === ClubRole.GENERAL_SECRETARY)
+    ) {
+      throw new ForbiddenException(
+        'Club Presidents and General Secretaries cannot create a community. Hand over your club role first.',
+      );
     } else if (profile.communityId) {
       throw new BadRequestException(
         'You are already a member of a community. You cannot create a new community while belonging to an existing one. Please leave your current community first.',
@@ -198,6 +205,20 @@ export class CommunitiesService {
       throw new NotFoundException(`Community ${id} not found`);
     }
     return community;
+  }
+
+  /** True if the user is President/Vice President of any community, or created one. */
+  async isCommunityLeader(userId: string): Promise<boolean> {
+    const [row]: Array<{ leader: boolean }> = await this.communitiesRepository.manager.query(
+      `SELECT EXISTS (SELECT 1 FROM communities WHERE "creatorId" = $1)
+           OR EXISTS (
+             SELECT 1 FROM community_members m
+             JOIN efootball_profiles p ON p.id = m."profileId"
+             WHERE p."userId" = $1 AND m.role IN ($2, $3)
+           ) AS leader`,
+      [userId, CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT],
+    );
+    return Boolean(row?.leader);
   }
 
   private async ensureExists(id: string): Promise<void> {

@@ -121,6 +121,28 @@ describe('CommunitiesService', () => {
       expect(profile.communityId).toBe('comm-1');
       expect(profile.communityRole).toBe(CommunityRole.PRESIDENT);
     });
+
+    it.each([ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY])(
+      'rejects a club %s creating a community',
+      async (clubRole) => {
+        const user = { id: 'user-1', name: 'Zihan' } as User;
+        profilesRepo.findOne.mockResolvedValue({ id: 'prof-1', userId: 'user-1', clubId: 'club-1', clubRole });
+
+        await expect(service.create(user, { name: 'Dhaka Elite', rules: 'Play fair' })).rejects.toThrow(
+          ForbiddenException,
+        );
+        expect(communitiesRepo.save).not.toHaveBeenCalled();
+      },
+    );
+
+    it('allows an ordinary club player to create a community', async () => {
+      const user = { id: 'user-1', name: 'Zihan' } as User;
+      profilesRepo.findOne.mockResolvedValue({ id: 'prof-1', userId: 'user-1', clubId: 'club-1', clubRole: ClubRole.PLAYER });
+      vi.spyOn(service, 'findOne').mockResolvedValue({ id: 'comm-1' });
+
+      await service.create(user, { name: 'Dhaka Elite', rules: 'Play fair' });
+      expect(communitiesRepo.save).toHaveBeenCalled();
+    });
   });
 
   describe('joinIndividual', () => {
