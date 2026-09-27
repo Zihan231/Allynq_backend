@@ -40,6 +40,11 @@ export class CommunitiesController {
     return this.communitiesService.findAll(query);
   }
 
+  @Get('locations')
+  findLocations() {
+    return this.communitiesService.findLocations();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.communitiesService.findOne(id);

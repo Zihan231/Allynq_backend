@@ -39,12 +39,26 @@ export class UsersService {
     limit: number;
     isPaginated: boolean;
   }> {
+    // Public directory listing: only the columns other players can see, and profile ids instead of
+    // nested club/team/community objects (those made the full list ~4 MB). Private contact,
+    // location and verification-document columns are never loaded here; see GET /users/me.
     const qb = this.usersRepository
       .createQueryBuilder('user')
-      .leftJoinAndSelect('user.efootballProfile', 'efootballProfile')
-      .leftJoinAndSelect('efootballProfile.club', 'club')
-      .leftJoinAndSelect('efootballProfile.team', 'team')
-      .leftJoinAndSelect('efootballProfile.community', 'community')
+      .select(
+        [
+          'id', 'name', 'dpUrl', 'coverUrl', 'bio', 'facebookUrl', 'facebookProfileName', 'instagramUrl',
+          'discordUrl', 'inGameId', 'deviceName', 'deviceModel', 'birthday', 'bloodGroup', 'country',
+          'division', 'district', 'education', 'verificationLevel', 'ownedCosmeticIds', 'equippedBadgeId',
+          'equippedTitleId', 'equippedFrameId', 'equippedThemeId', 'createdAt', 'updatedAt',
+        ].map((column) => `user.${column}`),
+      )
+      .leftJoin('user.efootballProfile', 'efootballProfile')
+      .addSelect(
+        [
+          'id', 'userId', 'konamiUid', 'gamePosition', 'squadTeam', 'shirtNumber', 'points', 'clubId',
+          'teamId', 'lineupStatus', 'clubRole', 'communityId', 'communityRole',
+        ].map((column) => `efootballProfile.${column}`),
+      )
       .orderBy('user.createdAt', 'DESC');
 
     if (query?.search) {

@@ -65,14 +65,26 @@ export class ClubsService {
     return savedClub;
   }
 
+  /**
+   * Lightweight list for browse pages: club columns plus a member count. Members are
+   * fetched per club via GET /clubs/:id/members instead of being joined here.
+   */
   async findAll(query?: ClubQueryDto): Promise<any> {
-    const qb = this.clubsRepository
-      .createQueryBuilder('club')
-      .leftJoinAndSelect('club.members', 'member')
-      .leftJoinAndSelect('member.user', 'user')
+    const qb = this.clubsRepository.createQueryBuilder('club').select('club.id', 'id');
+    for (const column of [
+      'name', 'color', 'initials', 'dpUrl', 'coverUrl', 'description', 'points', 'joinPolicy',
+      'minRoster', 'maxRoster', 'communityIds', 'stage', 'location', 'motto', 'facebookUrl',
+      'createdAt', 'updatedAt',
+    ]) {
+      qb.addSelect(`club.${column}`, column);
+    }
+    qb.addSelect(`(SELECT COUNT(*) FROM efootball_profiles p WHERE p."clubId" = club.id)::int`, 'memberCount')
       .orderBy('club.points', 'DESC')
       .addOrderBy('club.createdAt', 'DESC');
 
+    if (query?.id) qb.andWhere('club.id = :id', { id: query.id });
+    if (query?.excludeId) qb.andWhere('club.id <> :excludeId', { excludeId: query.excludeId });
+    if (query?.stage) qb.andWhere('club.stage = :stage', { stage: query.stage });
     if (query?.search) {
       qb.andWhere('(LOWER(club.name) LIKE :search OR LOWER(club.location) LIKE :search)', {
         search: `%${query.search.toLowerCase()}%`,
@@ -80,16 +92,17 @@ export class ClubsService {
     }
 
     const isPaginated = Boolean(query?.page || query?.limit);
-    const page = query?.page || 1;
-    const limit = query?.limit || 20;
-
-    if (isPaginated) {
-      qb.skip((page - 1) * limit).take(limit);
-      const [data, total] = await qb.getManyAndCount();
-      return createPaginatedResult(data, total, page, limit);
+    if (!isPaginated) {
+      return qb.getRawMany();
     }
 
-    return qb.getMany();
+    const page = query?.page || 1;
+    const limit = query?.limit || 20;
+    const [data, total] = await Promise.all([
+      qb.clone().offset((page - 1) * limit).limit(limit).getRawMany(),
+      qb.getCount(),
+    ]);
+    return createPaginatedResult(data, total, page, limit);
   }
 
   async findOne(id: string): Promise<Club> {

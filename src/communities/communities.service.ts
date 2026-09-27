@@ -112,64 +112,79 @@ export class CommunitiesService {
     return this.findOne(savedCommunity.id);
   }
 
+  /**
+   * Lightweight list for browse pages: card columns plus aggregated counts, with filtering,
+   * sorting and pagination done in SQL. Clubs/members are never joined — that multiplied rows
+   * (clubs × members) and made this endpoint take ~30s with a few thousand members.
+   */
   async findAll(query?: CommunityQueryDto): Promise<any> {
-    const qb = this.communitiesRepository
-      .createQueryBuilder('community')
-      .leftJoinAndSelect('community.clubs', 'club')
-      .leftJoinAndSelect('community.members', 'member')
-      .leftJoinAndSelect('member.profile', 'profile')
-      .leftJoinAndSelect('community.creator', 'creator')
-      .orderBy('community.points', 'DESC')
-      .addOrderBy('community.createdAt', 'DESC');
+    const clubCountSql = `(SELECT COUNT(*) FROM community_clubs cc WHERE cc."communityId" = community.id)`;
+    const memberCountSql = `(SELECT COUNT(*) FROM community_members m WHERE m."communityId" = community.id)`;
+    const freeAgentCountSql = `(SELECT COUNT(*) FROM community_members m
+        LEFT JOIN efootball_profiles p ON p.id = m."profileId"
+        WHERE m."communityId" = community.id
+          AND COALESCE(jsonb_array_length(m."sourceClubIds"), 0) = 0
+          AND p."clubId" IS NULL)`;
+    const clubIdsSql = `COALESCE((SELECT json_agg(cc."clubId") FROM community_clubs cc WHERE cc."communityId" = community.id), '[]'::json)`;
 
-    if (query?.search) {
-      qb.andWhere('LOWER(community.name) LIKE :search', {
-        search: `%${query.search.toLowerCase()}%`,
-      });
+    const qb = this.communitiesRepository.createQueryBuilder('community').select('community.id', 'id');
+    for (const column of [
+      'name', 'rules', 'dpUrl', 'coverUrl', 'color', 'initials', 'points', 'tier',
+      'joinPolicy', 'location', 'motto', 'facebookUrl', 'creatorId', 'createdAt', 'updatedAt',
+    ]) {
+      qb.addSelect(`community.${column}`, column);
     }
+    qb.addSelect(`${clubIdsSql}`, 'memberClubIds')
+      .addSelect(`${clubCountSql}::int`, 'clubCount')
+      .addSelect(`${memberCountSql}::int`, 'memberCount')
+      .addSelect(`${freeAgentCountSql}::int`, 'freeAgentCount');
 
-    if (query?.tier) {
-      qb.andWhere('community.tier = :tier', { tier: query.tier });
+    if (query?.id) qb.andWhere('community.id = :id', { id: query.id });
+    if (query?.excludeId) qb.andWhere('community.id <> :excludeId', { excludeId: query.excludeId });
+    if (query?.search) {
+      qb.andWhere(
+        '(LOWER(community.name) LIKE :search OR LOWER(community.rules) LIKE :search OR LOWER(community.location) LIKE :search)',
+        { search: `%${query.search.toLowerCase()}%` },
+      );
+    }
+    if (query?.tier) qb.andWhere('community.tier = :tier', { tier: query.tier });
+    if (query?.joinPolicy) qb.andWhere('community.joinPolicy = :joinPolicy', { joinPolicy: query.joinPolicy });
+    if (query?.location) qb.andWhere('community.location = :location', { location: query.location });
+    if (query?.minPoints) qb.andWhere('community.points >= :minPoints', { minPoints: query.minPoints });
+    if (query?.minClubs) qb.andWhere(`${clubCountSql} >= :minClubs`, { minClubs: query.minClubs });
+    if (query?.hasFreeAgents) qb.andWhere(`${freeAgentCountSql} > 0`);
+
+    if (query?.sort === 'name') {
+      qb.orderBy('community.name', 'ASC');
+    } else if (query?.sort === 'clubs') {
+      qb.orderBy(clubCountSql, 'DESC').addOrderBy('community.points', 'DESC');
+    } else {
+      qb.orderBy('community.points', 'DESC').addOrderBy('community.createdAt', 'DESC');
     }
 
     const isPaginated = Boolean(query?.page || query?.limit);
+    if (!isPaginated) {
+      return qb.getRawMany();
+    }
+
     const page = query?.page || 1;
     const limit = query?.limit || 20;
+    const [data, total] = await Promise.all([
+      qb.clone().offset((page - 1) * limit).limit(limit).getRawMany(),
+      qb.getCount(),
+    ]);
+    return createPaginatedResult(data, total, page, limit);
+  }
 
-    let communities: Community[];
-    let total = 0;
-
-    if (isPaginated) {
-      qb.skip((page - 1) * limit).take(limit);
-      const [data, count] = await qb.getManyAndCount();
-      communities = data;
-      total = count;
-    } else {
-      communities = await qb.getMany();
-      total = communities.length;
-    }
-
-    const mapped = communities.map((c) => {
-      const clubs = c.clubs || [];
-      const members = c.members || [];
-      const memberClubIds = clubs.map((club) => club.id);
-      const freeAgentCount = members.filter(
-        (m) => (!m.sourceClubIds || m.sourceClubIds.length === 0) && (!m.profile || !m.profile.clubId),
-      ).length;
-
-      return {
-        ...c,
-        memberClubIds,
-        freeAgentCount,
-        memberCount: members.length,
-        clubCount: clubs.length,
-      };
-    });
-
-    if (isPaginated) {
-      return createPaginatedResult(mapped, total, page, limit);
-    }
-    return mapped;
+  /** Distinct locations for the browse page's location filter. */
+  async findLocations(): Promise<string[]> {
+    const rows: Array<{ location: string }> = await this.communitiesRepository
+      .createQueryBuilder('community')
+      .select('DISTINCT community.location', 'location')
+      .where('community.location IS NOT NULL')
+      .orderBy('location', 'ASC')
+      .getRawMany();
+    return rows.map((r) => r.location);
   }
 
   async findOne(id: string): Promise<any> {
