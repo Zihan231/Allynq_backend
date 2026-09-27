@@ -84,6 +84,7 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
+    options: { type?: NotificationType; excludeUserIds?: string[] } = {},
   ): Promise<Notification[]> {
     const authorityRoles: ClubRole[] = [
       ClubRole.PRESIDENT,
@@ -100,8 +101,9 @@ export class NotificationsService {
       },
     });
 
+    const excluded = new Set(options.excludeUserIds ?? []);
     const targetUserIds = Array.from(
-      new Set(profiles.map((p) => p.userId).filter((id): id is string => Boolean(id))),
+      new Set(profiles.map((p) => p.userId).filter((id): id is string => Boolean(id) && !excluded.has(id))),
     );
 
     const sentNotifications = await Promise.all(
@@ -109,7 +111,7 @@ export class NotificationsService {
         this.createNotification(userId, {
           title,
           message,
-          type: 'club_join_request',
+          type: options.type ?? 'club_join_request',
           link,
         }),
       ),

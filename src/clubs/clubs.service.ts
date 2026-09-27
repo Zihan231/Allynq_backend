@@ -388,6 +388,8 @@ export class ClubsService {
     // Auto-join to all communities the club belongs to
     await this.communitiesService.onClubMemberAdded(club.id, profile.id);
 
+    this.notifyMemberJoined(club, `${user.name} joined ${club.name}`);
+
     return {
       status: 'joined',
       success: true,
@@ -465,6 +467,13 @@ export class ClubsService {
       await this.efootballProfilesRepository.save(profile);
       await this.communitiesService.onClubMemberAdded(club.id, profile.id);
 
+      // Tell the other officials; the reviewer already knows.
+      this.notifyMemberJoined(
+        club,
+        `${request.requesterUser?.name ?? 'A new player'} joined ${club.name} (approved by ${user.name})`,
+        [user.id],
+      );
+
       await this.notificationsService.createNotification(request.requesterUserId, {
         title: 'Club Join Request Approved',
         message: `Your request to join ${club.name} has been approved! Welcome to the club.`,
@@ -486,6 +495,18 @@ export class ClubsService {
       requestId: request.id,
       status: request.status,
     };
+  }
+
+  /** Non-blocking "new member" notice to the club's officials. */
+  private notifyMemberJoined(club: Club, message: string, excludeUserIds: string[] = []): void {
+    void this.notificationsService
+      .notifyClubAuthorities(club.id, 'New Club Member', message, `/dashboard/efootball/clubs/${club.id}`, {
+        type: 'club_member_joined',
+        excludeUserIds,
+      })
+      .catch((err) => {
+        this.logger.error(`Failed to notify club authorities for club ${club.id}: ${err.message}`);
+      });
   }
 
   private async verifyClubAuthority(clubId: string, userId: string) {

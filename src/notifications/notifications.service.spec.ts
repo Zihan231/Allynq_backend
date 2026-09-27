@@ -90,6 +90,19 @@ describe('NotificationsService', () => {
     expect(notifiedUserIds).toContain('captain-1');
   });
 
+  it('should send "member joined" notices to club authorities except excluded users', async () => {
+    const sent = await service.notifyClubAuthorities(
+      'club-1',
+      'New Club Member',
+      'Rakib joined Red Falcons (approved by Imran)',
+      '/clubs/club-1',
+      { type: 'club_member_joined', excludeUserIds: ['president-1'] },
+    );
+
+    expect(sent.map((s) => s.userId).sort()).toEqual(['captain-1', 'manager-1']);
+    expect(sent.every((s) => s.type === 'club_member_joined')).toBe(true);
+  });
+
   it('should notify community authorities (President, VP, Manager, Creator)', async () => {
     const sent = await service.notifyCommunityAuthorities(
       'comm-1',
