@@ -150,14 +150,37 @@ export class TournamentsService {
     return this.tournamentsRepository.save(tournament);
   }
 
-  async findAll(query: TournamentQueryDto) {
+  /**
+   * Card data for tournament lists: tournament columns (no bracket), the host community's
+   * display fields and a participant count. Participants/brackets are only loaded by findOne.
+   */
+  async findAll(query: TournamentQueryDto, userId: string | null = null) {
     const qb = this.tournamentsRepository
       .createQueryBuilder('t')
-      .leftJoinAndSelect('t.community', 'community')
-      .leftJoinAndSelect('t.creator', 'creator')
-      .leftJoinAndSelect('t.participants', 'participants')
-      .leftJoinAndSelect('participants.club', 'club')
-      .leftJoinAndSelect('participants.user', 'user');
+      .select(
+        [
+          'id', 'name', 'description', 'type', 'status', 'preset', 'startersCount', 'subsCount',
+          'maxParticipants', 'entryFeeBdt', 'prizePoolBdt', 'registrationDeadline',
+          'teamSubmissionDeadline', 'startAt', 'endAt', 'communityId', 'creatorId', 'createdAt', 'updatedAt',
+        ].map((column) => `t.${column}`),
+      )
+      .leftJoin('t.community', 'community')
+      .addSelect(
+        ['id', 'name', 'color', 'initials', 'dpUrl', 'creatorId'].map((column) => `community.${column}`),
+      );
+
+    if (query.joined === 'true') {
+      if (!userId) return [];
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM tournament_participants tp
+          WHERE tp."tournamentId" = t.id
+            AND (tp."userId" = :userId
+              OR tp."clubId" = (SELECT p."clubId" FROM efootball_profiles p WHERE p."userId" = :userId))
+        )`,
+        { userId },
+      );
+    }
 
     if (query.type) {
       qb.andWhere('t.type = :type', { type: query.type });
@@ -199,7 +222,19 @@ export class TournamentsService {
       qb.orderBy('t.startAt', sortOrder);
     }
 
-    return qb.getMany();
+    const tournaments = await qb.getMany();
+    if (!tournaments.length) return [];
+
+    const counts: Array<{ tournamentId: string; count: number }> = await this.participantsRepository
+      .createQueryBuilder('p')
+      .select('p.tournamentId', 'tournamentId')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('p.tournamentId IN (:...ids)', { ids: tournaments.map((t) => t.id) })
+      .groupBy('p.tournamentId')
+      .getRawMany();
+    const countById = new Map(counts.map((c) => [c.tournamentId, c.count]));
+
+    return tournaments.map((t) => ({ ...t, participantCount: countById.get(t.id) ?? 0 }));
   }
 
   async findOne(id: string): Promise<Tournament> {

@@ -29,4 +29,9 @@ export class TournamentQueryDto {
   @IsOptional()
   @IsString()
   sortOrder?: 'ASC' | 'DESC';
+
+  /** 'true' → only tournaments the current user (or their club) has entered. Requires auth. */
+  @IsOptional()
+  @IsString()
+  joined?: string;
 }

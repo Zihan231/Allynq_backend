@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
 import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
@@ -27,9 +28,10 @@ export class TournamentsController {
     return this.tournamentsService.create(user.id, dto);
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  findAll(@Query() query: TournamentQueryDto) {
-    return this.tournamentsService.findAll(query);
+  findAll(@Query() query: TournamentQueryDto, @CurrentUser() user: User | null) {
+    return this.tournamentsService.findAll(query, user?.id ?? null);
   }
 
   @Get(':id')
