@@ -24,6 +24,7 @@ import { TournamentParticipant } from './entities/tournament-participant.entity.
 import {
   ParticipantStatus,
   ParticipantType,
+  TOURNAMENT_PRESET_ROSTERS,
   TournamentPreset,
   TournamentStatus,
   TournamentType,
@@ -93,36 +94,7 @@ export class TournamentsService {
       startAt.getTime() - 2 * 60 * 60 * 1000,
     );
 
-    // Preset configurations
-    const rawPreset = String(dto.preset || '').toLowerCase();
-    let preset: TournamentPreset = TournamentPreset.CUSTOM;
-    let startersCount =
-      dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
-    let subsCount = dto.subsCount ?? 0;
-
-    if (rawPreset === 'preset_11v11' || rawPreset === '11v11') {
-      preset = TournamentPreset.ELEVEN_V_ELEVEN;
-      startersCount = 11;
-      subsCount = 5;
-    } else if (rawPreset === 'preset_8v8' || rawPreset === '8v8') {
-      preset = TournamentPreset.EIGHT_V_EIGHT;
-      startersCount = 8;
-      subsCount = 4;
-    } else if (rawPreset === 'custom') {
-      preset = TournamentPreset.CUSTOM;
-      startersCount =
-        dto.startersCount ?? (dto.type === TournamentType.PVP ? 1 : 11);
-      subsCount = dto.subsCount ?? 0;
-    } else if (!dto.preset) {
-      preset =
-        dto.type === TournamentType.PVP
-          ? TournamentPreset.CUSTOM
-          : TournamentPreset.ELEVEN_V_ELEVEN;
-      if (preset === TournamentPreset.ELEVEN_V_ELEVEN) {
-        startersCount = 11;
-        subsCount = 5;
-      }
-    }
+    const { preset, startersCount, subsCount } = this.resolveRoster(dto);
 
     const entryFeeBdt = dto.isPaid === false ? 0 : (dto.entryFeeBdt ?? 0);
 
@@ -148,6 +120,47 @@ export class TournamentsService {
     });
 
     return this.tournamentsRepository.save(tournament);
+  }
+
+  /**
+   * Resolves preset + roster size for a new tournament. PvP is always 1v1.
+   * CvC uses one of the fixed presets (16v16, 12v12, 8v8, 4v4 — 8v8 when
+   * none is given) or a custom roster whose starter count must be even.
+   */
+  private resolveRoster(dto: CreateTournamentDto): {
+    preset: TournamentPreset;
+    startersCount: number;
+    subsCount: number;
+  } {
+    if (dto.type === TournamentType.PVP) {
+      return { preset: TournamentPreset.CUSTOM, startersCount: 1, subsCount: 0 };
+    }
+
+    const rawPreset = String(dto.preset || TournamentPreset.EIGHT_V_EIGHT)
+      .toLowerCase()
+      .replace(/^preset_/, '');
+
+    if (rawPreset === TournamentPreset.CUSTOM) {
+      const startersCount = dto.startersCount ?? 0;
+      if (startersCount < 2 || startersCount > 16 || startersCount % 2 !== 0) {
+        throw new BadRequestException(
+          'Custom rosters need an even number of starters between 2 and 16',
+        );
+      }
+      return {
+        preset: TournamentPreset.CUSTOM,
+        startersCount,
+        subsCount: dto.subsCount ?? 0,
+      };
+    }
+
+    const roster = TOURNAMENT_PRESET_ROSTERS[rawPreset as TournamentPreset];
+    if (!roster) {
+      throw new BadRequestException(
+        `Unsupported roster preset "${dto.preset}". Use 16v16, 12v12, 8v8, 4v4 or custom`,
+      );
+    }
+    return { preset: rawPreset as TournamentPreset, ...roster };
   }
 
   /**

@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
 } from 'class-validator';
 import { TournamentPreset, TournamentType } from '../enums/tournament.enum.js';
@@ -43,6 +44,7 @@ export class CreateTournamentDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(10)
   subsCount?: number;
 
   @IsOptional()
