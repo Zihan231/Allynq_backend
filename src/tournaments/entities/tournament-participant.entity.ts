@@ -22,6 +22,7 @@ export interface RosterPlayer {
   name: string;
   inGameId?: string | null;
   position?: string | null;
+  gamePosition?: string | null;
   shirtNumber?: number | null;
 }
 

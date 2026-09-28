@@ -573,6 +573,11 @@ export class TournamentsService {
         'clubId is required to register for a CvC tournament',
       );
     }
+    if (!dto.lineup) {
+      throw new BadRequestException(
+        'Clubs must submit their team lineup when registering for a CvC tournament',
+      );
+    }
 
     const club = await this.clubsRepository.findOne({
       where: { id: dto.clubId },
@@ -618,15 +623,60 @@ export class TournamentsService {
       );
     }
 
+    this.assertValidLineup(tournament, club.members ?? [], dto.lineup);
+
     const participant = this.participantsRepository.create({
       tournamentId,
       participantType: ParticipantType.CLUB,
       clubId: dto.clubId,
       registeredByUserId: userId,
-      status: ParticipantStatus.REGISTERED,
+      status: ParticipantStatus.LINEUP_SUBMITTED,
+      lineup: this.toLineup(dto.lineup),
+      submittedAt: new Date(),
+      submittedByUserId: userId,
     });
 
     return this.participantsRepository.save(participant);
+  }
+
+  /**
+   * A CvC lineup must match the tournament preset exactly (starters and
+   * substitutes), list each player once, and only use members of the club.
+   */
+  private assertValidLineup(
+    tournament: Tournament,
+    clubMembers: EfootballProfile[],
+    lineup: SubmitLineupDto,
+  ): void {
+    if (lineup.starters.length !== tournament.startersCount) {
+      throw new BadRequestException(
+        `Lineup must have exactly ${tournament.startersCount} starters (received ${lineup.starters.length})`,
+      );
+    }
+    if (lineup.substitutes.length !== tournament.subsCount) {
+      throw new BadRequestException(
+        `Lineup must have exactly ${tournament.subsCount} substitutes (received ${lineup.substitutes.length})`,
+      );
+    }
+
+    const profileIds = [...lineup.starters, ...lineup.substitutes].map((p) => p.profileId);
+    if (new Set(profileIds).size !== profileIds.length) {
+      throw new BadRequestException('A player can only appear once in the lineup');
+    }
+
+    const memberIds = new Set(clubMembers.map((m) => m.id));
+    if (profileIds.some((id) => !memberIds.has(id))) {
+      throw new BadRequestException('Every player in the lineup must be a member of the club');
+    }
+  }
+
+  private toLineup(dto: SubmitLineupDto) {
+    return {
+      teamId: dto.teamId ?? null,
+      teamName: dto.teamName ?? null,
+      starters: dto.starters,
+      substitutes: dto.substitutes,
+    };
   }
 
   async submitLineup(
@@ -680,26 +730,10 @@ export class TournamentsService {
         );
       }
 
-      // Check required counts
-      if (dto.starters.length !== tournament.startersCount) {
-        throw new BadRequestException(
-          `Lineup must have exactly ${tournament.startersCount} starters (received ${dto.starters.length})`,
-        );
-      }
-
-      if (dto.substitutes.length > tournament.subsCount) {
-        throw new BadRequestException(
-          `Lineup cannot exceed ${tournament.subsCount} substitutes (received ${dto.substitutes.length})`,
-        );
-      }
+      this.assertValidLineup(tournament, club?.members ?? [], dto);
     }
 
-    participant.lineup = {
-      teamId: dto.teamId ?? null,
-      teamName: dto.teamName ?? null,
-      starters: dto.starters,
-      substitutes: dto.substitutes,
-    };
+    participant.lineup = this.toLineup(dto);
     participant.status = ParticipantStatus.LINEUP_SUBMITTED;
     participant.submittedAt = new Date();
     participant.submittedByUserId = userId;

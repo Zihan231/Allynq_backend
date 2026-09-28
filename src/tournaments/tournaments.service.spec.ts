@@ -287,3 +287,80 @@ describe('TournamentsService.update / remove', () => {
     expect(notificationsService.createNotification).not.toHaveBeenCalled();
   });
 });
+
+describe('TournamentsService.join (CvC team submission)', () => {
+  const communityId = 'community-id';
+  const presidentProfileId = 'president-profile';
+  const player = (profileId: string) => ({ profileId, name: profileId });
+
+  function setup() {
+    const tournament = {
+      id: 'tournament-id',
+      communityId,
+      community: { creatorId: 'someone-else' },
+      status: TournamentStatus.REGISTRATION_OPEN,
+      type: TournamentType.CVC,
+      startersCount: 2,
+      subsCount: 1,
+      maxParticipants: 16,
+      participants: [],
+      registrationDeadline: new Date(Date.now() + 60_000),
+    };
+    const participantsRepository = {
+      findOne: vi.fn().mockResolvedValue(null),
+      create: vi.fn((p) => p),
+      save: vi.fn((p) => Promise.resolve(p)),
+    };
+    const clubsRepository = {
+      findOne: vi.fn().mockResolvedValue({
+        id: 'club-id',
+        communityIds: [communityId],
+        members: [
+          { id: presidentProfileId, clubRole: ClubRole.PRESIDENT },
+          { id: 'p2', clubRole: ClubRole.PLAYER },
+          { id: 'p3', clubRole: ClubRole.PLAYER },
+        ],
+      }),
+    };
+    const service = new TournamentsService(
+      { findOne: vi.fn().mockResolvedValue(tournament) } as never,
+      participantsRepository as never,
+      {} as never,
+      { findOne: vi.fn().mockResolvedValue(null) } as never,
+      clubsRepository as never,
+      { findOne: vi.fn().mockResolvedValue({ id: presidentProfileId, communityId, communityRole: CommunityRole.MEMBER }) } as never,
+      {} as never,
+    );
+    return { service, participantsRepository };
+  }
+
+  it('registers the club together with a lineup that matches the preset', async () => {
+    const { service, participantsRepository } = setup();
+
+    const participant = await service.join('user-id', 'tournament-id', {
+      clubId: 'club-id',
+      lineup: { starters: [player(presidentProfileId), player('p2')], substitutes: [player('p3')] },
+    });
+
+    expect(participantsRepository.save).toHaveBeenCalled();
+    expect(participant).toMatchObject({
+      status: 'lineup_submitted',
+      lineup: { starters: [{ profileId: presidentProfileId }, { profileId: 'p2' }], substitutes: [{ profileId: 'p3' }] },
+    });
+  });
+
+  it.each([
+    ['no lineup', undefined],
+    ['too few starters', { starters: [player('p2')], substitutes: [player('p3')] }],
+    ['too few substitutes', { starters: [player(presidentProfileId), player('p2')], substitutes: [] }],
+    ['a duplicated player', { starters: [player('p2'), player('p2')], substitutes: [player('p3')] }],
+    ['a non-member', { starters: [player('p2'), player('outsider')], substitutes: [player('p3')] }],
+  ])('rejects registration with %s', async (_case, lineup) => {
+    const { service, participantsRepository } = setup();
+
+    await expect(
+      service.join('user-id', 'tournament-id', { clubId: 'club-id', lineup }),
+    ).rejects.toThrow(BadRequestException);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+  });
+});

@@ -25,6 +25,11 @@ export class RosterPlayerDto {
   @IsString()
   position?: string | null;
 
+  /** In-game position the player fills in this lineup (e.g. CF). */
+  @IsOptional()
+  @IsString()
+  gamePosition?: string | null;
+
   @IsOptional()
   @IsInt()
   shirtNumber?: number | null;
