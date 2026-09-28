@@ -791,22 +791,26 @@ export class TournamentsService {
     const beforeRoles = roleIn(before);
     const afterRoles = roleIn(after);
     const userIdByProfile = new Map(clubMembers.map((m) => [m.id, m.userId]));
-    const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}`;
+    const tournamentLink = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}`;
+    // Picked/moved players land on the lineup with their own row highlighted.
+    const lineupLink = `${tournamentLink}?tab=lineup&highlight=me`;
     const describe = (role: 'starter' | 'substitute') =>
       role === 'starter' ? 'the starting lineup' : 'the bench';
 
-    const messages = new Map<string, { title: string; message: string }>();
+    const messages = new Map<string, { title: string; message: string; link: string }>();
     for (const [profileId, role] of afterRoles) {
       const previous = beforeRoles.get(profileId);
       if (!previous) {
         messages.set(profileId, {
           title: 'Picked for a tournament',
           message: `${clubName} picked you for "${tournament.name}" — you're in ${describe(role)}.`,
+          link: lineupLink,
         });
       } else if (previous !== role) {
         messages.set(profileId, {
           title: 'Tournament role changed',
           message: `${clubName} moved you to ${describe(role)} for "${tournament.name}".`,
+          link: lineupLink,
         });
       }
     }
@@ -815,6 +819,7 @@ export class TournamentsService {
         messages.set(profileId, {
           title: 'Removed from tournament team',
           message: `${clubName} removed you from its team for "${tournament.name}".`,
+          link: tournamentLink,
         });
       }
     }
@@ -823,7 +828,7 @@ export class TournamentsService {
       [...messages].map(([profileId, content]) => {
         const recipient = userIdByProfile.get(profileId);
         return recipient && recipient !== actorUserId
-          ? this.sendNotifications([recipient], { ...content, link })
+          ? this.sendNotifications([recipient], content)
           : Promise.resolve();
       }),
     );

@@ -416,7 +416,7 @@ describe('TournamentsService lineup notifications', () => {
       Object.fromEntries(
         createNotification.mock.calls.map(([userId, n]: [string, { title: string }]) => [userId, n.title]),
       );
-    return { service, sent };
+    return { service, sent, createNotification };
   }
 
   it('notifies every picked player (but not the submitter) when a club registers', async () => {
@@ -434,7 +434,7 @@ describe('TournamentsService lineup notifications', () => {
   });
 
   it('notifies added, removed and moved players when the lineup changes', async () => {
-    const { service, sent } = setup({
+    const { service, sent, createNotification } = setup({
       starters: [player('a'), player('b')],
       substitutes: [player('c')],
     });
@@ -449,5 +449,9 @@ describe('TournamentsService lineup notifications', () => {
       'user-c': 'Tournament role changed',
       'user-d': 'Picked for a tournament',
     });
+    expect(createNotification).toHaveBeenCalledWith(
+      'user-d',
+      expect.objectContaining({ link: expect.stringContaining('?tab=lineup&highlight=me') }),
+    );
   });
 });
