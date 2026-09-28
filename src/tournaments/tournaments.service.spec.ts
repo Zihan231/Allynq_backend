@@ -364,3 +364,90 @@ describe('TournamentsService.join (CvC team submission)', () => {
     expect(participantsRepository.save).not.toHaveBeenCalled();
   });
 });
+
+describe('TournamentsService lineup notifications', () => {
+  const communityId = 'community-id';
+  const tournament = {
+    id: 'tournament-id',
+    name: 'Winter Cup',
+    communityId,
+    community: { creatorId: 'someone-else' },
+    status: TournamentStatus.REGISTRATION_OPEN,
+    type: TournamentType.CVC,
+    startersCount: 2,
+    subsCount: 1,
+    maxParticipants: 16,
+    participants: [],
+    registrationDeadline: new Date(Date.now() + 60 * 60 * 1000),
+    teamSubmissionDeadline: new Date(Date.now() + 60 * 60 * 1000),
+  };
+  const members = [
+    { id: 'manager', userId: 'manager-user', clubRole: ClubRole.PRESIDENT },
+    { id: 'a', userId: 'user-a', clubRole: ClubRole.PLAYER },
+    { id: 'b', userId: 'user-b', clubRole: ClubRole.PLAYER },
+    { id: 'c', userId: 'user-c', clubRole: ClubRole.PLAYER },
+    { id: 'd', userId: 'user-d', clubRole: ClubRole.PLAYER },
+  ];
+  const player = (profileId: string) => ({ profileId, name: profileId });
+
+  function setup(previousLineup: unknown = null) {
+    const createNotification = vi.fn().mockResolvedValue({});
+    const participantsRepository = {
+      findOne: vi.fn().mockImplementation(({ where }) =>
+        Promise.resolve(
+          where.id
+            ? { id: 'participant-id', lineup: previousLineup, club: { name: 'Test FC', members } }
+            : null,
+        ),
+      ),
+      create: vi.fn((p) => p),
+      save: vi.fn((p) => Promise.resolve(p)),
+    };
+    const service = new TournamentsService(
+      { findOne: vi.fn().mockResolvedValue(tournament) } as never,
+      participantsRepository as never,
+      {} as never,
+      { findOne: vi.fn().mockResolvedValue(null) } as never,
+      { findOne: vi.fn().mockResolvedValue({ id: 'club-id', name: 'Test FC', communityIds: [communityId], members }) } as never,
+      { findOne: vi.fn().mockResolvedValue({ id: 'manager', communityId, communityRole: CommunityRole.MEMBER }) } as never,
+      { createNotification } as never,
+    );
+    const sent = () =>
+      Object.fromEntries(
+        createNotification.mock.calls.map(([userId, n]: [string, { title: string }]) => [userId, n.title]),
+      );
+    return { service, sent };
+  }
+
+  it('notifies every picked player (but not the submitter) when a club registers', async () => {
+    const { service, sent } = setup();
+
+    await service.join('manager-user', 'tournament-id', {
+      clubId: 'club-id',
+      lineup: { starters: [player('manager'), player('a')], substitutes: [player('b')] },
+    });
+
+    expect(sent()).toEqual({
+      'user-a': 'Picked for a tournament',
+      'user-b': 'Picked for a tournament',
+    });
+  });
+
+  it('notifies added, removed and moved players when the lineup changes', async () => {
+    const { service, sent } = setup({
+      starters: [player('a'), player('b')],
+      substitutes: [player('c')],
+    });
+
+    await service.submitLineup('manager-user', 'tournament-id', 'participant-id', {
+      starters: [player('a'), player('c')],
+      substitutes: [player('d')],
+    });
+
+    expect(sent()).toEqual({
+      'user-b': 'Removed from tournament team',
+      'user-c': 'Tournament role changed',
+      'user-d': 'Picked for a tournament',
+    });
+  });
+});

@@ -23,7 +23,10 @@ import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
 import { BracketMatch, Tournament } from './entities/tournament.entity.js';
-import { TournamentParticipant } from './entities/tournament-participant.entity.js';
+import {
+  TournamentParticipant,
+  type TournamentLineup,
+} from './entities/tournament-participant.entity.js';
 import {
   ParticipantStatus,
   ParticipantType,
@@ -440,6 +443,18 @@ export class TournamentsService {
       userIds.push(...presidents.map((p) => p.userId));
     }
 
+    const pickedProfileIds = participants.flatMap((p) => [
+      ...(p.lineup?.starters ?? []),
+      ...(p.lineup?.substitutes ?? []),
+    ]).map((player) => player.profileId);
+    if (pickedProfileIds.length) {
+      const picked = await this.profilesRepository.find({
+        where: { id: In(pickedProfileIds) },
+        select: { id: true, userId: true },
+      });
+      userIds.push(...picked.map((p) => p.userId));
+    }
+
     return Array.from(
       new Set(userIds.filter((id): id is string => Boolean(id) && id !== actorUserId)),
     );
@@ -636,7 +651,9 @@ export class TournamentsService {
       submittedByUserId: userId,
     });
 
-    return this.participantsRepository.save(participant);
+    const saved = await this.participantsRepository.save(participant);
+    await this.notifyLineupChanges(tournament, club.name, club.members ?? [], null, saved.lineup, userId);
+    return saved;
   }
 
   /**
@@ -733,12 +750,83 @@ export class TournamentsService {
       this.assertValidLineup(tournament, club?.members ?? [], dto);
     }
 
+    const previousLineup = participant.lineup;
     participant.lineup = this.toLineup(dto);
     participant.status = ParticipantStatus.LINEUP_SUBMITTED;
     participant.submittedAt = new Date();
     participant.submittedByUserId = userId;
 
-    return this.participantsRepository.save(participant);
+    const saved = await this.participantsRepository.save(participant);
+    if (tournament.type === TournamentType.CVC && participant.club) {
+      await this.notifyLineupChanges(
+        tournament,
+        participant.club.name,
+        participant.club.members ?? [],
+        previousLineup,
+        saved.lineup,
+        userId,
+      );
+    }
+    return saved;
+  }
+
+  /**
+   * Notifies players about their place in a club's tournament team: picked
+   * (new to the lineup), removed, or moved between starting lineup and bench.
+   */
+  private async notifyLineupChanges(
+    tournament: Tournament,
+    clubName: string,
+    clubMembers: EfootballProfile[],
+    before: TournamentLineup | null,
+    after: TournamentLineup | null,
+    actorUserId: string,
+  ): Promise<void> {
+    const roleIn = (lineup: TournamentLineup | null) => {
+      const roles = new Map<string, 'starter' | 'substitute'>();
+      lineup?.starters.forEach((p) => roles.set(p.profileId, 'starter'));
+      lineup?.substitutes.forEach((p) => roles.set(p.profileId, 'substitute'));
+      return roles;
+    };
+    const beforeRoles = roleIn(before);
+    const afterRoles = roleIn(after);
+    const userIdByProfile = new Map(clubMembers.map((m) => [m.id, m.userId]));
+    const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}`;
+    const describe = (role: 'starter' | 'substitute') =>
+      role === 'starter' ? 'the starting lineup' : 'the bench';
+
+    const messages = new Map<string, { title: string; message: string }>();
+    for (const [profileId, role] of afterRoles) {
+      const previous = beforeRoles.get(profileId);
+      if (!previous) {
+        messages.set(profileId, {
+          title: 'Picked for a tournament',
+          message: `${clubName} picked you for "${tournament.name}" — you're in ${describe(role)}.`,
+        });
+      } else if (previous !== role) {
+        messages.set(profileId, {
+          title: 'Tournament role changed',
+          message: `${clubName} moved you to ${describe(role)} for "${tournament.name}".`,
+        });
+      }
+    }
+    for (const profileId of beforeRoles.keys()) {
+      if (!afterRoles.has(profileId)) {
+        messages.set(profileId, {
+          title: 'Removed from tournament team',
+          message: `${clubName} removed you from its team for "${tournament.name}".`,
+        });
+      }
+    }
+
+    await Promise.all(
+      [...messages].map(([profileId, content]) => {
+        const recipient = userIdByProfile.get(profileId);
+        return recipient && recipient !== actorUserId
+          ? this.sendNotifications([recipient], { ...content, link })
+          : Promise.resolve();
+      }),
+    );
   }
 
   async generateBracket(
