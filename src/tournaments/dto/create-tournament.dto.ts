@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsDateString,
+  IsDivisibleBy,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -47,6 +48,7 @@ export class CreateTournamentDto {
   @IsOptional()
   @IsInt()
   @Min(2)
+  @IsDivisibleBy(2, { message: 'maxParticipants must be an even number' })
   maxParticipants?: number;
 
   @IsOptional()
