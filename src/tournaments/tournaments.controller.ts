@@ -19,11 +19,15 @@ import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
+import { TournamentMatchesService } from './tournament-matches.service.js';
 import { TournamentsService } from './tournaments.service.js';
 
 @Controller('tournaments')
 export class TournamentsController {
-  constructor(private readonly tournamentsService: TournamentsService) {}
+  constructor(
+    private readonly tournamentsService: TournamentsService,
+    private readonly matchesService: TournamentMatchesService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Post()
@@ -79,12 +83,18 @@ export class TournamentsController {
     return this.tournamentsService.submitLineup(user.id, id, participantId, dto);
   }
 
+  /** Creates the fixtures: knockout (≤ 8 entrants) or groups + knockout. */
   @UseGuards(JwtAuthGuard)
   @Post(':id/generate-bracket')
   generateBracket(
     @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.tournamentsService.generateBracket(user.id, id);
+    return this.matchesService.generateStructure(user.id, id);
+  }
+
+  @Get(':id/structure')
+  getStructure(@Param('id', ParseUUIDPipe) id: string) {
+    return this.matchesService.getStructure(id);
   }
 }

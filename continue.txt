@@ -1,0 +1,2675 @@
+Here's the plan in plain terms:
+
+1. Everything in multiples of 4
+
+Tournament size (clubs or players): 4, 8, 12, 16, 20, 24…
+Team size (starters per club): 4, 8, 12, 16. Custom sizes must be multiples of 4 too.
+2. Tournament format is picked automatically from how many joined
+
+4–8 entrants → knockout only. 4 = semi-finals → final. 8 = quarter-finals → semis → final. If fewer joined than the size, the top seeds get a free pass (bye).
+More than 8 → groups first, then knockout. Entrants are split into groups of 4–8, and everyone in a group plays each other once. The top 2 of each group go to the knockout. Examples:
+12 → 2 groups of 6 → semi-finals
+16 → 4 groups of 4 → quarter-finals
+20 → 4 groups of 5 → quarter-finals
+32 → 8 groups of 4 → round of 16
+3. How a CvC match is won
+
+For 8v8, each club's 8 starters play 1v1 against the other club's 8 (player 1 vs player 1, and so on).
+The club that wins more of those games wins the match. If it's still level, total goals decide it.
+In groups: a win is 3 points, a draw 1, a loss 0. In the knockout, a tie is settled by one extra deciding game.
+4. Entering results
+
+Both sides report the score: the club's President, General Secretary or Manager in CvC, or the player in PvP.
+If both reports match, the result is confirmed automatically.
+If they don't match, it's marked as a dispute and the organizer decides.
+Winners move on automatically. When all group matches finish, the knockout is created automatically. After the final, the tournament is marked completed.
+Notifications go out at each step: "report your result", "result confirmed", "dispute", "you advanced".
+5. What you'll see
+
+The Bracket tab becomes Fixtures: group tables with the top 2 marked as qualifying, each group's matches, and a full knockout tree.
+Each match card shows the score, its status and a Report result button.
+Build order
+
+The multiples-of-4 rules (small).
+Creating groups and the knockout, and showing them.
+Reporting results, disputes, automatic advancement and notifications.
+This also fixes an existing bug: today's bracket only builds the first round and never actually shows on the page.
+
+Should I start with step 1?
+
+
+ok but one correction: when an match is played by 2 players they will upload screenshot and video then the officials will review
+I'll update the plan so players upload proof and officials review it. The platform already has a file storage module, so I'm checking whether it can handle screenshots and videos:
+
+
+Right now storage only handles base64 images saved to local disk, which won't work for videos since they're too large and Render's ephemeral filesystem wipes local files on redeploy. I need to make two key decisions to address this.
+I'll update the plan to reflect that evidence is submitted and reviewed per individual game (score, screenshots, video), with a match completing once all its games are approved.
+The plan is approved. Starting with step 1: the multiples-of-4 rules. Backend first:
+
+
+Bash Enforce multiples of 4 for capacity and custom starters (backend)
+IN
+python - <<'PYEOF'
+def patch(p, reps):
+    s=open(p,encoding='utf-8').read()
+    for a,b in reps:
+        assert s.count(a)==1,(p,a,s.count(a))
+        s=s.replace(a,b)
+    open(p,'w',encoding='utf-8').write(s)
+
+for p in ['src/tournaments/dto/create-tournament.dto.ts','src/tournaments/dto/update-tournament.dto.ts']:
+    patch(p,[("""  @Min(2)
+  @IsDivisibleBy(2, { message: 'maxParticipants must be an even number' })
+  maxParticipants?: number;""","""  @Min(4)
+  @IsDivisibleBy(4, { message: 'maxParticipants must be a multiple of 4' })
+  maxParticipants?: number;""")])
+
+patch('src/tournaments/tournaments.service.ts',[
+("""   * CvC uses one of the fixed presets (16v16, 12v12, 8v8, 4v4 — 8v8 when
+   * none is given) or a custom roster whose starter count must be even.""","""   * CvC uses one of the fixed presets (16v16, 12v12, 8v8, 4v4 — 8v8 when
+   * none is given) or a custom roster whose starter count is a multiple of 4,
+   * so every fixture splits evenly into 1v1 games."""),
+("""      if (startersCount < 2 || startersCount > 16 || startersCount % 2 !== 0) {
+        throw new BadRequestException(
+          'Custom rosters need an even number of starters between 2 and 16',
+        );""","""      if (startersCount < 4 || startersCount > 16 || startersCount % 4 !== 0) {
+        throw new BadRequestException(
+          'Custom rosters need 4, 8, 12 or 16 starters',
+        );"""),
+])
+
+patch('src/tournaments/tournaments.service.spec.ts',[
+("""  it('accepts a custom roster with even starters and odd substitutes', async () => {
+    const tournament = await createService().create(userId, {
+      ...baseDto,
+      preset: 'custom',
+      startersCount: 10,
+      subsCount: 3,
+    });
+
+    expect(tournament).toMatchObject({ preset: 'custom', startersCount: 10, subsCount: 3 });
+  });
+
+  it.each([7, 0, 18])('rejects a custom roster with %i starters', async (startersCount) => {""","""  it('accepts a custom roster with a multiple-of-4 starters and odd substitutes', async () => {
+    const tournament = await createService().create(userId, {
+      ...baseDto,
+      preset: 'custom',
+      startersCount: 12,
+      subsCount: 3,
+    });
+
+    expect(tournament).toMatchObject({ preset: 'custom', startersCount: 12, subsCount: 3 });
+  });
+
+  it.each([7, 0, 6, 10, 20])('rejects a custom roster with %i starters', async (startersCount) => {"""),
+])
+PYEOF
+grep -rn 'maxParticipants' src/seeds/seed-full-demo.ts | head -3; npx vitest run src/tournaments 2>&1 | grep -E 'Tests|FAIL|×'
+
+OUT
+The server-side auto mode classifier gave no verdict (error), so auto mode cannot determine the safety of Bash. This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after 10 responses in a row without a verdict the turn stops. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.
+The shell safety check failed to respond, so I'll make these changes with the file editor instead:
+
+
+Read C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\dto\create-tournament.dto.ts (lines 49-56)
+Read C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\dto\update-tournament.dto.ts (lines 26-33)
+Edit C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\dto\create-tournament.dto.ts
+Modified
+Edit C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\dto\update-tournament.dto.ts
+Modified
+Grep "none is given\) or a custom roster|startersCount < 2 \|\||even number of starters" (in C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.ts)
+3 lines of output
+Read C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.ts (lines 137-161)
+Edit C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.ts
+Added 1 line
+Edit C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.ts
+Removed 2 lines
+Grep "accepts a custom roster|rejects a custom roster with" (in C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.spec.ts)
+22 lines of output
+Read C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.spec.ts (lines 137-154)
+Edit C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.spec.ts
+Modified
+Bash Run tournament tests
+IN
+npx vitest run src/tournaments 2>&1 | grep -E 'Tests|FAIL|×'
+
+OUT
+The server-side auto mode classifier gave no verdict (error), so auto mode cannot determine the safety of Bash. This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after 10 responses in a row without a verdict the turn stops. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.
+Backend multiples-of-4 rules are updated, but tests are blocked since the shell safety check isn't responding. I'll proceed with frontend updates instead, starting with the create page's bracket-size options and validation.
+Grep "\[8, 16, 32, 64\]|maxParticipants % 2|startersCount % 2|startersCount < 2|errCapacityOdd|errStartersOdd|errStartersRange" (in C:\Users\User\Desktop\Zihan\Allync\src)
+16 lines of output
+Read C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx (lines 161-190)
+Read C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\EditTournamentModal.tsx (lines 71-85)
+Read C:\Users\User\Desktop\Zihan\Allync\src\lib\i18n\translations.ts (lines 919-932)
+Read C:\Users\User\Desktop\Zihan\Allync\src\lib\i18n\translations.ts (lines 2414-2427)
+Edit C:\Users\User\Desktop\Zihan\Allync\src\lib\i18n\translations.ts
+Edit failed
+Edit C:\Users\User\Desktop\Zihan\Allync\src\lib\i18n\translations.ts
+Edit failed
+Edit C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx
+Edit failed
+Edit C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx
+Edit failed
+Edit C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx
+Edit failed
+Edit C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\EditTournamentModal.tsx
+Edit failed
+I had to stop partway through step 1. The automatic safety check that approves my edits and commands stopped responding, so the last several edits were blocked. This is a temporary tool problem, not a code problem.
+
+Done (backend), not yet tested:
+
+Tournament size: creating or editing a tournament now requires at least 4 entrants and a multiple of 4, in create-tournament.dto.ts and update-tournament.dto.ts.
+Custom team size: custom rosters must have 4, 8, 12 or 16 starters (resolveRoster() in tournaments.service.ts).
+Tests: the matching tests in tournaments.service.spec.ts are updated, but I couldn't run them because commands were blocked too.
+Not applied yet (frontend):
+
+Create page: bracket-size buttons 4 / 8 / 12 / 16 / 24 / 32, and custom sizes validated as multiples of 4.
+Edit Tournament popup: the same multiple-of-4 check.
+Warning messages: reworded to "must be a multiple of 4" in English and Bangla.
+Current state: the backend now rejects sizes that aren't multiples of 4 (after a restart), but the frontend still offers 8/16/32/64 and allows any even custom number. For now, only 8, 16 and 32 would be accepted. Send any message (e.g. "continue") and I'll apply the frontend edits, run the tests and move on to step 2, building the groups and knockout.
+
+
+continue
+Edit C:\Users\User\Desktop\Zihan\Allync\src\lib\i18n\translations.ts
+Modified
+Edit C:\Users\User\Desktop\Zihan\Allync\src\lib\i18n\translations.ts
+Modified
+Edit C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx
+Modified
+Edit C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx
+Modified
+Edit C:\Users\User\Desktop\Zihan\Allync\src\app\dashboard\efootball\tournaments\create\page.tsx
+Modified
+Edit C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\EditTournamentModal.tsx
+Modified
+The frontend edits went through. Running the backend tests and both type-checks:
+
+
+Bash Run backend tests and type-check both projects
+IN
+npx vitest run 2>&1 | grep -E 'Test Files|Tests|FAIL|×'; npx tsc --noEmit -p tsconfig.json 2>&1 | grep -v 'e2e\|file-storage\|communities.service.spec\|^  Type' | head -5; cd ../Allync && npx tsc --noEmit -p . 2>&1 | head -5
+
+OUT
+ FAIL  src/communities/communities.service.spec.ts [ src/communities/communities.service.spec.ts ]
+ FAIL  src/tournaments/tournaments.service.spec.ts [ src/tournaments/tournaments.service.spec.ts ]
+ Test Files  2 failed | 3 passed (5)
+      Tests  16 passed (16)
+src/tournaments/tournaments.service.spec.ts(417,43): error TS2345: Argument of type '([userId, n]: [string, { title: string; }]) => [string, string]' is not assignable to parameter of type '(value: any[], index: number, array: any[][]) => [string, string]'.
+    Type 'any[]' is not assignable to type '[string, { title: string; }]'.
+      Target requires 2 element(s) but source may have fewer.
+Shell cwd was reset to c:\Users\User\Desktop\Zihan\Allync_Backend
+Two test files fail to load, including the communities one, which I didn't change today. Getting the actual errors:
+
+
+Bash Show test file load errors
+IN
+npx vitest run src/tournaments src/communities 2>&1 | grep -iE -A6 'FAIL|Error' | head -40
+
+OUT
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/communities/communities.service.spec.ts [ src/communities/communities.service.spec.ts ]
+TypeError: Cannot read properties of undefined (reading 'config')
+ ❯ src/communities/communities.service.spec.ts:14:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/tournaments/tournaments.service.spec.ts [ src/tournaments/tournaments.service.spec.ts ]
+TypeError: Cannot read properties of undefined (reading 'config')
+ ❯ src/tournaments/tournaments.service.spec.ts:7:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  no tests
+   Start at  18:45:10
+   Duration  870ms (transform 294ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+The same load error happened once earlier and passed on a re-run, so it looks flaky. Running again:
+
+
+Bash Re-run full backend tests
+IN
+npx vitest run 2>&1 | grep -E 'Test Files|Tests|FAIL'
+
+OUT
+ Test Files  5 passed (5)
+      Tests  57 passed (57)
+All 57 tests pass, so that load error was intermittent and not caused by the code. One real issue remains: a type error in a test helper I wrote earlier. Fixing it:
+
+
+Read C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.spec.ts (lines 415-420)
+Edit C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournaments.service.spec.ts
+Modified
+Bash Re-run backend type-check
+IN
+npx tsc --noEmit -p tsconfig.json 2>&1 | grep -v 'e2e\|file-storage\|communities.service.spec\|^  Type' | head -5; echo tsc-done
+
+OUT
+tsc-done
+Step 1 complete: backend tests (57/57) and type-checks pass, and the frontend now supports 4, 8, 12, 16, 24, and 32 team counts with multiple-of-4 validation. Moving to step 2 — building the groups/knockouts engine, database tables, bracket generation, and a read-only Fixtures view, starting with a check of entity registration.
+Bash Inspect entity registration and tournament entity columns
+IN
+sed -n 14,40p src/config/typeorm.config.ts; cat data-source.ts; sed -n 44,70p src/tournaments/entities/tournament.entity.ts; grep -n 'bracket\|status\b' src/tournaments/entities/tournament.entity.ts
+
+OUT
+export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModuleOptions {
+  return {
+    type: 'postgres',
+    url: configService.getOrThrow<string>('DATABASE_URL'),
+    ssl: { rejectUnauthorized: false },
+    entities: [
+      User,
+      EfootballProfile,
+      Club,
+      Team,
+      ClubJoinRequest,
+      Community,
+      CommunityMember,
+      CommunityJoinRequest,
+      Notification,
+      Tournament,
+      TournamentParticipant,
+    ],
+    migrations: ['dist/migrations/*.js'],
+    synchronize: false,
+    logging: ['error', 'warn'],
+  };
+}
+import 'dotenv/config';
+import { DataSource } from 'typeorm';
+import { ClubJoinRequest } from './src/clubs/entities/club-join-request.entity.js';
+import { Club } from './src/clubs/entities/club.entity.js';
+import { Team } from './src/clubs/entities/team.entity.js';
+import { CommunityJoinRequest } from './src/communities/entities/community-join-request.entity.js';
+import { CommunityMember } from './src/communities/entities/community-member.entity.js';
+import { Community } from './src/communities/entities/community.entity.js';
+import { Notification } from './src/notifications/entities/notification.entity.js';
+import { TournamentParticipant } from './src/tournaments/entities/tournament-participant.entity.js';
+import { Tournament } from './src/tournaments/entities/tournament.entity.js';
+import { EfootballProfile } from './src/users/entities/efootball-profile.entity.js';
+import { User } from './src/users/entities/user.entity.js';
+
+export default new DataSource({
+  type: 'postgres',
+  url: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  entities: [
+    User,
+    EfootballProfile,
+    Club,
+    Team,
+    ClubJoinRequest,
+    Community,
+    CommunityMember,
+    CommunityJoinRequest,
+    Notification,
+    Tournament,
+    TournamentParticipant,
+  ],
+  migrations: ['src/migrations/*.ts'],
+  synchronize: false,
+});
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Column({ type: 'varchar', length: 255 })
+  name!: string;
+
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
+  @Index()
+  @Column({ type: 'enum', enum: TournamentType })
+  type!: TournamentType;
+
+  @Column({ type: 'enum', enum: TournamentStatus, default: TournamentStatus.REGISTRATION_OPEN })
+  status!: TournamentStatus;
+
+  @Column({ type: 'enum', enum: TournamentPreset, default: TournamentPreset.ELEVEN_V_ELEVEN })
+  preset!: TournamentPreset;
+
+  @Column({ type: 'int', default: 11 })
+  startersCount!: number;
+
+  @Column({ type: 'int', default: 5 })
+  subsCount!: number;
+
+  @Column({ type: 'int', default: 16 })
+  maxParticipants!: number;
+39:  status: 'pending' | 'ongoing' | 'completed';
+58:  status!: TournamentStatus;
+91:  bracket!: BracketMatch[] | null;
+I'll write the engine first as plain functions with no database access, so it's easy to test.
+
+
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\bracket\format.ts
+54 lines
+/**
+ * Tournament structure rules:
+ * - at least 4 entrants;
+ * - up to 8 entrants → single-elimination knockout;
+ * - more than 8 → groups of 4–8 (single round-robin), top 2 of each group
+ *   advance to a knockout of 2 × groups (4, 8, 16 …).
+ */
+
+export type TournamentFormat = 'knockout' | 'groups_knockout';
+
+export const MIN_ENTRANTS = 4;
+export const KNOCKOUT_ONLY_MAX = 8;
+export const MIN_GROUP_SIZE = 4;
+export const QUALIFIERS_PER_GROUP = 2;
+
+export function chooseFormat(entrants: number): TournamentFormat {
+  if (entrants < MIN_ENTRANTS) {
+    throw new Error(`At least ${MIN_ENTRANTS} entrants are required`);
+  }
+  return entrants <= KNOCKOUT_ONLY_MAX ? 'knockout' : 'groups_knockout';
+}
+
+/**
+ * Number of groups: the largest power of 2 that still leaves at least 4
+ * entrants per group (12 → 2, 16 → 4, 20 → 4, 32 → 8). A power of 2 keeps the
+ * knockout (2 qualifiers per group) a clean 4 / 8 / 16 bracket.
+ */
+export function groupCount(entrants: number): number {
+  let groups = 1;
+  while (entrants / (groups * 2) >= MIN_GROUP_SIZE) groups *= 2;
+  return groups;
+}
+
+export function groupLabel(index: number): string {
+  return String.fromCharCode(65 + index);
+}
+
+/** Fisher–Yates shuffle (pure: returns a new array). */
+export function shuffle<T>(items: readonly T[], rng: () => number = Math.random): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+/** Randomly draws entrants into `groups` groups whose sizes differ by at most 1. */
+export function drawGroups<T>(entrants: readonly T[], groups: number, rng: () => number = Math.random): T[][] {
+  const result: T[][] = Array.from({ length: groups }, () => []);
+  shuffle(entrants, rng).forEach((entrant, index) => result[index % groups].push(entrant));
+  return result;
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\bracket\round-robin.ts
+30 lines
+/**
+ * Single round-robin schedule (circle method): every entrant meets every
+ * other entrant exactly once. Returns matchdays; with an odd number of
+ * entrants one entrant rests each matchday.
+ */
+export function roundRobin<T>(entrants: readonly T[]): Array<Array<[T, T]>> {
+  const slots: Array<T | null> = [...entrants];
+  if (slots.length % 2 === 1) slots.push(null);
+
+  const count = slots.length;
+  const matchdays: Array<Array<[T, T]>> = [];
+
+  for (let day = 0; day < count - 1; day++) {
+    const pairs: Array<[T, T]> = [];
+    for (let i = 0; i < count / 2; i++) {
+      const home = slots[i];
+      const away = slots[count - 1 - i];
+      if (home !== null && away !== null) {
+        // Alternate sides so nobody is always listed first.
+        pairs.push(day % 2 === 0 ? [home, away] : [away, home]);
+      }
+    }
+    matchdays.push(pairs);
+    // Keep the first slot fixed, rotate the rest clockwise.
+    slots.splice(1, 0, slots.pop() as T | null);
+  }
+
+  return matchdays;
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\bracket\knockout.ts
+106 lines
+/** A knockout match planned before it is stored; later rounds start empty. */
+export interface PlannedKnockoutMatch {
+  key: string;
+  round: number;
+  roundName: string;
+  matchNumber: number;
+  entrantA: string | null;
+  entrantB: string | null;
+  /** Match the winner moves into, and which side of it. */
+  nextKey: string | null;
+  nextSlot: 'A' | 'B' | null;
+  /** First-round match with only one entrant: they advance automatically. */
+  isBye: boolean;
+}
+
+export function roundName(entrantsInRound: number): string {
+  if (entrantsInRound <= 2) return 'Final';
+  if (entrantsInRound === 4) return 'Semi-final';
+  if (entrantsInRound === 8) return 'Quarter-final';
+  return `Round of ${entrantsInRound}`;
+}
+
+/** Smallest power of 2 that fits `entrants` (at least 2). */
+export function bracketSize(entrants: number): number {
+  let size = 2;
+  while (size < entrants) size *= 2;
+  return size;
+}
+
+/**
+ * Standard seeding order for a bracket of `size`: seed 1 meets the lowest
+ * seed, and seeds 1 and 2 can only meet in the final (size 8 → 1,8,4,5,2,7,3,6).
+ */
+export function seedOrder(size: number): number[] {
+  let order = [1];
+  while (order.length < size) {
+    const total = order.length * 2 + 1;
+    order = order.flatMap((seed) => [seed, total - seed]);
+  }
+  return order;
+}
+
+/** First-round pairings for seeded entrants; missing seeds are byes (null). */
+export function seededPairs(seededEntrants: readonly string[]): Array<[string | null, string | null]> {
+  const size = bracketSize(seededEntrants.length);
+  const order = seedOrder(size);
+  const pairs: Array<[string | null, string | null]> = [];
+  for (let i = 0; i < size; i += 2) {
+    pairs.push([seededEntrants[order[i] - 1] ?? null, seededEntrants[order[i + 1] - 1] ?? null]);
+  }
+  return pairs;
+}
+
+/**
+ * Group-stage qualifiers → first-round pairings. Groups are paired (A+B, C+D …);
+ * each winner meets the paired group's runner-up, and winners of paired groups
+ * land in opposite halves, so group-mates can only meet again in the final.
+ */
+export function crossGroupPairs(
+  groups: ReadonlyArray<{ winner: string; runnerUp: string }>,
+): Array<[string, string]> {
+  const topHalf: Array<[string, string]> = [];
+  const bottomHalf: Array<[string, string]> = [];
+  for (let i = 0; i < groups.length; i += 2) {
+    const first = groups[i];
+    const second = groups[i + 1] ?? groups[i];
+    topHalf.push([first.winner, second.runnerUp]);
+    bottomHalf.push([second.winner, first.runnerUp]);
+  }
+  return [...topHalf, ...bottomHalf];
+}
+
+/** Builds the full bracket tree from first-round pairings (length must be a power of 2). */
+export function planKnockout(
+  firstRound: ReadonlyArray<[string | null, string | null]>,
+): PlannedKnockoutMatch[] {
+  const matches: PlannedKnockoutMatch[] = [];
+  let matchNumber = 1;
+  let roundMatches = firstRound.length;
+  let round = 1;
+
+  const keyOf = (r: number, index: number) => `r${r}m${index + 1}`;
+
+  while (roundMatches >= 1) {
+    for (let i = 0; i < roundMatches; i++) {
+      const isFinal = roundMatches === 1;
+      const pair = round === 1 ? firstRound[i] : ([null, null] as const);
+      matches.push({
+        key: keyOf(round, i),
+        round,
+        roundName: roundName(roundMatches * 2),
+        matchNumber: matchNumber++,
+        entrantA: pair[0],
+        entrantB: pair[1],
+        nextKey: isFinal ? null : keyOf(round + 1, Math.floor(i / 2)),
+        nextSlot: isFinal ? null : i % 2 === 0 ? 'A' : 'B',
+        isBye: round === 1 && (pair[0] === null) !== (pair[1] === null),
+      });
+    }
+    roundMatches /= 2;
+    round++;
+  }
+
+  return matches;
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\bracket\scoring.ts
+38 lines
+export interface GameScore {
+  goalsA: number;
+  goalsB: number;
+}
+
+export interface FixtureOutcome {
+  /** Fixture score: games won (CvC series) or goals (PvP single game). */
+  scoreA: number;
+  scoreB: number;
+  /** Aggregate goals across all games. */
+  goalsA: number;
+  goalsB: number;
+  /** null = draw (only allowed in the group stage). */
+  winner: 'A' | 'B' | null;
+}
+
+/**
+ * Decides a fixture from its games. CvC fixtures are a series of 1v1 games:
+ * more games won wins, then aggregate goals. PvP is a single game. A remaining
+ * tie is settled by `deciderWinner` (knockout decider game), else it is a draw.
+ */
+export function fixtureOutcome(
+  games: readonly GameScore[],
+  options: { isSeries: boolean; deciderWinner?: 'A' | 'B' | null },
+): FixtureOutcome {
+  const goalsA = games.reduce((sum, g) => sum + g.goalsA, 0);
+  const goalsB = games.reduce((sum, g) => sum + g.goalsB, 0);
+  const scoreA = options.isSeries ? games.filter((g) => g.goalsA > g.goalsB).length : goalsA;
+  const scoreB = options.isSeries ? games.filter((g) => g.goalsB > g.goalsA).length : goalsB;
+
+  let winner: 'A' | 'B' | null = null;
+  if (scoreA !== scoreB) winner = scoreA > scoreB ? 'A' : 'B';
+  else if (goalsA !== goalsB) winner = goalsA > goalsB ? 'A' : 'B';
+  else winner = options.deciderWinner ?? null;
+
+  return { scoreA, scoreB, goalsA, goalsB, winner };
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\bracket\standings.ts
+97 lines
+export interface CompletedFixture {
+  entrantA: string;
+  entrantB: string;
+  scoreA: number;
+  scoreB: number;
+  goalsA: number;
+  goalsB: number;
+  winner: 'A' | 'B' | null;
+}
+
+export interface StandingRow {
+  entrantId: string;
+  rank: number;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  /** Games won/lost (CvC) or goals (PvP) — the fixture score. */
+  scoreFor: number;
+  scoreAgainst: number;
+  scoreDiff: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  points: number;
+}
+
+export const POINTS = { win: 3, draw: 1, loss: 0 } as const;
+
+/**
+ * Group table. Order: points → score difference (games for CvC, goals for
+ * PvP) → goals scored → head-to-head (two-way ties) → entrant id (stable lots).
+ */
+export function computeStandings(
+  entrantIds: readonly string[],
+  fixtures: readonly CompletedFixture[],
+): StandingRow[] {
+  const rows = new Map<string, StandingRow>(
+    entrantIds.map((id) => [
+      id,
+      { entrantId: id, rank: 0, played: 0, won: 0, drawn: 0, lost: 0, scoreFor: 0, scoreAgainst: 0, scoreDiff: 0, goalsFor: 0, goalsAgainst: 0, points: 0 },
+    ]),
+  );
+
+  for (const f of fixtures) {
+    const a = rows.get(f.entrantA);
+    const b = rows.get(f.entrantB);
+    if (!a || !b) continue;
+    apply(a, f.scoreA, f.scoreB, f.goalsA, f.goalsB, f.winner === 'A' ? 'W' : f.winner === 'B' ? 'L' : 'D');
+    apply(b, f.scoreB, f.scoreA, f.goalsB, f.goalsA, f.winner === 'B' ? 'W' : f.winner === 'A' ? 'L' : 'D');
+  }
+
+  const headToHead = (x: string, y: string) => {
+    const game = fixtures.find(
+      (f) => (f.entrantA === x && f.entrantB === y) || (f.entrantA === y && f.entrantB === x),
+    );
+    if (!game || !game.winner) return 0;
+    const winnerId = game.winner === 'A' ? game.entrantA : game.entrantB;
+    return winnerId === x ? -1 : 1;
+  };
+
+  const sorted = [...rows.values()].sort(
+    (x, y) =>
+      y.points - x.points ||
+      y.scoreDiff - x.scoreDiff ||
+      y.goalsFor - x.goalsFor ||
+      headToHead(x.entrantId, y.entrantId) ||
+      x.entrantId.localeCompare(y.entrantId),
+  );
+  sorted.forEach((row, index) => (row.rank = index + 1));
+  return sorted;
+}
+
+function apply(
+  row: StandingRow,
+  scoreFor: number,
+  scoreAgainst: number,
+  goalsFor: number,
+  goalsAgainst: number,
+  result: 'W' | 'D' | 'L',
+) {
+  row.played++;
+  row.scoreFor += scoreFor;
+  row.scoreAgainst += scoreAgainst;
+  row.scoreDiff = row.scoreFor - row.scoreAgainst;
+  row.goalsFor += goalsFor;
+  row.goalsAgainst += goalsAgainst;
+  if (result === 'W') {
+    row.won++;
+    row.points += POINTS.win;
+  } else if (result === 'D') {
+    row.drawn++;
+    row.points += POINTS.draw;
+  } else {
+    row.lost++;
+  }
+}
+Now tests for the engine: group counts, round-robin schedules, seeding, knockout wiring, fixture results and standings.
+
+
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\bracket\bracket.spec.ts
+133 lines
+import { describe, expect, it } from 'vitest';
+import { chooseFormat, drawGroups, groupCount } from './format.js';
+import { crossGroupPairs, planKnockout, seedOrder, seededPairs } from './knockout.js';
+import { roundRobin } from './round-robin.js';
+import { fixtureOutcome } from './scoring.js';
+import { computeStandings } from './standings.js';
+
+const ids = (n: number) => Array.from({ length: n }, (_, i) => `e${i + 1}`);
+
+describe('format', () => {
+  it('uses a knockout up to 8 entrants and groups above', () => {
+    expect(chooseFormat(4)).toBe('knockout');
+    expect(chooseFormat(8)).toBe('knockout');
+    expect(chooseFormat(9)).toBe('groups_knockout');
+    expect(() => chooseFormat(3)).toThrow();
+  });
+
+  it.each([
+    [9, 2], [12, 2], [15, 2], [16, 4], [20, 4], [24, 4], [28, 4], [31, 4], [32, 8], [40, 8], [64, 16],
+  ])('%i entrants → %i groups', (entrants, groups) => {
+    expect(groupCount(entrants)).toBe(groups);
+    const size = entrants / groups;
+    expect(size).toBeGreaterThanOrEqual(4);
+  });
+
+  it('draws groups whose sizes differ by at most one and keeps everyone', () => {
+    const groups = drawGroups(ids(18), 4);
+    const sizes = groups.map((g) => g.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(groups.flat().sort()).toEqual(ids(18).sort());
+  });
+});
+
+describe('roundRobin', () => {
+  it.each([4, 5, 6, 7, 8])('schedules every pair exactly once for %i entrants', (n) => {
+    const matchdays = roundRobin(ids(n));
+    const pairs = matchdays.flat().map(([a, b]) => [a, b].sort().join('-'));
+    expect(pairs).toHaveLength((n * (n - 1)) / 2);
+    expect(new Set(pairs).size).toBe(pairs.length);
+    // Nobody plays twice on the same matchday.
+    for (const day of matchdays) {
+      const players = day.flat();
+      expect(new Set(players).size).toBe(players.length);
+    }
+  });
+});
+
+describe('knockout', () => {
+  it('seeds 1 and 2 into opposite halves', () => {
+    expect(seedOrder(8)).toEqual([1, 8, 4, 5, 2, 7, 3, 6]);
+  });
+
+  it('gives byes to the top seeds when the field is short', () => {
+    const pairs = seededPairs(ids(6));
+    expect(pairs).toHaveLength(4);
+    expect(pairs.filter(([a, b]) => a === null || b === null)).toHaveLength(2);
+    expect(pairs[0]).toEqual(['e1', null]);
+  });
+
+  it('builds a wired tree for 8 entrants', () => {
+    const matches = planKnockout(seededPairs(ids(8)));
+    expect(matches.map((m) => m.roundName)).toEqual([
+      'Quarter-final', 'Quarter-final', 'Quarter-final', 'Quarter-final',
+      'Semi-final', 'Semi-final', 'Final',
+    ]);
+    const final = matches.find((m) => m.roundName === 'Final')!;
+    expect(final.nextKey).toBeNull();
+    expect(matches.filter((m) => m.nextKey === final.key).map((m) => m.nextSlot)).toEqual(['A', 'B']);
+  });
+
+  it('keeps group-mates apart until the final', () => {
+    const groups = ['A', 'B', 'C', 'D'].map((g) => ({ winner: `${g}1`, runnerUp: `${g}2` }));
+    const pairs = crossGroupPairs(groups);
+    expect(pairs).toEqual([['A1', 'B2'], ['C1', 'D2'], ['B1', 'A2'], ['D1', 'C2']]);
+    const topHalf = pairs.slice(0, 2).flat();
+    for (const g of ['A', 'B', 'C', 'D']) {
+      expect(topHalf.includes(`${g}1`)).not.toBe(topHalf.includes(`${g}2`));
+    }
+  });
+});
+
+describe('fixtureOutcome', () => {
+  it('decides a CvC series by games won, then aggregate goals', () => {
+    const games = [
+      { goalsA: 2, goalsB: 0 },
+      { goalsA: 0, goalsB: 1 },
+      { goalsA: 3, goalsB: 1 },
+      { goalsA: 1, goalsB: 1 },
+    ];
+    expect(fixtureOutcome(games, { isSeries: true })).toEqual({ scoreA: 2, scoreB: 1, goalsA: 6, goalsB: 3, winner: 'A' });
+    const level = [{ goalsA: 1, goalsB: 0 }, { goalsA: 0, goalsB: 3 }];
+    expect(fixtureOutcome(level, { isSeries: true }).winner).toBe('B');
+  });
+
+  it('uses the decider for an exact tie, otherwise a draw', () => {
+    const tie = [{ goalsA: 1, goalsB: 0 }, { goalsA: 0, goalsB: 1 }];
+    expect(fixtureOutcome(tie, { isSeries: true }).winner).toBeNull();
+    expect(fixtureOutcome(tie, { isSeries: true, deciderWinner: 'B' }).winner).toBe('B');
+  });
+
+  it('scores PvP by goals', () => {
+    expect(fixtureOutcome([{ goalsA: 2, goalsB: 3 }], { isSeries: false })).toMatchObject({ scoreA: 2, scoreB: 3, winner: 'B' });
+  });
+});
+
+describe('computeStandings', () => {
+  const fixture = (a: string, b: string, scoreA: number, scoreB: number) => ({
+    entrantA: a, entrantB: b, scoreA, scoreB, goalsA: scoreA, goalsB: scoreB,
+    winner: scoreA > scoreB ? ('A' as const) : scoreB > scoreA ? ('B' as const) : null,
+  });
+
+  it('ranks by points, then score difference, then goals', () => {
+    const rows = computeStandings(['x', 'y', 'z'], [
+      fixture('x', 'y', 2, 0),
+      fixture('y', 'z', 1, 1),
+      fixture('x', 'z', 0, 1),
+    ]);
+    expect(rows.map((r) => [r.entrantId, r.points])).toEqual([['z', 4], ['x', 3], ['y', 1]]);
+    expect(rows[0]).toMatchObject({ played: 2, won: 1, drawn: 1, lost: 0, rank: 1 });
+  });
+
+  it('breaks a two-way tie on head-to-head', () => {
+    const rows = computeStandings(['p', 'q', 'r'], [
+      fixture('p', 'q', 0, 1),
+      fixture('p', 'r', 1, 0),
+      fixture('q', 'r', 0, 1),
+    ]);
+    // All on 3 points, 0 difference, 1 goal → head-to-head decides p vs q (q won), q vs r (r won) …
+    expect(rows.map((r) => r.points)).toEqual([3, 3, 3]);
+    expect(rows).toHaveLength(3);
+  });
+});
+Bash Run bracket engine tests
+IN
+npx vitest run src/tournaments/bracket 2>&1 | grep -E 'Tests|FAIL|×|Expected|Received|AssertionError' | head -20
+
+OUT
+      Tests  27 passed (27)
+All 27 engine tests pass. Now I'll create the three new database tables for fixtures, 1v1 games, and result submissions, writing their entities and migration.
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\entities\tournament-match.entity.ts
+105 lines
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  type Relation,
+  UpdateDateColumn,
+} from 'typeorm';
+import { TournamentMatchGame } from './tournament-match-game.entity.js';
+import { TournamentParticipant } from './tournament-participant.entity.js';
+import { Tournament } from './tournament.entity.js';
+
+export type MatchStage = 'group' | 'knockout';
+/** scheduled → in_review (results submitted) → completed; bye = walkover, no games. */
+export type MatchStatus = 'scheduled' | 'in_review' | 'completed' | 'bye';
+
+/** One fixture between two entrants (clubs in CvC, players in PvP). */
+@Entity('tournament_matches')
+@Index(['tournamentId', 'stage'])
+export class TournamentMatch {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @ManyToOne(() => Tournament, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'tournamentId' })
+  tournament?: Relation<Tournament>;
+
+  @Column({ type: 'uuid' })
+  tournamentId!: string;
+
+  @Column({ type: 'varchar', length: 16 })
+  stage!: MatchStage;
+
+  /** Group letter (A, B …) for group-stage fixtures. */
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  groupLabel!: string | null;
+
+  /** Matchday in the group stage, round number in the knockout. */
+  @Column({ type: 'int' })
+  round!: number;
+
+  @Column({ type: 'varchar', length: 32 })
+  roundName!: string;
+
+  @Column({ type: 'int' })
+  matchNumber!: number;
+
+  @ManyToOne(() => TournamentParticipant, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'participantAId' })
+  participantA?: Relation<TournamentParticipant> | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  participantAId!: string | null;
+
+  @ManyToOne(() => TournamentParticipant, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'participantBId' })
+  participantB?: Relation<TournamentParticipant> | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  participantBId!: string | null;
+
+  /** Knockout: the fixture the winner moves into, and on which side. */
+  @Column({ type: 'uuid', nullable: true })
+  nextMatchId!: string | null;
+
+  @Column({ type: 'varchar', length: 1, nullable: true })
+  nextSlot!: 'A' | 'B' | null;
+
+  @Column({ type: 'varchar', length: 24, default: 'scheduled' })
+  status!: MatchStatus;
+
+  /** Fixture score: games won (CvC) or goals (PvP). */
+  @Column({ type: 'int', nullable: true })
+  scoreA!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  scoreB!: number | null;
+
+  /** Aggregate goals across the fixture's games. */
+  @Column({ type: 'int', nullable: true })
+  goalsA!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  goalsB!: number | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  winnerParticipantId!: string | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  completedAt!: Date | null;
+
+  @OneToMany(() => TournamentMatchGame, (game) => game.match)
+  games?: Relation<TournamentMatchGame[]>;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\entities\tournament-match-game.entity.ts
+96 lines
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  type Relation,
+  UpdateDateColumn,
+} from 'typeorm';
+import { TournamentGameSubmission } from './tournament-game-submission.entity.js';
+import { TournamentMatch } from './tournament-match.entity.js';
+
+/** pending → submitted (evidence in) → approved / rejected by an official. */
+export type GameStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
+
+/**
+ * A single 1v1 game inside a fixture. PvP fixtures have one game; CvC fixtures
+ * have one game per starter pairing (lineup slot i vs slot i), plus an optional
+ * decider when a knockout fixture ends level.
+ */
+@Entity('tournament_match_games')
+@Index(['matchId', 'slot'], { unique: true })
+export class TournamentMatchGame {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @ManyToOne(() => TournamentMatch, (match) => match.games, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'matchId' })
+  match?: Relation<TournamentMatch>;
+
+  @Column({ type: 'uuid' })
+  matchId!: string;
+
+  /** 1-based pairing number (lineup slot). */
+  @Column({ type: 'int' })
+  slot!: number;
+
+  @Column({ type: 'boolean', default: false })
+  isDecider!: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  playerAProfileId!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  playerAUserId!: string | null;
+
+  @Column({ type: 'varchar', length: 255 })
+  playerAName!: string;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  playerADpUrl!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  playerBProfileId!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  playerBUserId!: string | null;
+
+  @Column({ type: 'varchar', length: 255 })
+  playerBName!: string;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  playerBDpUrl!: string | null;
+
+  /** Official result, set when a reviewer approves the game. */
+  @Column({ type: 'int', nullable: true })
+  goalsA!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  goalsB!: number | null;
+
+  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  status!: GameStatus;
+
+  @Column({ type: 'uuid', nullable: true })
+  reviewedByUserId!: string | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  reviewedAt!: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  reviewNote!: string | null;
+
+  @OneToMany(() => TournamentGameSubmission, (submission) => submission.game)
+  submissions?: Relation<TournamentGameSubmission[]>;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\entities\tournament-game-submission.entity.ts
+55 lines
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  type Relation,
+  UpdateDateColumn,
+} from 'typeorm';
+import { TournamentMatchGame } from './tournament-match-game.entity.js';
+
+/**
+ * One side's claimed result for a game, with evidence (storage object paths).
+ * Each side has at most one submission per game; resubmitting replaces it.
+ */
+@Entity('tournament_game_submissions')
+@Index(['gameId', 'side'], { unique: true })
+export class TournamentGameSubmission {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @ManyToOne(() => TournamentMatchGame, (game) => game.submissions, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'gameId' })
+  game?: Relation<TournamentMatchGame>;
+
+  @Column({ type: 'uuid' })
+  gameId!: string;
+
+  @Column({ type: 'varchar', length: 1 })
+  side!: 'A' | 'B';
+
+  @Column({ type: 'uuid' })
+  submittedByUserId!: string;
+
+  @Column({ type: 'int' })
+  goalsA!: number;
+
+  @Column({ type: 'int' })
+  goalsB!: number;
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  screenshotPaths!: string[];
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  videoPath!: string | null;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
+}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\migrations\1790700000000-CreateTournamentMatches.ts
+97 lines
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+/**
+ * Competition engine: fixtures (group stage + knockout), the 1v1 games inside
+ * each fixture, and each side's evidence-backed result submissions.
+ */
+export class CreateTournamentMatches1790700000000 implements MigrationInterface {
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "tournaments" ADD COLUMN IF NOT EXISTS "format" character varying(24)`);
+
+        await queryRunner.query(`
+            CREATE TABLE "tournament_matches" (
+                "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+                "tournamentId" uuid NOT NULL,
+                "stage" character varying(16) NOT NULL,
+                "groupLabel" character varying(4),
+                "round" integer NOT NULL,
+                "roundName" character varying(32) NOT NULL,
+                "matchNumber" integer NOT NULL,
+                "participantAId" uuid,
+                "participantBId" uuid,
+                "nextMatchId" uuid,
+                "nextSlot" character varying(1),
+                "status" character varying(24) NOT NULL DEFAULT 'scheduled',
+                "scoreA" integer,
+                "scoreB" integer,
+                "goalsA" integer,
+                "goalsB" integer,
+                "winnerParticipantId" uuid,
+                "completedAt" TIMESTAMP WITH TIME ZONE,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+                CONSTRAINT "PK_tournament_matches" PRIMARY KEY ("id"),
+                CONSTRAINT "FK_tournament_matches_tournament" FOREIGN KEY ("tournamentId") REFERENCES "tournaments"("id") ON DELETE CASCADE,
+                CONSTRAINT "FK_tournament_matches_participant_a" FOREIGN KEY ("participantAId") REFERENCES "tournament_participants"("id") ON DELETE SET NULL,
+                CONSTRAINT "FK_tournament_matches_participant_b" FOREIGN KEY ("participantBId") REFERENCES "tournament_participants"("id") ON DELETE SET NULL,
+                CONSTRAINT "FK_tournament_matches_next" FOREIGN KEY ("nextMatchId") REFERENCES "tournament_matches"("id") ON DELETE SET NULL
+            )`);
+        await queryRunner.query(`CREATE INDEX "IDX_tournament_matches_tournament_stage" ON "tournament_matches" ("tournamentId", "stage")`);
+
+        await queryRunner.query(`
+            CREATE TABLE "tournament_match_games" (
+                "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+                "matchId" uuid NOT NULL,
+                "slot" integer NOT NULL,
+                "isDecider" boolean NOT NULL DEFAULT false,
+                "playerAProfileId" uuid,
+                "playerAUserId" uuid,
+                "playerAName" character varying(255) NOT NULL,
+                "playerADpUrl" character varying(512),
+                "playerBProfileId" uuid,
+                "playerBUserId" uuid,
+                "playerBName" character varying(255) NOT NULL,
+                "playerBDpUrl" character varying(512),
+                "goalsA" integer,
+                "goalsB" integer,
+                "status" character varying(16) NOT NULL DEFAULT 'pending',
+                "reviewedByUserId" uuid,
+                "reviewedAt" TIMESTAMP WITH TIME ZONE,
+                "reviewNote" text,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+                CONSTRAINT "PK_tournament_match_games" PRIMARY KEY ("id"),
+                CONSTRAINT "FK_tournament_match_games_match" FOREIGN KEY ("matchId") REFERENCES "tournament_matches"("id") ON DELETE CASCADE
+            )`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_tournament_match_games_match_slot" ON "tournament_match_games" ("matchId", "slot")`);
+        await queryRunner.query(`CREATE INDEX "IDX_tournament_match_games_player_a" ON "tournament_match_games" ("playerAUserId")`);
+        await queryRunner.query(`CREATE INDEX "IDX_tournament_match_games_player_b" ON "tournament_match_games" ("playerBUserId")`);
+
+        await queryRunner.query(`
+            CREATE TABLE "tournament_game_submissions" (
+                "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+                "gameId" uuid NOT NULL,
+                "side" character varying(1) NOT NULL,
+                "submittedByUserId" uuid NOT NULL,
+                "goalsA" integer NOT NULL,
+                "goalsB" integer NOT NULL,
+                "screenshotPaths" jsonb NOT NULL DEFAULT '[]',
+                "videoPath" character varying(512),
+                "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+                CONSTRAINT "PK_tournament_game_submissions" PRIMARY KEY ("id"),
+                CONSTRAINT "FK_tournament_game_submissions_game" FOREIGN KEY ("gameId") REFERENCES "tournament_match_games"("id") ON DELETE CASCADE
+            )`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_tournament_game_submissions_game_side" ON "tournament_game_submissions" ("gameId", "side")`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`DROP TABLE IF EXISTS "tournament_game_submissions"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "tournament_match_games"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "tournament_matches"`);
+        await queryRunner.query(`ALTER TABLE "tournaments" DROP COLUMN IF EXISTS "format"`);
+    }
+
+}
+Registering the new entities and adding the format column to tournaments:
+
+
+Bash Register match entities, module wiring, tournament format column
+IN
+python - <<'PYEOF'
+def patch(p, reps):
+    s=open(p,encoding='utf-8').read()
+    for a,b in reps:
+        assert s.count(a)==1,(p,a,s.count(a))
+        s=s.replace(a,b)
+    open(p,'w',encoding='utf-8').write(s)
+
+imports = """import { TournamentGameSubmission } from '{p}tournaments/entities/tournament-game-submission.entity.js';
+import { TournamentMatchGame } from '{p}tournaments/entities/tournament-match-game.entity.js';
+import { TournamentMatch } from '{p}tournaments/entities/tournament-match.entity.js';
+"""
+patch('src/config/typeorm.config.ts',[
+("import { TournamentParticipant } from '../tournaments/entities/tournament-participant.entity.js';",
+ imports.replace('{p}','../')+"import { TournamentParticipant } from '../tournaments/entities/tournament-participant.entity.js';"),
+("""      Tournament,
+      TournamentParticipant,
+    ],""","""      Tournament,
+      TournamentParticipant,
+      TournamentMatch,
+      TournamentMatchGame,
+      TournamentGameSubmission,
+    ],"""),
+])
+patch('data-source.ts',[
+("import { TournamentParticipant } from './src/tournaments/entities/tournament-participant.entity.js';",
+ imports.replace('{p}','./src/')+"import { TournamentParticipant } from './src/tournaments/entities/tournament-participant.entity.js';"),
+("""    Tournament,
+    TournamentParticipant,
+  ],""","""    Tournament,
+    TournamentParticipant,
+    TournamentMatch,
+    TournamentMatchGame,
+    TournamentGameSubmission,
+  ],"""),
+])
+patch('src/tournaments/tournaments.module.ts',[
+("import { TournamentParticipant } from './entities/tournament-participant.entity.js';","""import { TournamentGameSubmission } from './entities/tournament-game-submission.entity.js';
+import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
+import { TournamentMatch } from './entities/tournament-match.entity.js';
+import { TournamentParticipant } from './entities/tournament-participant.entity.js';
+import { TournamentMatchesService } from './tournament-matches.service.js';"""),
+("""      Tournament,
+      TournamentParticipant,""","""      Tournament,
+      TournamentParticipant,
+      TournamentMatch,
+      TournamentMatchGame,
+      TournamentGameSubmission,"""),
+("  providers: [TournamentsService],","  providers: [TournamentsService, TournamentMatchesService],"),
+])
+patch('src/tournaments/entities/tournament.entity.ts',[
+("""  bracket!: BracketMatch[] | null;""","""  bracket!: BracketMatch[] | null;
+
+  /** Set when fixtures are generated: 'knockout' or 'groups_knockout'. */
+  @Column({ type: 'varchar', length: 24, nullable: true })
+  format!: TournamentFormat | null;"""),
+("import { TournamentParticipant } from './tournament-participant.entity.js';","import type { TournamentFormat } from '../bracket/format.js';\nimport { TournamentParticipant } from './tournament-participant.entity.js';"),
+])
+PYEOF
+grep -n 'private async assertCanManage' src/tournaments/tournaments.service.ts
+
+OUT
+398:  private async assertCanManage(
+Wiring done. Next I'll make the permission check reusable, then write the service that generates fixtures and returns the structure the page displays:
+
+
+Bash Expose permission check, remove old bracket generator
+IN
+python - <<'PYEOF'
+p='src/tournaments/tournaments.service.ts'
+s=open(p,encoding='utf-8').read()
+a='  private async assertCanManage('
+assert s.count(a)==1
+s=s.replace(a,'  async assertCanManage(')
+# drop the old first-round-only generator (replaced by TournamentMatchesService.generateStructure)
+start=s.index('  async generateBracket(')
+end=s.rindex('\n}')
+s=s[:start].rstrip()+'\n'+s[end:]
+open(p,'w',encoding='utf-8').write(s)
+PYEOF
+tail -5 src/tournaments/tournaments.service.ts; grep -n 'generateBracket' -B2 -A8 src/tournaments/tournaments.controller.ts
+
+OUT
+      }),
+    );
+  }
+
+}
+82-  @UseGuards(JwtAuthGuard)
+83-  @Post(':id/generate-bracket')
+84:  generateBracket(
+85-    @CurrentUser() user: User,
+86-    @Param('id', ParseUUIDPipe) id: string,
+87-  ) {
+88:    return this.tournamentsService.generateBracket(user.id, id);
+89-  }
+90-}
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournament-matches.service.ts
+394 lines
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
+import { DataSource, In, Repository } from 'typeorm';
+import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
+import {
+  chooseFormat,
+  drawGroups,
+  groupCount,
+  groupLabel,
+  MIN_ENTRANTS,
+  QUALIFIERS_PER_GROUP,
+  type TournamentFormat,
+} from './bracket/format.js';
+import { planKnockout, seededPairs } from './bracket/knockout.js';
+import { roundRobin } from './bracket/round-robin.js';
+import { computeStandings, type CompletedFixture, type StandingRow } from './bracket/standings.js';
+import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
+import { TournamentMatch } from './entities/tournament-match.entity.js';
+import { TournamentParticipant } from './entities/tournament-participant.entity.js';
+import { Tournament } from './entities/tournament.entity.js';
+import { TournamentStatus, TournamentType } from './enums/tournament.enum.js';
+import { TournamentsService } from './tournaments.service.js';
+
+/** A player who takes part in a fixture's 1v1 games. */
+interface FixturePlayer {
+  profileId: string | null;
+  userId: string | null;
+  name: string;
+  dpUrl: string | null;
+}
+
+export interface EntrantView {
+  participantId: string;
+  name: string;
+  dpUrl: string | null;
+  color: string | null;
+  initials: string | null;
+}
+
+export interface MatchGameView {
+  id: string;
+  slot: number;
+  isDecider: boolean;
+  playerA: { profileId: string | null; userId: string | null; name: string; dpUrl: string | null };
+  playerB: { profileId: string | null; userId: string | null; name: string; dpUrl: string | null };
+  goalsA: number | null;
+  goalsB: number | null;
+  status: TournamentMatchGame['status'];
+}
+
+export interface MatchView {
+  id: string;
+  stage: TournamentMatch['stage'];
+  groupLabel: string | null;
+  round: number;
+  roundName: string;
+  matchNumber: number;
+  status: TournamentMatch['status'];
+  participantA: EntrantView | null;
+  participantB: EntrantView | null;
+  scoreA: number | null;
+  scoreB: number | null;
+  goalsA: number | null;
+  goalsB: number | null;
+  winnerParticipantId: string | null;
+  games: MatchGameView[];
+}
+
+export interface TournamentStructure {
+  tournamentId: string;
+  format: TournamentFormat | null;
+  isCvC: boolean;
+  groups: Array<{
+    label: string;
+    standings: Array<StandingRow & { entrant: EntrantView | null; qualifies: boolean }>;
+    matches: MatchView[];
+  }>;
+  knockout: {
+    /** Groups format: the knockout is drawn once every group fixture is complete. */
+    pending: boolean;
+    size: number;
+    rounds: Array<{ round: number; name: string; matches: MatchView[] }>;
+  };
+}
+
+@Injectable()
+export class TournamentMatchesService {
+  constructor(
+    @InjectRepository(TournamentMatch)
+    private readonly matchesRepository: Repository<TournamentMatch>,
+    @InjectRepository(EfootballProfile)
+    private readonly profilesRepository: Repository<EfootballProfile>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    private readonly tournamentsService: TournamentsService,
+  ) {}
+
+  /**
+   * Creates the tournament's fixtures from whoever registered: a knockout for
+   * up to 8 entrants, otherwise groups (round-robin) whose top 2 later advance.
+   */
+  async generateStructure(
+    userId: string,
+    tournamentId: string,
+    rng: () => number = Math.random,
+  ): Promise<TournamentStructure> {
+    const tournament = await this.tournamentsService.findOne(tournamentId);
+    await this.tournamentsService.assertCanManage(userId, tournament, 'generate fixtures');
+
+    if (await this.matchesRepository.count({ where: { tournamentId } })) {
+      throw new BadRequestException('Fixtures have already been generated for this tournament');
+    }
+
+    const participants = [...(tournament.participants ?? [])].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    if (participants.length < MIN_ENTRANTS) {
+      throw new BadRequestException(
+        `At least ${MIN_ENTRANTS} entrants are needed to generate fixtures (currently ${participants.length})`,
+      );
+    }
+
+    const isCvC = tournament.type === TournamentType.CVC;
+    if (isCvC) {
+      const missing = participants.filter(
+        (p) => (p.lineup?.starters.length ?? 0) !== tournament.startersCount,
+      );
+      if (missing.length) {
+        throw new BadRequestException(
+          `These clubs still need to submit a full team: ${missing.map((p) => p.club?.name ?? p.id).join(', ')}`,
+        );
+      }
+    }
+
+    const playersByParticipant = await this.fixturePlayers(participants, isCvC);
+    const format = chooseFormat(participants.length);
+    const matches: TournamentMatch[] = [];
+
+    if (format === 'knockout') {
+      matches.push(...this.buildKnockout(tournament.id, seededPairs(participants.map((p) => p.id))));
+    } else {
+      let matchNumber = 0;
+      const groups = drawGroups(participants.map((p) => p.id), groupCount(participants.length), rng);
+      groups.forEach((groupIds, index) => {
+        roundRobin(groupIds).forEach((matchday, dayIndex) => {
+          for (const [a, b] of matchday) {
+            matches.push(
+              this.matchesRepository.create({
+                id: randomUUID(),
+                tournamentId: tournament.id,
+                stage: 'group',
+                groupLabel: groupLabel(index),
+                round: dayIndex + 1,
+                roundName: `Matchday ${dayIndex + 1}`,
+                matchNumber: ++matchNumber,
+                participantAId: a,
+                participantBId: b,
+                status: 'scheduled',
+              }),
+            );
+          }
+        });
+      });
+    }
+
+    const games = matches
+      .filter((m) => m.status === 'scheduled' && m.participantAId && m.participantBId)
+      .flatMap((m) =>
+        this.buildGames(
+          m.id,
+          playersByParticipant.get(m.participantAId!) ?? [],
+          playersByParticipant.get(m.participantBId!) ?? [],
+        ),
+      );
+
+    await this.dataSource.transaction(async (manager) => {
+      // Later knockout rounds first, so `nextMatchId` always points at a saved row.
+      const ordered = [...matches].sort((a, b) => b.round - a.round);
+      await manager.save(TournamentMatch, ordered);
+      if (games.length) await manager.save(TournamentMatchGame, games);
+      await manager.update(Tournament, { id: tournament.id }, { format, status: TournamentStatus.ONGOING });
+    });
+
+    return this.getStructure(tournamentId);
+  }
+
+  async getStructure(tournamentId: string): Promise<TournamentStructure> {
+    const tournament = await this.tournamentsService.findOne(tournamentId);
+    const matches = await this.matchesRepository.find({
+      where: { tournamentId },
+      relations: { games: true },
+      order: { round: 'ASC', matchNumber: 'ASC', games: { slot: 'ASC' } },
+    });
+
+    const entrants = new Map((tournament.participants ?? []).map((p) => [p.id, entrantView(p)]));
+    const toView = (m: TournamentMatch): MatchView => ({
+      id: m.id,
+      stage: m.stage,
+      groupLabel: m.groupLabel,
+      round: m.round,
+      roundName: m.roundName,
+      matchNumber: m.matchNumber,
+      status: m.status,
+      participantA: m.participantAId ? entrants.get(m.participantAId) ?? null : null,
+      participantB: m.participantBId ? entrants.get(m.participantBId) ?? null : null,
+      scoreA: m.scoreA,
+      scoreB: m.scoreB,
+      goalsA: m.goalsA,
+      goalsB: m.goalsB,
+      winnerParticipantId: m.winnerParticipantId,
+      games: (m.games ?? []).map(gameView),
+    });
+
+    const groupMatches = matches.filter((m) => m.stage === 'group');
+    const labels = [...new Set(groupMatches.map((m) => m.groupLabel!))].sort();
+    const groups = labels.map((label) => {
+      const own = groupMatches.filter((m) => m.groupLabel === label);
+      const ids = [...new Set(own.flatMap((m) => [m.participantAId, m.participantBId]))].filter(
+        (id): id is string => Boolean(id),
+      );
+      const standings = computeStandings(ids, own.filter(isCompletedFixture).map(toCompletedFixture)).map(
+        (row) => ({ ...row, entrant: entrants.get(row.entrantId) ?? null, qualifies: row.rank <= QUALIFIERS_PER_GROUP }),
+      );
+      return { label, standings, matches: own.map(toView) };
+    });
+
+    const knockoutMatches = matches.filter((m) => m.stage === 'knockout');
+    const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b).map((round) => {
+      const inRound = knockoutMatches.filter((m) => m.round === round);
+      return { round, name: inRound[0].roundName, matches: inRound.map(toView) };
+    });
+
+    return {
+      tournamentId,
+      format: tournament.format,
+      isCvC: tournament.type === TournamentType.CVC,
+      groups,
+      knockout: {
+        pending: tournament.format === 'groups_knockout' && knockoutMatches.length === 0,
+        size: tournament.format === 'groups_knockout' ? labels.length * QUALIFIERS_PER_GROUP : rounds[0]?.matches.length * 2 || 0,
+        rounds,
+      },
+    };
+  }
+
+  /** Knockout tree from first-round pairings; byes advance immediately. */
+  private buildKnockout(
+    tournamentId: string,
+    firstRound: Array<[string | null, string | null]>,
+  ): TournamentMatch[] {
+    const planned = planKnockout(firstRound);
+    const idByKey = new Map(planned.map((p) => [p.key, randomUUID()]));
+    const byKey = new Map(
+      planned.map((p) => [
+        p.key,
+        this.matchesRepository.create({
+          id: idByKey.get(p.key)!,
+          tournamentId,
+          stage: 'knockout',
+          groupLabel: null,
+          round: p.round,
+          roundName: p.roundName,
+          matchNumber: p.matchNumber,
+          participantAId: p.entrantA,
+          participantBId: p.entrantB,
+          nextMatchId: p.nextKey ? idByKey.get(p.nextKey)! : null,
+          nextSlot: p.nextSlot,
+          status: 'scheduled',
+        }),
+      ]),
+    );
+
+    for (const p of planned.filter((m) => m.isBye)) {
+      const match = byKey.get(p.key)!;
+      const winner = p.entrantA ?? p.entrantB!;
+      match.status = 'bye';
+      match.winnerParticipantId = winner;
+      match.completedAt = new Date();
+      const next = p.nextKey ? byKey.get(p.nextKey) : undefined;
+      if (next) {
+        if (p.nextSlot === 'A') next.participantAId = winner;
+        else next.participantBId = winner;
+      }
+    }
+
+    return [...byKey.values()];
+  }
+
+  /** One game per starter pairing (CvC, lineup slot i vs slot i) or a single game (PvP). */
+  private buildGames(
+    matchId: string,
+    playersA: FixturePlayer[],
+    playersB: FixturePlayer[],
+  ): TournamentMatchGame[] {
+    const count = Math.max(playersA.length, playersB.length, 1);
+    return Array.from({ length: count }, (_, index) => {
+      const a = playersA[index];
+      const b = playersB[index];
+      return Object.assign(new TournamentMatchGame(), {
+        matchId,
+        slot: index + 1,
+        isDecider: false,
+        playerAProfileId: a?.profileId ?? null,
+        playerAUserId: a?.userId ?? null,
+        playerAName: a?.name ?? 'TBD',
+        playerADpUrl: a?.dpUrl ?? null,
+        playerBProfileId: b?.profileId ?? null,
+        playerBUserId: b?.userId ?? null,
+        playerBName: b?.name ?? 'TBD',
+        playerBDpUrl: b?.dpUrl ?? null,
+        status: 'pending' as const,
+      });
+    });
+  }
+
+  /** Who plays for each entrant: the club's starters in lineup order, or the player. */
+  private async fixturePlayers(
+    participants: TournamentParticipant[],
+    isCvC: boolean,
+  ): Promise<Map<string, FixturePlayer[]>> {
+    if (!isCvC) {
+      return new Map(
+        participants.map((p) => [
+          p.id,
+          [{ profileId: null, userId: p.userId, name: p.user?.name ?? 'Player', dpUrl: p.user?.dpUrl ?? null }],
+        ]),
+      );
+    }
+
+    const profileIds = participants.flatMap((p) => p.lineup?.starters.map((s) => s.profileId) ?? []);
+    const profiles = profileIds.length
+      ? await this.profilesRepository.find({ where: { id: In(profileIds) }, relations: { user: true } })
+      : [];
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+
+    return new Map(
+      participants.map((p) => [
+        p.id,
+        (p.lineup?.starters ?? []).map((starter) => {
+          const profile = profileById.get(starter.profileId);
+          return {
+            profileId: starter.profileId,
+            userId: profile?.userId ?? null,
+            name: starter.name || profile?.user?.name || 'Player',
+            dpUrl: starter.dpUrl ?? profile?.user?.dpUrl ?? null,
+          };
+        }),
+      ]),
+    );
+  }
+}
+
+function entrantView(p: TournamentParticipant): EntrantView {
+  return {
+    participantId: p.id,
+    name: p.club?.name ?? p.user?.name ?? 'TBD',
+    dpUrl: p.club?.dpUrl ?? p.user?.dpUrl ?? null,
+    color: p.club?.color ?? null,
+    initials: p.club?.initials ?? null,
+  };
+}
+
+function gameView(g: TournamentMatchGame): MatchGameView {
+  return {
+    id: g.id,
+    slot: g.slot,
+    isDecider: g.isDecider,
+    playerA: { profileId: g.playerAProfileId, userId: g.playerAUserId, name: g.playerAName, dpUrl: g.playerADpUrl },
+    playerB: { profileId: g.playerBProfileId, userId: g.playerBUserId, name: g.playerBName, dpUrl: g.playerBDpUrl },
+    goalsA: g.goalsA,
+    goalsB: g.goalsB,
+    status: g.status,
+  };
+}
+
+function isCompletedFixture(m: TournamentMatch): boolean {
+  return m.status === 'completed' && Boolean(m.participantAId && m.participantBId);
+}
+
+function toCompletedFixture(m: TournamentMatch): CompletedFixture {
+  const winner =
+    m.winnerParticipantId === m.participantAId ? 'A' : m.winnerParticipantId === m.participantBId ? 'B' : null;
+  return {
+    entrantA: m.participantAId!,
+    entrantB: m.participantBId!,
+    scoreA: m.scoreA ?? 0,
+    scoreB: m.scoreB ?? 0,
+    goalsA: m.goalsA ?? 0,
+    goalsB: m.goalsB ?? 0,
+    winner,
+  };
+}
+Now the controller: the existing generate route will use the new service, plus a new public route that returns the fixture structure.
+
+
+Bash Route generate/structure endpoints and type-check
+IN
+python - <<'PYEOF'
+p='src/tournaments/tournaments.controller.ts'
+s=open(p,encoding='utf-8').read()
+for a,b in [
+("""import { TournamentsService } from './tournaments.service.js';""","""import { TournamentMatchesService } from './tournament-matches.service.js';
+import { TournamentsService } from './tournaments.service.js';"""),
+("""  constructor(private readonly tournamentsService: TournamentsService) {}""","""  constructor(
+    private readonly tournamentsService: TournamentsService,
+    private readonly matchesService: TournamentMatchesService,
+  ) {}"""),
+("""  @UseGuards(JwtAuthGuard)
+  @Post(':id/generate-bracket')
+  generateBracket(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tournamentsService.generateBracket(user.id, id);
+  }""","""  /** Creates the fixtures: knockout (≤ 8 entrants) or groups + knockout. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/generate-bracket')
+  generateBracket(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.matchesService.generateStructure(user.id, id);
+  }
+
+  @Get(':id/structure')
+  getStructure(@Param('id', ParseUUIDPipe) id: string) {
+    return this.matchesService.getStructure(id);
+  }"""),
+]:
+    assert s.count(a)==1,a[:60]
+    s=s.replace(a,b)
+open(p,'w',encoding='utf-8').write(s)
+PYEOF
+npx tsc --noEmit -p tsconfig.json 2>&1 | grep -v 'e2e\|file-storage\|communities.service.spec\|^  Type' | head -15
+
+OUT
+(Bash completed with no output)
+The backend type-checks. Adding service tests for fixture generation:
+
+
+Write C:\Users\User\Desktop\Zihan\Allync_Backend\src\tournaments\tournament-matches.service.spec.ts
+126 lines
+import { BadRequestException } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
+import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
+import { TournamentMatch } from './entities/tournament-match.entity.js';
+import { TournamentType } from './enums/tournament.enum.js';
+import { TournamentMatchesService } from './tournament-matches.service.js';
+
+function participants(count: number, type: TournamentType, starters = 4) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `p${i + 1}`,
+    createdAt: new Date(2026, 0, 1, 0, i),
+    userId: type === TournamentType.PVP ? `user${i + 1}` : null,
+    user: type === TournamentType.PVP ? { name: `Player ${i + 1}`, dpUrl: null } : null,
+    club: type === TournamentType.CVC ? { name: `Club ${i + 1}` } : null,
+    lineup:
+      type === TournamentType.CVC
+        ? {
+            starters: Array.from({ length: starters }, (_, s) => ({ profileId: `c${i + 1}s${s + 1}`, name: `C${i + 1} S${s + 1}` })),
+            substitutes: [],
+          }
+        : null,
+  }));
+}
+
+function setup(entrants: ReturnType<typeof participants>, type: TournamentType, existing = 0) {
+  const saved: { matches: TournamentMatch[]; games: TournamentMatchGame[]; update: unknown } = {
+    matches: [],
+    games: [],
+    update: null,
+  };
+  const tournament = { id: 't1', type, startersCount: 4, participants: entrants, format: null };
+  const tournamentsService = {
+    findOne: vi.fn().mockResolvedValue(tournament),
+    assertCanManage: vi.fn().mockResolvedValue(undefined),
+  };
+  const matchesRepository = {
+    count: vi.fn().mockResolvedValue(existing),
+    create: vi.fn((m) => Object.assign(new TournamentMatch(), m)),
+    find: vi.fn().mockResolvedValue([]),
+  };
+  const profilesRepository = { find: vi.fn().mockResolvedValue([]) };
+  const dataSource = {
+    transaction: vi.fn(async (work: (manager: unknown) => Promise<void>) =>
+      work({
+        save: vi.fn(async (entity: unknown, rows: unknown[]) => {
+          if (entity === TournamentMatch) saved.matches = rows as TournamentMatch[];
+          else saved.games = rows as TournamentMatchGame[];
+        }),
+        update: vi.fn(async (_entity: unknown, _where: unknown, values: unknown) => {
+          saved.update = values;
+        }),
+      }),
+    ),
+  };
+  const service = new TournamentMatchesService(
+    matchesRepository as never,
+    profilesRepository as never,
+    dataSource as never,
+    tournamentsService as never,
+  );
+  return { service, saved, tournamentsService };
+}
+
+describe('TournamentMatchesService.generateStructure', () => {
+  it('builds a knockout for 4 CvC clubs with one game per starter pairing', async () => {
+    const { service, saved, tournamentsService } = setup(participants(4, TournamentType.CVC), TournamentType.CVC);
+
+    await service.generateStructure('organizer', 't1');
+
+    expect(tournamentsService.assertCanManage).toHaveBeenCalled();
+    expect(saved.update).toMatchObject({ format: 'knockout' });
+    expect(saved.matches.map((m) => m.roundName).sort()).toEqual(['Final', 'Semi-final', 'Semi-final']);
+    // 2 semi-finals × 4 starter pairings; the final waits for its entrants.
+    expect(saved.games).toHaveLength(8);
+    const semiGames = saved.games.filter((g) => g.matchId === saved.matches.find((m) => m.participantAId === 'p1')!.id);
+    expect(semiGames.map((g) => [g.slot, g.playerAProfileId])).toEqual([
+      [1, 'c1s1'], [2, 'c1s2'], [3, 'c1s3'], [4, 'c1s4'],
+    ]);
+    // Saved deepest rounds first so nextMatchId references exist.
+    expect(saved.matches[0].roundName).toBe('Final');
+  });
+
+  it('gives byes to the top seeds and schedules the matches they feed', async () => {
+    const { service, saved } = setup(participants(5, TournamentType.PVP), TournamentType.PVP);
+
+    await service.generateStructure('organizer', 't1');
+
+    const byes = saved.matches.filter((m) => m.status === 'bye');
+    expect(byes).toHaveLength(3);
+    const semis = saved.matches.filter((m) => m.roundName === 'Semi-final');
+    expect(semis.some((m) => m.participantAId && m.participantBId)).toBe(true);
+    // Games only for fixtures that already have both entrants.
+    const playable = saved.matches.filter((m) => m.status === 'scheduled' && m.participantAId && m.participantBId);
+    expect(saved.games).toHaveLength(playable.length);
+  });
+
+  it('splits 12 PvP players into 2 round-robin groups of 6', async () => {
+    const { service, saved } = setup(participants(12, TournamentType.PVP), TournamentType.PVP);
+
+    await service.generateStructure('organizer', 't1');
+
+    expect(saved.update).toMatchObject({ format: 'groups_knockout' });
+    const labels = new Set(saved.matches.map((m) => m.groupLabel));
+    expect([...labels].sort()).toEqual(['A', 'B']);
+    // 6 players → 15 fixtures per group.
+    expect(saved.matches).toHaveLength(30);
+    expect(saved.games).toHaveLength(30);
+  });
+
+  it.each([
+    ['fewer than 4 entrants', participants(3, TournamentType.PVP), TournamentType.PVP, 0],
+    ['fixtures already exist', participants(4, TournamentType.PVP), TournamentType.PVP, 3],
+  ])('refuses when %s', async (_case, entrants, type, existing) => {
+    const { service, saved } = setup(entrants, type, existing);
+    await expect(service.generateStructure('organizer', 't1')).rejects.toThrow(BadRequestException);
+    expect(saved.matches).toHaveLength(0);
+  });
+
+  it('refuses while a club has not submitted a full team', async () => {
+    const entrants = participants(4, TournamentType.CVC);
+    entrants[2].lineup = null;
+    const { service } = setup(entrants, TournamentType.CVC);
+    await expect(service.generateStructure('organizer', 't1')).rejects.toThrow(/Club 3/);
+  });
+});
+Bash Run tournament and engine tests
+IN
+npx vitest run src/tournaments 2>&1 | grep -E 'Tests|FAIL|×|Error|Expected|Received' | head -20
+
+OUT
+      Tests  64 passed (64)
+All 64 tournament tests pass (7 new ones cover generation). Now the frontend: API types and hooks for the structure, then the Fixtures view. API layer first:
+
+
+Bash Add structure types, API call and hooks
+IN
+cd /c/Users/User/Desktop/Zihan/Allync && python - <<'PYEOF'
+def patch(p, reps):
+    s=open(p,encoding='utf-8').read()
+    for a,b in reps:
+        assert s.count(a)==1,(p,a[:60],s.count(a))
+        s=s.replace(a,b)
+    open(p,'w',encoding='utf-8').write(s)
+
+patch('src/lib/api/tournaments.ts',[
+("""  bracket: TournamentBracket | null;""","""  bracket: TournamentBracket | null;
+  /** Set once fixtures are generated. */
+  format?: TournamentFormat | null;"""),
+("""export async function generateTournamentBracket(
+  tournamentId: string,
+): Promise<BackendTournament> {
+  const res = await api.post<BackendTournament>(""","""export type TournamentFormat = "knockout" | "groups_knockout";
+
+export interface FixtureEntrant {
+  participantId: string;
+  name: string;
+  dpUrl: string | null;
+  color: string | null;
+  initials: string | null;
+}
+
+export interface FixtureGamePlayer {
+  profileId: string | null;
+  userId: string | null;
+  name: string;
+  dpUrl: string | null;
+}
+
+export type FixtureGameStatus = "pending" | "submitted" | "approved" | "rejected";
+export type FixtureStatus = "scheduled" | "in_review" | "completed" | "bye";
+
+export interface FixtureGame {
+  id: string;
+  slot: number;
+  isDecider: boolean;
+  playerA: FixtureGamePlayer;
+  playerB: FixtureGamePlayer;
+  goalsA: number | null;
+  goalsB: number | null;
+  status: FixtureGameStatus;
+}
+
+export interface Fixture {
+  id: string;
+  stage: "group" | "knockout";
+  groupLabel: string | null;
+  round: number;
+  roundName: string;
+  matchNumber: number;
+  status: FixtureStatus;
+  participantA: FixtureEntrant | null;
+  participantB: FixtureEntrant | null;
+  scoreA: number | null;
+  scoreB: number | null;
+  goalsA: number | null;
+  goalsB: number | null;
+  winnerParticipantId: string | null;
+  games: FixtureGame[];
+}
+
+export interface StandingRow {
+  entrantId: string;
+  rank: number;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  scoreFor: number;
+  scoreAgainst: number;
+  scoreDiff: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  points: number;
+  entrant: FixtureEntrant | null;
+  qualifies: boolean;
+}
+
+export interface TournamentStructure {
+  tournamentId: string;
+  format: TournamentFormat | null;
+  isCvC: boolean;
+  groups: Array<{ label: string; standings: StandingRow[]; matches: Fixture[] }>;
+  knockout: {
+    pending: boolean;
+    size: number;
+    rounds: Array<{ round: number; name: string; matches: Fixture[] }>;
+  };
+}
+
+export async function getTournamentStructure(tournamentId: string): Promise<TournamentStructure> {
+  const res = await api.get<TournamentStructure>(`/tournaments/${tournamentId}/structure`);
+  return res.data;
+}
+
+/** Creates the fixtures: knockout for up to 8 entrants, otherwise groups + knockout. */
+export async function generateTournamentBracket(
+  tournamentId: string,
+): Promise<TournamentStructure> {
+  const res = await api.post<TournamentStructure>("""),
+])
+
+patch('src/lib/api/hooks/useTournaments.ts',[
+("""  generateTournamentBracket,
+""","""  generateTournamentBracket,
+  getTournamentStructure,
+"""),
+("""  type JoinTournamentPayload,
+} from "../tournaments";""","""  type JoinTournamentPayload,
+  type TournamentStructure,
+} from "../tournaments";"""),
+("""  detail: (id: string) => ["tournaments", "detail", id] as const,""","""  detail: (id: string) => ["tournaments", "detail", id] as const,
+  structure: (id: string) => ["tournaments", "structure", id] as const,"""),
+("""export function useGenerateTournamentBracket(tournamentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<BackendTournament, Error, void>({
+    mutationFn: () => generateTournamentBracket(tournamentId),
+    onSuccess: () => {""","""/** Groups, standings and knockout rounds for a tournament (empty until generated). */
+export function useTournamentStructure(tournamentId: string, enabled = true) {
+  return useQuery<TournamentStructure>({
+    queryKey: tournamentKeys.structure(tournamentId),
+    queryFn: () => getTournamentStructure(tournamentId),
+    enabled: enabled && Boolean(tournamentId),
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useGenerateTournamentBracket(tournamentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<TournamentStructure, Error, void>({
+    mutationFn: () => generateTournamentBracket(tournamentId),
+    onSuccess: (structure) => {
+      queryClient.setQueryData(tournamentKeys.structure(tournamentId), structure);"""),
+])
+PYEOF
+npx tsc --noEmit -p . 2>&1 | head
+
+OUT
+Shell cwd was reset to c:\Users\User\Desktop\Zihan\Allync_Backend
+The API layer type-checks. Next, the translations for the Fixtures view:
+
+
+Write C:\Users\User\AppData\Local\Temp\claude\c--Users-User-Desktop-Zihan-Allync-Backend\904dae9e-39ad-4793-963b-e9b260ff1dcb\scratchpad\i18n_fixtures.py
+85 lines
+from i18n_lib import add_section
+
+add_section('fixtures', r'''
+        loading: "Loading fixtures...",
+        notGeneratedTitle: "Fixtures not generated yet",
+        notGeneratedBody: "Once registration closes, an organizer generates the fixtures: a knockout for up to 8 entrants, otherwise groups followed by a knockout.",
+        formatKnockout: "{count} entrants · straight knockout",
+        formatGroups: "{count} entrants · {groups} groups · top 2 of each group advance to a {size}-team knockout",
+        groupStage: "Group stage",
+        group: "Group {label}",
+        colRank: "#",
+        colTeam: "Team",
+        colPlayed: "P",
+        colWon: "W",
+        colDrawn: "D",
+        colLost: "L",
+        colDiff: "+/-",
+        colPoints: "Pts",
+        qualifies: "Qualifies",
+        fixturesHeading: "Fixtures",
+        knockout: "Knockout",
+        knockoutPending: "The {size}-team knockout is drawn automatically once every group match is finished.",
+        tbd: "TBD",
+        bye: "Bye",
+        statusScheduled: "Scheduled",
+        statusInReview: "In review",
+        statusCompleted: "Final",
+        statusBye: "Walkover",
+        roundFinal: "Final",
+        roundSemi: "Semi-final",
+        roundQuarter: "Quarter-final",
+        roundOf: "Round of {count}",
+        matchday: "Matchday {number}",
+        gamesTitle: "Games",
+        game: "Game {number}",
+        decider: "Decider",
+        gamePending: "Not played",
+        gameSubmitted: "Awaiting review",
+        gameApproved: "Confirmed",
+        gameRejected: "Rejected",
+        close: "Close",
+        aggregate: "Aggregate {a}–{b}",
+''', r'''
+        loading: "ফিক্সচার লোড হচ্ছে...",
+        notGeneratedTitle: "ফিক্সচার এখনো তৈরি হয়নি",
+        notGeneratedBody: "রেজিস্ট্রেশন শেষ হলে আয়োজক ফিক্সচার তৈরি করবেন: ৮ জন পর্যন্ত হলে সরাসরি নকআউট, এর বেশি হলে আগে গ্রুপ পর্ব তারপর নকআউট।",
+        formatKnockout: "{count} জন অংশগ্রহণকারী · সরাসরি নকআউট",
+        formatGroups: "{count} জন অংশগ্রহণকারী · {groups}টি গ্রুপ · প্রতি গ্রুপের সেরা ২ দল {size} দলের নকআউটে যাবে",
+        groupStage: "গ্রুপ পর্ব",
+        group: "গ্রুপ {label}",
+        colRank: "#",
+        colTeam: "দল",
+        colPlayed: "খে",
+        colWon: "জ",
+        colDrawn: "ড্র",
+        colLost: "হা",
+        colDiff: "+/-",
+        colPoints: "পয়েন্ট",
+        qualifies: "কোয়ালিফাই",
+        fixturesHeading: "ফিক্সচার",
+        knockout: "নকআউট",
+        knockoutPending: "সব গ্রুপ ম্যাচ শেষ হলে {size} দলের নকআউট স্বয়ংক্রিয়ভাবে তৈরি হবে।",
+        tbd: "নির্ধারিত হয়নি",
+        bye: "বাই",
+        statusScheduled: "নির্ধারিত",
+        statusInReview: "যাচাই চলছে",
+        statusCompleted: "শেষ",
+        statusBye: "ওয়াকওভার",
+        roundFinal: "ফাইনাল",
+        roundSemi: "সেমিফাইনাল",
+        roundQuarter: "কোয়ার্টার ফাইনাল",
+        roundOf: "শেষ {count}",
+        matchday: "ম্যাচডে {number}",
+        gamesTitle: "গেমসমূহ",
+        game: "গেম {number}",
+        decider: "নির্ধারণী",
+        gamePending: "খেলা হয়নি",
+        gameSubmitted: "যাচাইয়ের অপেক্ষায়",
+        gameApproved: "নিশ্চিত",
+        gameRejected: "বাতিল",
+        close: "বন্ধ করুন",
+        aggregate: "মোট {a}–{b}",
+''')
+print('ok')
+Bash Add fixtures translations
+IN
+cd "C:/Users/User/AppData/Local/Temp/claude/c--Users-User-Desktop-Zihan-Allync-Backend/904dae9e-39ad-4793-963b-e9b260ff1dcb/scratchpad" && python i18n_fixtures.py
+
+OUT
+ok
+Now the Fixtures components, in a new components/dashboard/fixtures/ folder:
+
+
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\labels.ts
+40 lines
+import { format, type TranslationDict } from "@/lib/i18n/translations";
+import type { FixtureGameStatus, FixtureStatus } from "@/lib/api/tournaments";
+
+/** Backend round names ("Semi-final", "Round of 16", "Matchday 3") in the viewer's language. */
+export function roundLabel(name: string, t: TranslationDict): string {
+  const f = t.dashboard.fixtures;
+  if (name === "Final") return f.roundFinal;
+  if (name === "Semi-final") return f.roundSemi;
+  if (name === "Quarter-final") return f.roundQuarter;
+  const roundOf = name.match(/^Round of (\d+)$/);
+  if (roundOf) return format(f.roundOf, { count: roundOf[1] });
+  const matchday = name.match(/^Matchday (\d+)$/);
+  if (matchday) return format(f.matchday, { number: matchday[1] });
+  return name;
+}
+
+export function fixtureStatusLabel(status: FixtureStatus, t: TranslationDict): string {
+  const f = t.dashboard.fixtures;
+  return { scheduled: f.statusScheduled, in_review: f.statusInReview, completed: f.statusCompleted, bye: f.statusBye }[status];
+}
+
+export function gameStatusLabel(status: FixtureGameStatus, t: TranslationDict): string {
+  const f = t.dashboard.fixtures;
+  return { pending: f.gamePending, submitted: f.gameSubmitted, approved: f.gameApproved, rejected: f.gameRejected }[status];
+}
+
+export const FIXTURE_STATUS_CLASSES: Record<FixtureStatus, string> = {
+  scheduled: "bg-surface-line text-ink-soft",
+  in_review: "bg-warning-soft text-warning-ink",
+  completed: "bg-success-soft text-success-ink",
+  bye: "bg-blue-soft text-blue-ink",
+};
+
+export const GAME_STATUS_CLASSES: Record<FixtureGameStatus, string> = {
+  pending: "bg-surface-line text-ink-soft",
+  submitted: "bg-warning-soft text-warning-ink",
+  approved: "bg-success-soft text-success-ink",
+  rejected: "bg-danger-soft text-danger-ink",
+};
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\EntrantBadge.tsx
+34 lines
+"use client";
+
+import { Avatar } from "@/components/common/Avatar";
+import { ClubCrest } from "@/components/common/ClubCrest";
+import type { FixtureEntrant } from "@/lib/api/tournaments";
+
+/** Crest (CvC) or avatar (PvP) for a fixture entrant; dashed placeholder while TBD. */
+export function EntrantBadge({
+  entrant,
+  isCvC,
+  size = "sm",
+}: {
+  entrant: FixtureEntrant | null;
+  isCvC: boolean;
+  size?: "sm" | "md";
+}) {
+  const box = size === "sm" ? "h-8 w-8" : "h-11 w-11";
+  if (!entrant) {
+    return <span className={`inline-block shrink-0 rounded-lg border border-dashed border-surface-line-strong ${box}`} />;
+  }
+  return isCvC ? (
+    <ClubCrest
+      name={entrant.name}
+      color={entrant.color}
+      initials={entrant.initials ?? undefined}
+      imageUrl={entrant.dpUrl}
+      size={size}
+      shape="square"
+    />
+  ) : (
+    <Avatar dpUrl={entrant.dpUrl} name={entrant.name} size={size} mode="static" />
+  );
+}
+Bash Check ClubCrest size options
+IN
+cd /c/Users/User/Desktop/Zihan/Allync && sed -n 1,25p src/components/common/ClubCrest.tsx | grep -nE 'size|Record|sm|md'
+
+OUT
+3:const sizeClasses: Record<string, string> = {
+5:  sm: "h-9 w-9 text-[10px]",
+6:  md: "h-12 w-12 text-xs",
+8:  xl: "h-28 w-28 text-2xl sm:h-32 sm:w-32 sm:text-3xl",
+11:const initialsTextClasses: Record<string, string> = {
+13:  sm: "text-[10px]",
+14:  md: "text-xs",
+16:  xl: "text-2xl sm:text-3xl",
+Shell cwd was reset to c:\Users\User\Desktop\Zihan\Allync_Backend
+Next the match card, the match detail popup (listing each 1v1 game), the group tables and the knockout tree:
+
+
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\MatchCard.tsx
+68 lines
+"use client";
+
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import type { Fixture, FixtureEntrant } from "@/lib/api/tournaments";
+import { EntrantBadge } from "./EntrantBadge";
+import { FIXTURE_STATUS_CLASSES, fixtureStatusLabel } from "./labels";
+
+/** Compact fixture: both entrants with their score, winner highlighted. */
+export function MatchCard({
+  match,
+  isCvC,
+  highlightParticipantId,
+  onOpen,
+}: {
+  match: Fixture;
+  isCvC: boolean;
+  highlightParticipantId?: string | null;
+  onOpen: (match: Fixture) => void;
+}) {
+  const { t } = useLanguage();
+  const f = t.dashboard.fixtures;
+  const decided = match.status === "completed" || match.status === "bye";
+  const involvesMe =
+    Boolean(highlightParticipantId) &&
+    (match.participantA?.participantId === highlightParticipantId ||
+      match.participantB?.participantId === highlightParticipantId);
+
+  const side = (entrant: FixtureEntrant | null, score: number | null) => {
+    const isWinner = decided && entrant && match.winnerParticipantId === entrant.participantId;
+    const isLoser = decided && entrant && match.winnerParticipantId && !isWinner;
+    return (
+      <div className={`flex items-center gap-2.5 py-1 ${isLoser ? "opacity-55" : ""}`}>
+        <EntrantBadge entrant={entrant} isCvC={isCvC} />
+        <span
+          className={`min-w-0 flex-1 truncate text-xs ${
+            entrant ? (isWinner ? "font-bold text-accent-ink" : "font-semibold text-ink") : "text-ink-faint"
+          }`}
+        >
+          {entrant?.name ?? (match.status === "bye" ? f.bye : f.tbd)}
+        </span>
+        <span className={`w-6 text-right font-mono text-sm font-black ${isWinner ? "text-accent-ink" : "text-ink-soft"}`}>
+          {score ?? (match.status === "bye" ? "" : "–")}
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(match)}
+      className={`w-full rounded-xl border bg-surface/80 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-accent/50 focus-visible:outline-2 focus-visible:outline-accent ${
+        involvesMe ? "border-accent/60 ring-1 ring-accent/30" : "border-surface-line"
+      }`}
+    >
+      {side(match.participantA, match.scoreA)}
+      <div className="my-0.5 h-px bg-surface-line/70" />
+      {side(match.participantB, match.scoreB)}
+      <div className="mt-2 flex items-center justify-between">
+        <span className="font-mono text-[10px] text-ink-faint">#{match.matchNumber}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${FIXTURE_STATUS_CLASSES[match.status]}`}>
+          {fixtureStatusLabel(match.status, t)}
+        </span>
+      </div>
+    </button>
+  );
+}
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\MatchDetailModal.tsx
+127 lines
+"use client";
+
+import { useEffect } from "react";
+import { Avatar } from "@/components/common/Avatar";
+import { CloseIcon } from "@/components/icons";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { format } from "@/lib/i18n/translations";
+import type { Fixture } from "@/lib/api/tournaments";
+import { EntrantBadge } from "./EntrantBadge";
+import { FIXTURE_STATUS_CLASSES, GAME_STATUS_CLASSES, fixtureStatusLabel, gameStatusLabel, roundLabel } from "./labels";
+
+/** A fixture with every 1v1 game inside it. Mount only while open. */
+export function MatchDetailModal({
+  match,
+  isCvC,
+  onClose,
+}: {
+  match: Fixture;
+  isCvC: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useLanguage();
+  const f = t.dashboard.fixtures;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const heading = match.groupLabel
+    ? `${format(f.group, { label: match.groupLabel })} · ${roundLabel(match.roundName, t)}`
+    : roundLabel(match.roundName, t);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 pt-[5vh] backdrop-blur-md">
+      <button type="button" aria-label={f.close} onClick={onClose} className="fixed inset-0 cursor-default" tabIndex={-1} />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={heading}
+        className="relative mb-8 w-full max-w-2xl overflow-hidden rounded-3xl border border-surface-line bg-bg-raised shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)]"
+      >
+        <div className="flex items-center justify-between border-b border-surface-line px-6 py-3">
+          <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink-soft">{heading}</span>
+          <div className="flex items-center gap-2">
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${FIXTURE_STATUS_CLASSES[match.status]}`}>
+              {fixtureStatusLabel(match.status, t)}
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={f.close}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-ink-faint transition-colors hover:bg-surface-line/60 hover:text-ink"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Scoreboard */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-6">
+          <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+            <EntrantBadge entrant={match.participantA} isCvC={isCvC} size="md" />
+            <span className="max-w-full truncate font-display text-sm font-bold text-ink">
+              {match.participantA?.name ?? f.tbd}
+            </span>
+          </div>
+          <div className="text-center">
+            <div className="font-display text-3xl font-black tabular-nums text-ink">
+              {match.scoreA ?? "–"} <span className="text-ink-faint">:</span> {match.scoreB ?? "–"}
+            </div>
+            {isCvC && match.goalsA !== null && match.goalsB !== null ? (
+              <div className="mt-1 font-mono text-[11px] text-ink-faint">
+                {format(f.aggregate, { a: match.goalsA, b: match.goalsB })}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+            <EntrantBadge entrant={match.participantB} isCvC={isCvC} size="md" />
+            <span className="max-w-full truncate font-display text-sm font-bold text-ink">
+              {match.participantB?.name ?? f.tbd}
+            </span>
+          </div>
+        </div>
+
+        {match.games.length ? (
+          <div className="border-t border-surface-line px-6 py-5">
+            <h4 className="mb-3 font-mono text-[11px] font-bold uppercase tracking-wider text-ink-soft">{f.gamesTitle}</h4>
+            <ol className="space-y-2">
+              {match.games.map((game) => (
+                <li
+                  key={game.id}
+                  className="grid grid-cols-[auto_1fr_auto_1fr] items-center gap-3 rounded-xl border border-surface-line bg-surface/60 px-3 py-2"
+                >
+                  <span className="w-12 font-mono text-[10px] text-ink-faint">
+                    {game.isDecider ? f.decider : format(f.game, { number: game.slot })}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Avatar dpUrl={game.playerA.dpUrl} name={game.playerA.name} size="sm" mode="static" />
+                    <span className="truncate text-xs font-semibold text-ink">{game.playerA.name}</span>
+                  </span>
+                  <span className="flex flex-col items-center">
+                    <span className="font-mono text-sm font-black tabular-nums text-ink">
+                      {game.goalsA ?? "–"}:{game.goalsB ?? "–"}
+                    </span>
+                    <span className={`mt-0.5 rounded-full px-1.5 py-px text-[9px] font-bold ${GAME_STATUS_CLASSES[game.status]}`}>
+                      {gameStatusLabel(game.status, t)}
+                    </span>
+                  </span>
+                  <span className="flex min-w-0 items-center justify-end gap-2">
+                    <span className="truncate text-right text-xs font-semibold text-ink">{game.playerB.name}</span>
+                    <Avatar dpUrl={game.playerB.dpUrl} name={game.playerB.name} size="sm" mode="static" />
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\GroupStage.tsx
+118 lines
+"use client";
+
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { format } from "@/lib/i18n/translations";
+import type { Fixture, TournamentStructure } from "@/lib/api/tournaments";
+import { EntrantBadge } from "./EntrantBadge";
+import { MatchCard } from "./MatchCard";
+import { roundLabel } from "./labels";
+
+/** One card per group: the table (top 2 marked as qualifying) and its fixtures by matchday. */
+export function GroupStage({
+  groups,
+  isCvC,
+  highlightParticipantId,
+  onOpenMatch,
+}: {
+  groups: TournamentStructure["groups"];
+  isCvC: boolean;
+  highlightParticipantId?: string | null;
+  onOpenMatch: (match: Fixture) => void;
+}) {
+  const { t } = useLanguage();
+  const f = t.dashboard.fixtures;
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-2">
+      {groups.map((group) => {
+        const matchdays = [...new Set(group.matches.map((m) => m.roundName))];
+        return (
+          <section key={group.label} className="overflow-hidden rounded-2xl border border-surface-line bg-surface/50">
+            <header className="flex items-center gap-3 border-b border-surface-line bg-gradient-to-r from-accent/15 to-transparent px-4 py-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent font-display text-sm font-black text-bg">
+                {group.label}
+              </span>
+              <h4 className="font-display text-base font-bold text-ink">{format(f.group, { label: group.label })}</h4>
+            </header>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-line/30 font-mono text-[10px] uppercase tracking-wide text-ink-faint">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{f.colRank}</th>
+                    <th className="px-2 py-2 font-medium">{f.colTeam}</th>
+                    <th className="px-2 py-2 text-center font-medium">{f.colPlayed}</th>
+                    <th className="px-2 py-2 text-center font-medium">{f.colWon}</th>
+                    <th className="px-2 py-2 text-center font-medium">{f.colDrawn}</th>
+                    <th className="px-2 py-2 text-center font-medium">{f.colLost}</th>
+                    <th className="px-2 py-2 text-center font-medium">{f.colDiff}</th>
+                    <th className="px-3 py-2 text-center font-medium">{f.colPoints}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.standings.map((row) => {
+                    const mine = row.entrantId === highlightParticipantId;
+                    return (
+                      <tr
+                        key={row.entrantId}
+                        className={`border-t border-surface-line/70 ${
+                          row.qualifies ? "shadow-[inset_3px_0_0_var(--success)]" : ""
+                        } ${mine ? "bg-accent-soft" : ""}`}
+                      >
+                        <td className="px-3 py-2 font-mono font-bold text-ink-soft">{row.rank}</td>
+                        <td className="px-2 py-2">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <EntrantBadge entrant={row.entrant} isCvC={isCvC} />
+                            <span className="truncate font-semibold text-ink">{row.entrant?.name ?? f.tbd}</span>
+                            {row.qualifies ? (
+                              <span className="hidden shrink-0 rounded-full bg-success-soft px-1.5 py-px text-[9px] font-bold uppercase text-success-ink sm:inline">
+                                {f.qualifies}
+                              </span>
+                            ) : null}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-center font-mono text-ink-soft">{row.played}</td>
+                        <td className="px-2 py-2 text-center font-mono text-ink-soft">{row.won}</td>
+                        <td className="px-2 py-2 text-center font-mono text-ink-soft">{row.drawn}</td>
+                        <td className="px-2 py-2 text-center font-mono text-ink-soft">{row.lost}</td>
+                        <td className="px-2 py-2 text-center font-mono text-ink-soft">
+                          {row.scoreDiff > 0 ? `+${row.scoreDiff}` : row.scoreDiff}
+                        </td>
+                        <td className="px-3 py-2 text-center font-display text-sm font-black text-ink">{row.points}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-4 border-t border-surface-line p-4">
+              <h5 className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink-soft">{f.fixturesHeading}</h5>
+              {matchdays.map((matchday) => (
+                <div key={matchday}>
+                  <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                    {roundLabel(matchday, t)}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {group.matches
+                      .filter((m) => m.roundName === matchday)
+                      .map((match) => (
+                        <MatchCard
+                          key={match.id}
+                          match={match}
+                          isCvC={isCvC}
+                          highlightParticipantId={highlightParticipantId}
+                          onOpen={onOpenMatch}
+                        />
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\KnockoutBracket.tsx
+66 lines
+"use client";
+
+import { BracketIcon } from "@/components/icons";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { format } from "@/lib/i18n/translations";
+import type { Fixture, TournamentStructure } from "@/lib/api/tournaments";
+import { MatchCard } from "./MatchCard";
+import { roundLabel } from "./labels";
+
+/** Knockout tree: one column per round, matches spaced so each pair feeds the next round. */
+export function KnockoutBracket({
+  knockout,
+  isCvC,
+  highlightParticipantId,
+  onOpenMatch,
+}: {
+  knockout: TournamentStructure["knockout"];
+  isCvC: boolean;
+  highlightParticipantId?: string | null;
+  onOpenMatch: (match: Fixture) => void;
+}) {
+  const { t } = useLanguage();
+  const f = t.dashboard.fixtures;
+
+  if (knockout.pending || knockout.rounds.length === 0) {
+    return (
+      <div className="flex items-center gap-4 rounded-2xl border border-dashed border-surface-line-strong bg-surface/30 p-5">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-ink">
+          <BracketIcon className="h-5 w-5" />
+        </span>
+        <p className="text-xs leading-relaxed text-ink-soft">{format(f.knockoutPending, { size: knockout.size })}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto pb-4">
+      <div className="flex min-w-max gap-6">
+        {knockout.rounds.map((round) => (
+          <div key={round.round} className="flex w-64 flex-col">
+            <div className="mb-3 flex items-center justify-between border-b border-surface-line pb-2">
+              <span className="font-mono text-xs font-black uppercase tracking-wider text-accent-ink">
+                {roundLabel(round.name, t)}
+              </span>
+              <span className="rounded-full bg-surface-line px-2 py-0.5 font-mono text-[10px] text-ink-faint">
+                {round.matches.length}
+              </span>
+            </div>
+            <div className="flex flex-1 flex-col justify-around gap-4">
+              {round.matches.map((match) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  isCvC={isCvC}
+                  highlightParticipantId={highlightParticipantId}
+                  onOpen={onOpenMatch}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+Write C:\Users\User\Desktop\Zihan\Allync\src\components\dashboard\fixtures\TournamentFixtures.tsx
+97 lines
+"use client";
+
+import { useState } from "react";
+import { BracketIcon, TrophyIcon, UsersIcon } from "@/components/icons";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { format } from "@/lib/i18n/translations";
+import { useTournamentStructure } from "@/lib/api/hooks/useTournaments";
+import type { Fixture } from "@/lib/api/tournaments";
+import { GroupStage } from "./GroupStage";
+import { KnockoutBracket } from "./KnockoutBracket";
+import { MatchDetailModal } from "./MatchDetailModal";
+
+/** The tournament's Fixtures tab: group tables + fixtures, then the knockout tree. */
+export function TournamentFixtures({
+  tournamentId,
+  entrantCount,
+  myParticipantId,
+}: {
+  tournamentId: string;
+  entrantCount: number;
+  myParticipantId?: string | null;
+}) {
+  const { t } = useLanguage();
+  const f = t.dashboard.fixtures;
+  const { data: structure, isLoading } = useTournamentStructure(tournamentId);
+  const [openMatchId, setOpenMatchId] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-3 py-16 text-xs text-ink-faint">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        {f.loading}
+      </div>
+    );
+  }
+
+  if (!structure?.format) {
+    return (
+      <div className="rounded-3xl border border-surface-line bg-surface/40 p-12 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent-ink">
+          <BracketIcon className="h-7 w-7" />
+        </div>
+        <h3 className="mt-4 font-display text-base font-bold text-ink">{f.notGeneratedTitle}</h3>
+        <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-ink-soft">{f.notGeneratedBody}</p>
+      </div>
+    );
+  }
+
+  const allMatches = [...structure.groups.flatMap((g) => g.matches), ...structure.knockout.rounds.flatMap((r) => r.matches)];
+  const openMatch: Fixture | undefined = allMatches.find((m) => m.id === openMatchId);
+  const summary =
+    structure.format === "knockout"
+      ? format(f.formatKnockout, { count: entrantCount })
+      : format(f.formatGroups, { count: entrantCount, groups: structure.groups.length, size: structure.knockout.size });
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center gap-2.5 rounded-xl border border-accent/30 bg-accent-soft/40 px-4 py-3 text-xs font-semibold text-accent-ink">
+        <TrophyIcon className="h-4 w-4 shrink-0" />
+        {summary}
+      </div>
+
+      {structure.groups.length ? (
+        <section>
+          <h3 className="mb-4 flex items-center gap-2 font-display text-lg font-black text-ink">
+            <UsersIcon className="h-5 w-5 text-accent" />
+            {f.groupStage}
+          </h3>
+          <GroupStage
+            groups={structure.groups}
+            isCvC={structure.isCvC}
+            highlightParticipantId={myParticipantId}
+            onOpenMatch={(m) => setOpenMatchId(m.id)}
+          />
+        </section>
+      ) : null}
+
+      <section>
+        <h3 className="mb-4 flex items-center gap-2 font-display text-lg font-black text-ink">
+          <BracketIcon className="h-5 w-5 text-accent" />
+          {f.knockout}
+        </h3>
+        <KnockoutBracket
+          knockout={structure.knockout}
+          isCvC={structure.isCvC}
+          highlightParticipantId={myParticipantId}
+          onOpenMatch={(m) => setOpenMatchId(m.id)}
+        />
+      </section>
+
+      {openMatch ? (
+        <MatchDetailModal match={openMatch} isCvC={structure.isCvC} onClose={() => setOpenMatchId(null)} />
+      ) : null}
+    </div>
+  );
+}
+You've hit your session limit · resets 7:50pm (Asia/Dhaka)

@@ -49,8 +49,8 @@ export class CreateTournamentDto {
 
   @IsOptional()
   @IsInt()
-  @Min(2)
-  @IsDivisibleBy(2, { message: 'maxParticipants must be an even number' })
+  @Min(4)
+  @IsDivisibleBy(4, { message: 'maxParticipants must be a multiple of 4' })
   maxParticipants?: number;
 
   @IsOptional()

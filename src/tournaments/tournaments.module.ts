@@ -7,7 +7,11 @@ import { CommunityMember } from '../communities/entities/community-member.entity
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { Tournament } from './entities/tournament.entity.js';
+import { TournamentGameSubmission } from './entities/tournament-game-submission.entity.js';
+import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
+import { TournamentMatch } from './entities/tournament-match.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
+import { TournamentMatchesService } from './tournament-matches.service.js';
 import { TournamentsController } from './tournaments.controller.js';
 import { TournamentsService } from './tournaments.service.js';
 
@@ -16,6 +20,9 @@ import { TournamentsService } from './tournaments.service.js';
     TypeOrmModule.forFeature([
       Tournament,
       TournamentParticipant,
+      TournamentMatch,
+      TournamentMatchGame,
+      TournamentGameSubmission,
       Community,
       CommunityMember,
       Club,
@@ -25,7 +32,7 @@ import { TournamentsService } from './tournaments.service.js';
     NotificationsModule,
   ],
   controllers: [TournamentsController],
-  providers: [TournamentsService],
+  providers: [TournamentsService, TournamentMatchesService],
   exports: [TournamentsService],
 })
 export class TournamentsModule {}

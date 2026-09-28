@@ -136,7 +136,8 @@ export class TournamentsService {
   /**
    * Resolves preset + roster size for a new tournament. PvP is always 1v1.
    * CvC uses one of the fixed presets (16v16, 12v12, 8v8, 4v4 — 8v8 when
-   * none is given) or a custom roster whose starter count must be even.
+   * none is given) or a custom roster whose starter count is a multiple of 4,
+   * so every fixture splits evenly into 1v1 games.
    */
   private resolveRoster(dto: CreateTournamentDto): {
     preset: TournamentPreset;
@@ -153,10 +154,8 @@ export class TournamentsService {
 
     if (rawPreset === TournamentPreset.CUSTOM) {
       const startersCount = dto.startersCount ?? 0;
-      if (startersCount < 2 || startersCount > 16 || startersCount % 2 !== 0) {
-        throw new BadRequestException(
-          'Custom rosters need an even number of starters between 2 and 16',
-        );
+      if (startersCount < 4 || startersCount > 16 || startersCount % 4 !== 0) {
+        throw new BadRequestException('Custom rosters need 4, 8, 12 or 16 starters');
       }
       return {
         preset: TournamentPreset.CUSTOM,
@@ -396,7 +395,7 @@ export class TournamentsService {
    * Organizers: the tournament creator, the community creator, or the hosting
    * community's President / Vice President.
    */
-  private async assertCanManage(
+  async assertCanManage(
     userId: string,
     tournament: Tournament,
     action: string,
@@ -834,63 +833,4 @@ export class TournamentsService {
     );
   }
 
-  async generateBracket(
-    userId: string,
-    tournamentId: string,
-  ): Promise<Tournament> {
-    const tournament = await this.findOne(tournamentId);
-    await this.assertCanManage(userId, tournament, 'generate brackets');
-
-    const participants = tournament.participants ?? [];
-    if (participants.length < 2) {
-      throw new BadRequestException(
-        'At least 2 participants are required to generate a bracket',
-      );
-    }
-
-    // Build single-elimination tournament bracket
-    const matches: BracketMatch[] = [];
-    const count = participants.length;
-
-    // Determine round name based on participant count
-    let roundName = 'Match';
-    if (count <= 2) roundName = 'Final';
-    else if (count <= 4) roundName = 'Semi-final';
-    else if (count <= 8) roundName = 'Quarter-final';
-    else roundName = 'Round of 16';
-
-    let matchNumber = 1;
-    for (let i = 0; i < participants.length; i += 2) {
-      const pA = participants[i];
-      const pB = participants[i + 1] ?? null;
-
-      matches.push({
-        id: `match-${matchNumber}-${Date.now()}`,
-        round: roundName,
-        matchNumber,
-        participantA: {
-          id: pA.id,
-          name: pA.club?.name ?? pA.user?.name ?? 'Player A',
-          dpUrl: pA.club?.dpUrl ?? pA.user?.dpUrl ?? null,
-          score: null,
-        },
-        participantB: pB
-          ? {
-              id: pB.id,
-              name: pB.club?.name ?? pB.user?.name ?? 'Player B',
-              dpUrl: pB.club?.dpUrl ?? pB.user?.dpUrl ?? null,
-              score: null,
-            }
-          : null,
-        winnerId: pB ? null : pA.id, // Automatic Bye if odd number
-        status: pB ? 'pending' : 'completed',
-      });
-      matchNumber++;
-    }
-
-    tournament.bracket = matches;
-    tournament.status = TournamentStatus.ONGOING;
-
-    return this.tournamentsRepository.save(tournament);
-  }
 }

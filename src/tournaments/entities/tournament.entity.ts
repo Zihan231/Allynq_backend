@@ -17,6 +17,7 @@ import {
   TournamentStatus,
   TournamentType,
 } from '../enums/tournament.enum.js';
+import type { TournamentFormat } from '../bracket/format.js';
 import { TournamentParticipant } from './tournament-participant.entity.js';
 
 export interface BracketMatch {
@@ -89,6 +90,10 @@ export class Tournament {
 
   @Column({ type: 'jsonb', nullable: true })
   bracket!: BracketMatch[] | null;
+
+  /** Set when fixtures are generated: 'knockout' or 'groups_knockout'. */
+  @Column({ type: 'varchar', length: 24, nullable: true })
+  format!: TournamentFormat | null;
 
   @ManyToOne(() => Community, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'communityId' })

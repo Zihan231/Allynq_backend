@@ -135,18 +135,18 @@ describe('TournamentsService.create roster presets', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('accepts a custom roster with even starters and odd substitutes', async () => {
+  it('accepts a custom roster with a multiple-of-4 starters and odd substitutes', async () => {
     const tournament = await createService().create(userId, {
       ...baseDto,
       preset: 'custom',
-      startersCount: 10,
+      startersCount: 12,
       subsCount: 3,
     });
 
-    expect(tournament).toMatchObject({ preset: 'custom', startersCount: 10, subsCount: 3 });
+    expect(tournament).toMatchObject({ preset: 'custom', startersCount: 12, subsCount: 3 });
   });
 
-  it.each([7, 0, 18])('rejects a custom roster with %i starters', async (startersCount) => {
+  it.each([7, 0, 6, 10, 20])('rejects a custom roster with %i starters', async (startersCount) => {
     await expect(
       createService().create(userId, { ...baseDto, preset: 'custom', startersCount }),
     ).rejects.toThrow(BadRequestException);
@@ -414,7 +414,7 @@ describe('TournamentsService lineup notifications', () => {
     );
     const sent = () =>
       Object.fromEntries(
-        createNotification.mock.calls.map(([userId, n]: [string, { title: string }]) => [userId, n.title]),
+        createNotification.mock.calls.map(([userId, n]) => [userId, (n as { title: string }).title]),
       );
     return { service, sent, createNotification };
   }
