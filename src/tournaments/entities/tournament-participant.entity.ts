@@ -23,6 +23,7 @@ export interface RosterPlayer {
   inGameId?: string | null;
   position?: string | null;
   gamePosition?: string | null;
+  dpUrl?: string | null;
   shirtNumber?: number | null;
 }
 

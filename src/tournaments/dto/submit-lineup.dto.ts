@@ -25,6 +25,11 @@ export class RosterPlayerDto {
   @IsString()
   position?: string | null;
 
+  /** Profile picture, kept so other clubs can see who is in the lineup. */
+  @IsOptional()
+  @IsString()
+  dpUrl?: string | null;
+
   /** In-game position the player fills in this lineup (e.g. CF). */
   @IsOptional()
   @IsString()
