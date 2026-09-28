@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { CommunityRole } from '../users/enums/user-attributes.enum.js';
+import { ClubRole, CommunityRole } from '../users/enums/user-attributes.enum.js';
 import { TournamentsService } from './tournaments.service.js';
 import { TournamentStatus, TournamentType } from './enums/tournament.enum.js';
 
@@ -53,6 +53,7 @@ describe('TournamentsService.join', () => {
       communityMembersRepository as never,
       {} as never,
       profilesRepository as never,
+      {} as never,
     );
 
     return { service, participantsRepository };
@@ -100,6 +101,7 @@ describe('TournamentsService.create roster presets', () => {
       communityMembersRepository as never,
       {} as never,
       profilesRepository as never,
+      {} as never,
     );
   }
 
@@ -148,5 +150,140 @@ describe('TournamentsService.create roster presets', () => {
     await expect(
       createService().create(userId, { ...baseDto, preset: 'custom', startersCount }),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('TournamentsService.update / remove', () => {
+  const organizerId = 'organizer-id';
+  const tournamentId = 'tournament-id';
+
+  function setup(options: { callerRole?: CommunityRole; organizer?: boolean } = {}) {
+    const tournament = {
+      id: tournamentId,
+      name: 'Winter Cup',
+      description: null,
+      communityId: 'community-id',
+      community: { creatorId: 'someone-else' },
+      creatorId: options.organizer === false ? 'someone-else' : organizerId,
+      status: TournamentStatus.REGISTRATION_OPEN,
+      type: TournamentType.CVC,
+      maxParticipants: 16,
+      entryFeeBdt: 0,
+      prizePoolBdt: 0,
+      startAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      endAt: null,
+      participants: [
+        { clubId: 'club-1', userId: null, registeredByUserId: 'registrar-1' },
+        { clubId: null, userId: 'player-1', registeredByUserId: 'player-1' },
+        { clubId: null, userId: organizerId, registeredByUserId: organizerId },
+      ],
+    };
+
+    const tournamentsRepository = {
+      findOne: vi.fn().mockImplementation(() => Promise.resolve({ ...tournament })),
+      save: vi.fn((t) => Promise.resolve(t)),
+      delete: vi.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const communityMembersRepository = {
+      findOne: vi.fn().mockResolvedValue(
+        options.callerRole ? { role: options.callerRole } : null,
+      ),
+    };
+    const profilesRepository = {
+      findOne: vi.fn().mockResolvedValue({ id: 'caller-profile' }),
+      find: vi.fn().mockResolvedValue([{ id: 'p', userId: 'president-1', clubRole: ClubRole.PRESIDENT }]),
+    };
+    const notificationsService = {
+      createNotification: vi.fn().mockResolvedValue({}),
+    };
+
+    const service = new TournamentsService(
+      tournamentsRepository as never,
+      {} as never,
+      {} as never,
+      communityMembersRepository as never,
+      {} as never,
+      profilesRepository as never,
+      notificationsService as never,
+    );
+
+    const notifiedUserIds = () =>
+      notificationsService.createNotification.mock.calls.map(([userId]) => userId).sort();
+
+    return { service, tournamentsRepository, notificationsService, notifiedUserIds };
+  }
+
+  it('saves edits and notifies enrolled players, registrars and club presidents', async () => {
+    const { service, tournamentsRepository, notificationsService, notifiedUserIds } = setup();
+
+    await service.update(organizerId, tournamentId, { prizePoolBdt: 5000 });
+
+    expect(tournamentsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ prizePoolBdt: 5000 }),
+    );
+    expect(notifiedUserIds()).toEqual(['player-1', 'president-1', 'registrar-1']);
+    expect(notificationsService.createNotification).toHaveBeenCalledWith(
+      'player-1',
+      expect.objectContaining({
+        type: 'tournament_update',
+        message: expect.stringContaining('prize pool'),
+      }),
+    );
+  });
+
+  it('does not save or notify when nothing changed', async () => {
+    const { service, tournamentsRepository, notificationsService } = setup();
+
+    await service.update(organizerId, tournamentId, { name: 'Winter Cup', maxParticipants: 16 });
+
+    expect(tournamentsRepository.save).not.toHaveBeenCalled();
+    expect(notificationsService.createNotification).not.toHaveBeenCalled();
+  });
+
+  it('rejects a capacity lower than the enrolled participants', async () => {
+    const { service } = setup();
+
+    await expect(
+      service.update(organizerId, tournamentId, { maxParticipants: 2 }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('lets a community Vice President edit', async () => {
+    const { service, tournamentsRepository } = setup({
+      organizer: false,
+      callerRole: CommunityRole.VICE_PRESIDENT,
+    });
+
+    await service.update('vp-id', tournamentId, { name: 'Spring Cup' });
+
+    expect(tournamentsRepository.save).toHaveBeenCalled();
+  });
+
+  it('deletes the tournament and notifies the same recipients', async () => {
+    const { service, tournamentsRepository, notificationsService, notifiedUserIds } = setup();
+
+    await service.remove(organizerId, tournamentId);
+
+    expect(tournamentsRepository.delete).toHaveBeenCalledWith({ id: tournamentId });
+    expect(notifiedUserIds()).toEqual(['player-1', 'president-1', 'registrar-1']);
+    expect(notificationsService.createNotification).toHaveBeenCalledWith(
+      'president-1',
+      expect.objectContaining({ title: 'Tournament cancelled' }),
+    );
+  });
+
+  it.each([
+    ['edit', (s: TournamentsService) => s.update('member-id', tournamentId, { name: 'X' })],
+    ['delete', (s: TournamentsService) => s.remove('member-id', tournamentId)],
+  ])('forbids regular members to %s', async (_action, run) => {
+    const { service, tournamentsRepository, notificationsService } = setup({
+      organizer: false,
+      callerRole: CommunityRole.MEMBER,
+    });
+
+    await expect(run(service)).rejects.toThrow(ForbiddenException);
+    expect(tournamentsRepository.save).not.toHaveBeenCalled();
+    expect(tournamentsRepository.delete).not.toHaveBeenCalled();
+    expect(notificationsService.createNotification).not.toHaveBeenCalled();
   });
 });

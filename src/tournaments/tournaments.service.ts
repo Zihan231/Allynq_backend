@@ -2,10 +2,11 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Club } from '../clubs/entities/club.entity.js';
 import {
   ClubRole,
@@ -13,12 +14,14 @@ import {
 } from '../users/enums/user-attributes.enum.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
+import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
 import { BracketMatch, Tournament } from './entities/tournament.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
 import {
@@ -30,8 +33,12 @@ import {
   TournamentType,
 } from './enums/tournament.enum.js';
 
+const LINEUP_CUTOFF_MS = 2 * 60 * 60 * 1000;
+
 @Injectable()
 export class TournamentsService {
+  private readonly logger = new Logger(TournamentsService.name);
+
   constructor(
     @InjectRepository(Tournament)
     private readonly tournamentsRepository: Repository<Tournament>,
@@ -45,6 +52,7 @@ export class TournamentsService {
     private readonly clubsRepository: Repository<Club>,
     @InjectRepository(EfootballProfile)
     private readonly profilesRepository: Repository<EfootballProfile>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(userId: string, dto: CreateTournamentDto): Promise<Tournament> {
@@ -270,6 +278,199 @@ export class TournamentsService {
     }
 
     return tournament;
+  }
+
+  async update(
+    userId: string,
+    tournamentId: string,
+    dto: UpdateTournamentDto,
+  ): Promise<Tournament> {
+    const tournament = await this.findOne(tournamentId);
+    await this.assertCanManage(userId, tournament, 'edit tournaments');
+
+    if (
+      tournament.status === TournamentStatus.COMPLETED ||
+      tournament.status === TournamentStatus.CANCELLED
+    ) {
+      throw new BadRequestException('Finished tournaments can no longer be edited');
+    }
+
+    const changes: string[] = [];
+
+    if (dto.name !== undefined && dto.name.trim() !== tournament.name) {
+      tournament.name = dto.name.trim();
+      changes.push('name');
+    }
+
+    if (dto.description !== undefined && (dto.description || null) !== tournament.description) {
+      tournament.description = dto.description || null;
+      changes.push('description');
+    }
+
+    if (dto.maxParticipants !== undefined && dto.maxParticipants !== tournament.maxParticipants) {
+      const enrolled = tournament.participants?.length ?? 0;
+      if (dto.maxParticipants < enrolled) {
+        throw new BadRequestException(
+          `Capacity can't be lower than the ${enrolled} participants already enrolled`,
+        );
+      }
+      tournament.maxParticipants = dto.maxParticipants;
+      changes.push('capacity');
+    }
+
+    if (dto.startAt !== undefined) {
+      const startAt = new Date(dto.startAt);
+      if (startAt.getTime() !== new Date(tournament.startAt).getTime()) {
+        if (startAt.getTime() <= Date.now() + LINEUP_CUTOFF_MS) {
+          throw new BadRequestException(
+            'Start time must be at least 2 hours in the future to allow lineup submissions',
+          );
+        }
+        const deadline = new Date(startAt.getTime() - LINEUP_CUTOFF_MS);
+        tournament.startAt = startAt;
+        tournament.teamSubmissionDeadline = deadline;
+        tournament.registrationDeadline = deadline;
+        changes.push('start time');
+      }
+    }
+
+    if (dto.endAt !== undefined) {
+      const endAt = dto.endAt ? new Date(dto.endAt) : null;
+      const current = tournament.endAt ? new Date(tournament.endAt).getTime() : null;
+      if ((endAt?.getTime() ?? null) !== current) {
+        tournament.endAt = endAt;
+        changes.push('end time');
+      }
+    }
+    if (tournament.endAt && new Date(tournament.endAt) <= new Date(tournament.startAt)) {
+      throw new BadRequestException('End time must be after the start time');
+    }
+
+    if (dto.entryFeeBdt !== undefined && dto.entryFeeBdt !== tournament.entryFeeBdt) {
+      tournament.entryFeeBdt = dto.entryFeeBdt;
+      changes.push('entry fee');
+    }
+
+    if (dto.prizePoolBdt !== undefined && dto.prizePoolBdt !== tournament.prizePoolBdt) {
+      tournament.prizePoolBdt = dto.prizePoolBdt;
+      changes.push('prize pool');
+    }
+
+    if (!changes.length) return tournament;
+
+    // Save only the tournament's own columns, not the loaded relations.
+    const { participants: _participants, community: _community, creator: _creator, ...columns } =
+      tournament;
+    await this.tournamentsRepository.save(columns);
+
+    await this.notifyParticipants(tournament, userId, {
+      title: 'Tournament updated',
+      message: `"${tournament.name}" was updated by the organizer. Changed: ${changes.join(', ')}.`,
+      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}`,
+    });
+
+    return this.findOne(tournamentId);
+  }
+
+  async remove(userId: string, tournamentId: string): Promise<{ id: string }> {
+    const tournament = await this.findOne(tournamentId);
+    await this.assertCanManage(userId, tournament, 'delete tournaments');
+
+    // Resolve recipients before the participants are cascade-deleted.
+    const recipients = await this.participantRecipients(tournament, userId);
+    await this.tournamentsRepository.delete({ id: tournament.id });
+
+    await this.sendNotifications(recipients, {
+      title: 'Tournament cancelled',
+      message: `"${tournament.name}" has been deleted by the organizer and will not take place.`,
+      link: `/dashboard/efootball/community/${tournament.communityId}?tab=tournaments`,
+    });
+
+    return { id: tournament.id };
+  }
+
+  /**
+   * Organizers: the tournament creator, the community creator, or the hosting
+   * community's President / Vice President.
+   */
+  private async assertCanManage(
+    userId: string,
+    tournament: Tournament,
+    action: string,
+  ): Promise<void> {
+    if (tournament.creatorId === userId || tournament.community?.creatorId === userId) {
+      return;
+    }
+
+    const callerProfile = await this.profilesRepository.findOne({ where: { userId } });
+    const membership = callerProfile
+      ? await this.communityMembersRepository.findOne({
+          where: { communityId: tournament.communityId, profileId: callerProfile.id },
+        })
+      : null;
+
+    const isLeader =
+      membership?.role === CommunityRole.PRESIDENT ||
+      membership?.role === CommunityRole.VICE_PRESIDENT;
+    if (!isLeader) {
+      throw new ForbiddenException(
+        `Only the Community President, Vice President, or creator can ${action}`,
+      );
+    }
+  }
+
+  /**
+   * Who hears about changes to a tournament: enrolled players (PvP), and for
+   * clubs (CvC) the club President plus whoever registered the club.
+   * The acting organizer is left out.
+   */
+  private async participantRecipients(
+    tournament: Tournament,
+    actorUserId: string,
+  ): Promise<string[]> {
+    const participants = tournament.participants ?? [];
+    const userIds = participants.flatMap((p) => [p.userId, p.registeredByUserId]);
+
+    const clubIds = participants.map((p) => p.clubId).filter((id): id is string => Boolean(id));
+    if (clubIds.length) {
+      const presidents = await this.profilesRepository.find({
+        where: { clubId: In(clubIds), clubRole: ClubRole.PRESIDENT },
+        select: { id: true, userId: true },
+      });
+      userIds.push(...presidents.map((p) => p.userId));
+    }
+
+    return Array.from(
+      new Set(userIds.filter((id): id is string => Boolean(id) && id !== actorUserId)),
+    );
+  }
+
+  private async notifyParticipants(
+    tournament: Tournament,
+    actorUserId: string,
+    notification: { title: string; message: string; link: string },
+  ): Promise<void> {
+    const recipients = await this.participantRecipients(tournament, actorUserId);
+    await this.sendNotifications(recipients, notification);
+  }
+
+  /** Notification failures are logged, never surfaced: the edit/delete already succeeded. */
+  private async sendNotifications(
+    userIds: string[],
+    notification: { title: string; message: string; link: string },
+  ): Promise<void> {
+    const results = await Promise.allSettled(
+      userIds.map((id) =>
+        this.notificationsService.createNotification(id, {
+          ...notification,
+          type: 'tournament_update',
+        }),
+      ),
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed) {
+      this.logger.warn(`${failed} tournament notification(s) failed to send`);
+    }
   }
 
   async join(
@@ -511,33 +712,7 @@ export class TournamentsService {
     tournamentId: string,
   ): Promise<Tournament> {
     const tournament = await this.findOne(tournamentId);
-
-    // Authority: Community President/VP or Tournament creator
-    const callerProfile = await this.profilesRepository.findOne({
-      where: { userId },
-    });
-    if (!callerProfile) {
-      throw new ForbiddenException('Profile not found');
-    }
-
-    const membership = await this.communityMembersRepository.findOne({
-      where: {
-        communityId: tournament.communityId,
-        profileId: callerProfile.id,
-      },
-    });
-
-    const isAuthority =
-      tournament.creatorId === userId ||
-      (membership &&
-        (membership.role === CommunityRole.PRESIDENT ||
-          membership.role === CommunityRole.VICE_PRESIDENT));
-
-    if (!isAuthority) {
-      throw new ForbiddenException(
-        'Only the Community President, Vice President, or creator can generate brackets',
-      );
-    }
+    await this.assertCanManage(userId, tournament, 'generate brackets');
 
     const participants = tournament.participants ?? [];
     if (participants.length < 2) {

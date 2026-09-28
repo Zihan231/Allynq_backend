@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Club } from '../clubs/entities/club.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
@@ -21,6 +22,7 @@ import { TournamentsService } from './tournaments.service.js';
       EfootballProfile,
       User,
     ]),
+    NotificationsModule,
   ],
   controllers: [TournamentsController],
   providers: [TournamentsService],

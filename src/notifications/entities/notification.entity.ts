@@ -10,7 +10,12 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity.js';
 
-export type NotificationType = 'club_join_request' | 'club_member_joined' | 'community_join_request' | 'system';
+export type NotificationType =
+  | 'club_join_request'
+  | 'club_member_joined'
+  | 'community_join_request'
+  | 'tournament_update'
+  | 'system';
 
 @Entity('notifications')
 export class Notification {
