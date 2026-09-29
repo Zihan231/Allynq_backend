@@ -294,3 +294,48 @@ describe('TournamentMatchesService knockout forfeits', () => {
     );
   });
 });
+
+describe('TournamentMatchesService early vs automatic generation', () => {
+  function earlySetup(filled: number) {
+    const tournament = {
+      id: 't1', type: TournamentType.PVP, startersCount: 1, maxParticipants: 8, format: null,
+      startAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      participants: participants(filled, TournamentType.PVP),
+    };
+    const tournamentsService = {
+      findOne: vi.fn().mockResolvedValue(tournament),
+      assertCanManage: vi.fn().mockResolvedValue(undefined),
+      notifyParticipants: vi.fn().mockResolvedValue(undefined),
+      sendNotifications: vi.fn().mockResolvedValue(undefined),
+    };
+    const dataSource = {
+      transaction: vi.fn(async (work: (m: unknown) => Promise<void>) => work({ save: vi.fn(), update: vi.fn() })),
+    };
+    const service = new TournamentMatchesService(
+      { count: vi.fn().mockResolvedValue(0), create: vi.fn((m) => Object.assign(new TournamentMatch(), m)), find: vi.fn().mockResolvedValue([]) } as never,
+      { find: vi.fn().mockResolvedValue([]) } as never,
+      dataSource as never,
+      tournamentsService as never,
+    );
+    return { service, dataSource, tournamentsService };
+  }
+
+  it('refuses early manual generation while slots are still open', async () => {
+    const { service, dataSource } = earlySetup(6);
+    await expect(service.generateStructure('organizer', 't1')).rejects.toThrow(/all 8 slots/);
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('allows early manual generation once every slot is filled', async () => {
+    const { service, dataSource } = earlySetup(8);
+    await service.generateStructure('organizer', 't1');
+    expect(dataSource.transaction).toHaveBeenCalled();
+  });
+
+  it('lets the system generate without an organizer, whatever the fill', async () => {
+    const { service, dataSource, tournamentsService } = earlySetup(6);
+    await service.generateStructure(null, 't1');
+    expect(tournamentsService.assertCanManage).not.toHaveBeenCalled();
+    expect(dataSource.transaction).toHaveBeenCalled();
+  });
+});
