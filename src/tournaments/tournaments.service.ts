@@ -22,6 +22,7 @@ import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
+import { normalizePlayHours, playHoursError } from './bracket/schedule.js';
 import { BracketMatch, Tournament } from './entities/tournament.entity.js';
 import {
   TournamentParticipant,
@@ -120,6 +121,7 @@ export class TournamentsService {
       maxParticipants: dto.maxParticipants ?? 16,
       entryFeeBdt,
       prizePoolBdt: dto.prizePoolBdt ?? 0,
+      ...this.resolvePlayHours(dto.playHoursStart, dto.playHoursEnd),
       registrationDeadline: dto.registrationDeadline
         ? new Date(dto.registrationDeadline)
         : teamSubmissionDeadline,
@@ -131,6 +133,20 @@ export class TournamentsService {
     });
 
     return this.tournamentsRepository.save(tournament);
+  }
+
+  /** Validated daily play hours (both or neither); null = system default 19:00–01:00. */
+  private resolvePlayHours(
+    start: number | null | undefined,
+    end: number | null | undefined,
+  ): { playHoursStart: number | null; playHoursEnd: number | null } {
+    if (start == null && end == null) return { playHoursStart: null, playHoursEnd: null };
+    if (start == null || end == null) {
+      throw new BadRequestException('Set both the start and end of the daily play hours');
+    }
+    const error = playHoursError(normalizePlayHours(start, end));
+    if (error) throw new BadRequestException(error);
+    return { playHoursStart: start, playHoursEnd: end };
   }
 
   /**
@@ -356,6 +372,20 @@ export class TournamentsService {
     if (dto.prizePoolBdt !== undefined && dto.prizePoolBdt !== tournament.prizePoolBdt) {
       tournament.prizePoolBdt = dto.prizePoolBdt;
       changes.push('prize pool');
+    }
+
+    if (dto.playHoursStart !== undefined || dto.playHoursEnd !== undefined) {
+      const next = this.resolvePlayHours(
+        dto.playHoursStart ?? tournament.playHoursStart,
+        dto.playHoursEnd ?? tournament.playHoursEnd,
+      );
+      if (next.playHoursStart !== tournament.playHoursStart || next.playHoursEnd !== tournament.playHoursEnd) {
+        if (tournament.format) {
+          throw new BadRequestException("Play hours can't change after fixtures are generated");
+        }
+        Object.assign(tournament, next);
+        changes.push('play hours');
+      }
     }
 
     if (!changes.length) return tournament;

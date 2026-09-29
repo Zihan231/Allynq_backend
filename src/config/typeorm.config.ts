@@ -7,6 +7,7 @@ import { CommunityJoinRequest } from '../communities/entities/community-join-req
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { Notification } from '../notifications/entities/notification.entity.js';
+import { TournamentGameTimeRequest } from '../tournaments/entities/tournament-game-time-request.entity.js';
 import { TournamentGameSubmission } from '../tournaments/entities/tournament-game-submission.entity.js';
 import { TournamentMatchGame } from '../tournaments/entities/tournament-match-game.entity.js';
 import { TournamentMatch } from '../tournaments/entities/tournament-match.entity.js';
@@ -35,6 +36,7 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       TournamentMatch,
       TournamentMatchGame,
       TournamentGameSubmission,
+      TournamentGameTimeRequest,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

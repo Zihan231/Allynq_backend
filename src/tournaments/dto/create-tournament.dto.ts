@@ -63,6 +63,19 @@ export class CreateTournamentDto {
   @Min(0)
   prizePoolBdt?: number;
 
+  /** Daily play hours, minutes after midnight (Dhaka time). End may be before start (runs past midnight). */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  playHoursStart?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  playHoursEnd?: number;
+
   @IsOptional()
   @IsDateString()
   registrationDeadline?: string;

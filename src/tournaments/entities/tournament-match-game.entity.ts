@@ -13,8 +13,22 @@ import {
 import { TournamentGameSubmission } from './tournament-game-submission.entity.js';
 import { TournamentMatch } from './tournament-match.entity.js';
 
-/** pending → submitted (evidence in) → approved / rejected by an official. */
-export type GameStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
+/**
+ * pending → awaiting_opponent (one side uploaded) → submitted (both, in review)
+ * → approved / rejected. After the evidence deadline the system resolves
+ * games itself: walkover (only one side uploaded) or forfeited (neither).
+ */
+export type GameStatus =
+  | 'pending'
+  | 'awaiting_opponent'
+  | 'submitted'
+  | 'approved'
+  | 'rejected'
+  | 'walkover'
+  | 'forfeited';
+
+/** How a finished game got its result. */
+export type GameResolution = 'reviewed' | 'official' | 'walkover' | 'double_forfeit';
 
 /**
  * A single 1v1 game inside a fixture. PvP fixtures have one game; CvC fixtures
@@ -74,6 +88,24 @@ export class TournamentMatchGame {
 
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: GameStatus;
+
+  @Column({ type: 'varchar', length: 24, nullable: true })
+  resolution!: GameResolution | null;
+
+  /** 3-hour playing range; evidence can be uploaded until `evidenceDeadline`. */
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  scheduledStart!: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  scheduledEnd!: Date | null;
+
+  /** The time the system picked (kept when a time-change request is declined). */
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  systemScheduledStart!: Date | null;
+
+  @Index()
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  evidenceDeadline!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   reviewedByUserId!: string | null;

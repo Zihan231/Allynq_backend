@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   Min,
   ValidateIf,
 } from 'class-validator';
@@ -38,6 +39,19 @@ export class UpdateTournamentDto {
   @IsInt()
   @Min(0)
   prizePoolBdt?: number;
+
+  /** Daily play hours, minutes after midnight (Dhaka time). End may be before start (runs past midnight). */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  playHoursStart?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  playHoursEnd?: number;
 
   @IsOptional()
   @IsDateString()

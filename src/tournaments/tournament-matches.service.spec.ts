@@ -33,6 +33,7 @@ function setup(entrants: ReturnType<typeof participants>, type: TournamentType, 
     findOne: vi.fn().mockResolvedValue(tournament),
     assertCanManage: vi.fn().mockResolvedValue(undefined),
     notifyParticipants: vi.fn().mockResolvedValue(undefined),
+    sendNotifications: vi.fn().mockResolvedValue(undefined),
   };
   const matchesRepository = {
     count: vi.fn().mockResolvedValue(existing),
@@ -84,6 +85,28 @@ describe('TournamentMatchesService.generateStructure', () => {
     ]);
     // Saved deepest rounds first so nextMatchId references exist.
     expect(saved.matches[0].roundName).toBe('Final');
+  });
+
+  it('gives every game a 3h range at least 3h after the start, one matchday per day', async () => {
+    const { service, saved, tournamentsService } = setup(participants(12, TournamentType.PVP), TournamentType.PVP);
+    const before = Date.now();
+
+    await service.generateStructure('organizer', 't1');
+
+    const earliest = before + 3 * 60 * 60 * 1000;
+    for (const game of saved.games) {
+      expect(game.scheduledStart!.getTime()).toBeGreaterThanOrEqual(earliest - 1000);
+      expect(game.scheduledEnd!.getTime() - game.scheduledStart!.getTime()).toBe(3 * 60 * 60 * 1000);
+      expect(game.evidenceDeadline!.getTime() - game.scheduledEnd!.getTime()).toBe(30 * 60 * 1000);
+    }
+    const startOf = (m: TournamentMatch) => saved.games.find((g) => g.matchId === m.id)!.scheduledStart!.getTime();
+    const matchday = (n: number) => saved.matches.filter((m) => m.round === n).map(startOf);
+    expect(Math.min(...matchday(2))).toBeGreaterThan(Math.max(...matchday(1)));
+    // Each player hears about their schedule once.
+    const scheduled = tournamentsService.sendNotifications.mock.calls.filter(
+      ([, n]) => (n as { title: string }).title === 'Match scheduled',
+    );
+    expect(scheduled).toHaveLength(12);
   });
 
   it('gives byes to the top seeds and schedules the matches they feed', async () => {
@@ -164,6 +187,7 @@ describe('TournamentMatchesService.completeFixtureIfReady', () => {
     const tournamentsService = {
       findOne: vi.fn().mockResolvedValue(tournament),
       notifyParticipants: vi.fn().mockResolvedValue(undefined),
+      sendNotifications: vi.fn().mockResolvedValue(undefined),
     };
     const service = new TournamentMatchesService(
       matchesRepository as never,
@@ -226,5 +250,47 @@ describe('TournamentMatchesService.completeFixtureIfReady', () => {
     expect(knockout.map((m) => m.roundName).sort()).toEqual(['Final', 'Semi-final', 'Semi-final']);
     const semis = knockout.filter((m) => m.roundName === 'Semi-final').map((m) => [m.participantAId, m.participantBId]);
     expect(semis).toEqual(expect.arrayContaining([['pa', 'pd'], ['pc', 'pb']]));
+  });
+});
+
+describe('TournamentMatchesService knockout forfeits', () => {
+  it('sends the other finalist through by walkover when a semi-final is a double forfeit', async () => {
+    const updates: Array<[unknown, unknown]> = [];
+    let tournamentUpdate: unknown = null;
+    const semi = {
+      id: 'semi1', status: 'in_review', stage: 'knockout', participantAId: 'pa', participantBId: 'pb',
+      nextMatchId: 'final', nextSlot: 'A', games: [{ status: 'forfeited', goalsA: 0, goalsB: 0 }],
+    };
+    const final = { id: 'final', participantAId: null, participantBId: 'pc', nextMatchId: null, games: [] };
+    const matchesRepository = {
+      findOne: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === 'semi1' ? semi : where.id === 'final' ? final : null)),
+      update: vi.fn(async (where: unknown, values: unknown) => { updates.push([where, values]); }),
+      find: vi.fn().mockResolvedValue([{ id: 'semi1', status: 'in_review' }, { id: 'semi2', status: 'completed' }]),
+    };
+    const dataSource = {
+      getRepository: vi.fn(() => ({ update: vi.fn(async (_w: unknown, v: unknown) => { tournamentUpdate = v; }), save: vi.fn() })),
+    };
+    const tournamentsService = {
+      findOne: vi.fn().mockResolvedValue({ id: 't1', name: 'Cup', communityId: 'c1', type: TournamentType.PVP, participants: [{ id: 'pc', user: { name: 'Carol' } }] }),
+      notifyParticipants: vi.fn().mockResolvedValue(undefined),
+      sendNotifications: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new TournamentMatchesService(
+      matchesRepository as never,
+      { find: vi.fn() } as never,
+      dataSource as never,
+      tournamentsService as never,
+    );
+
+    expect(await service.completeFixtureIfReady('semi1')).toBe('completed');
+
+    expect(updates[0][1]).toMatchObject({ status: 'completed', doubleForfeit: true, winnerParticipantId: null });
+    expect(updates).toContainEqual([{ id: 'final' }, expect.objectContaining({ status: 'bye', winnerParticipantId: 'pc' })]);
+    expect(tournamentUpdate).toMatchObject({ status: 'completed' });
+    expect(tournamentsService.notifyParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      '',
+      expect.objectContaining({ message: expect.stringContaining('Carol won') }),
+    );
   });
 });

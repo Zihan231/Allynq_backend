@@ -22,6 +22,8 @@ import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
 import { ReviewGameDto } from './dto/review-game.dto.js';
+import { RequestTimeChangeDto, RespondTimeChangeDto } from './dto/time-request.dto.js';
+import { TournamentScheduleService } from './tournament-schedule.service.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
 import { type EvidenceFiles, evidenceUploadOptions, MAX_SCREENSHOTS } from './evidence-upload.js';
 import { type ReviewDecision, TournamentResultsService } from './tournament-results.service.js';
@@ -34,7 +36,32 @@ export class TournamentsController {
     private readonly tournamentsService: TournamentsService,
     private readonly matchesService: TournamentMatchesService,
     private readonly resultsService: TournamentResultsService,
+    private readonly scheduleService: TournamentScheduleService,
   ) {}
+
+  /** A player proposes a new start time (same date) for their game. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/games/:gameId/time-request')
+  requestTimeChange(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('gameId', ParseUUIDPipe) gameId: string,
+    @Body() dto: RequestTimeChangeDto,
+  ) {
+    return this.scheduleService.requestTimeChange(user.id, id, gameId, dto.proposedStart);
+  }
+
+  /** The opponent accepts or declines a proposed time. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/time-requests/:requestId/respond')
+  respondTimeChange(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Body() dto: RespondTimeChangeDto,
+  ) {
+    return this.scheduleService.respondToTimeChange(user.id, id, requestId, dto.accept);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post()

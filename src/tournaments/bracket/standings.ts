@@ -6,6 +6,8 @@ export interface CompletedFixture {
   goalsA: number;
   goalsB: number;
   winner: 'A' | 'B' | null;
+  /** Neither side showed evidence: a loss for both, no points. */
+  doubleForfeit?: boolean;
 }
 
 export interface StandingRow {
@@ -45,6 +47,11 @@ export function computeStandings(
     const a = rows.get(f.entrantA);
     const b = rows.get(f.entrantB);
     if (!a || !b) continue;
+    if (f.doubleForfeit) {
+      apply(a, f.scoreA, f.scoreB, f.goalsA, f.goalsB, 'L');
+      apply(b, f.scoreB, f.scoreA, f.goalsB, f.goalsA, 'L');
+      continue;
+    }
     apply(a, f.scoreA, f.scoreB, f.goalsA, f.goalsB, f.winner === 'A' ? 'W' : f.winner === 'B' ? 'L' : 'D');
     apply(b, f.scoreB, f.scoreA, f.goalsB, f.goalsA, f.winner === 'B' ? 'W' : f.winner === 'A' ? 'L' : 'D');
   }

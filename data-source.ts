@@ -7,6 +7,7 @@ import { CommunityJoinRequest } from './src/communities/entities/community-join-
 import { CommunityMember } from './src/communities/entities/community-member.entity.js';
 import { Community } from './src/communities/entities/community.entity.js';
 import { Notification } from './src/notifications/entities/notification.entity.js';
+import { TournamentGameTimeRequest } from './src/tournaments/entities/tournament-game-time-request.entity.js';
 import { TournamentGameSubmission } from './src/tournaments/entities/tournament-game-submission.entity.js';
 import { TournamentMatchGame } from './src/tournaments/entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './src/tournaments/entities/tournament-match.entity.js';
@@ -34,6 +35,7 @@ export default new DataSource({
     TournamentMatch,
     TournamentMatchGame,
     TournamentGameSubmission,
+    TournamentGameTimeRequest,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

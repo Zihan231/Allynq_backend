@@ -130,3 +130,12 @@ describe('computeStandings', () => {
     expect(rows).toHaveLength(3);
   });
 });
+
+describe('computeStandings with forfeits', () => {
+  it('gives no points to either side of a double forfeit', () => {
+    const rows = computeStandings(['a', 'b'], [
+      { entrantA: 'a', entrantB: 'b', scoreA: 0, scoreB: 0, goalsA: 0, goalsB: 0, winner: null, doubleForfeit: true },
+    ]);
+    expect(rows.map((r) => [r.points, r.lost, r.drawn])).toEqual([[0, 1, 0], [0, 1, 0]]);
+  });
+});

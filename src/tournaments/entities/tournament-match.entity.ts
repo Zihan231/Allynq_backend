@@ -90,6 +90,10 @@ export class TournamentMatch {
   @Column({ type: 'uuid', nullable: true })
   winnerParticipantId!: string | null;
 
+  /** Neither side uploaded evidence for any game: both lose, nobody advances. */
+  @Column({ type: 'boolean', default: false })
+  doubleForfeit!: boolean;
+
   @Column({ type: 'timestamp with time zone', nullable: true })
   completedAt!: Date | null;
 

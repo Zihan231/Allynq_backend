@@ -14,14 +14,35 @@ import {
 } from './bracket/format.js';
 import { crossGroupPairs, planKnockout, seededPairs } from './bracket/knockout.js';
 import { roundRobin } from './bracket/round-robin.js';
+import {
+  assignRange,
+  DAY_MS,
+  FIRST_GAME_DELAY_MS,
+  firstPlayableDay,
+  formatRange,
+  normalizePlayHours,
+  type PlayHours,
+} from './bracket/schedule.js';
 import { fixtureOutcome } from './bracket/scoring.js';
 import { computeStandings, type CompletedFixture, type StandingRow } from './bracket/standings.js';
+import { TournamentGameTimeRequest } from './entities/tournament-game-time-request.entity.js';
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
 import { Tournament } from './entities/tournament.entity.js';
 import { TournamentStatus, TournamentType } from './enums/tournament.enum.js';
 import { TournamentsService } from './tournaments.service.js';
+
+/** Where new games are placed: a local day inside the play hours, not before `notBefore`. */
+interface ScheduleSlot {
+  dayStart: number;
+  hours: PlayHours;
+  notBefore: Date;
+  rng: () => number;
+}
+
+/** Game statuses that count as a final result for the fixture. */
+const FINISHED_GAME_STATUSES: TournamentMatchGame['status'][] = ['approved', 'walkover', 'forfeited'];
 
 /** A player who takes part in a fixture's 1v1 games. */
 interface FixturePlayer {
@@ -51,6 +72,12 @@ export interface MatchGameView {
   /** Sides that have submitted evidence (the evidence itself is only shown to reviewers). */
   submittedSides: Array<'A' | 'B'>;
   reviewNote: string | null;
+  resolution: TournamentMatchGame['resolution'];
+  scheduledStart: Date | null;
+  scheduledEnd: Date | null;
+  systemScheduledStart: Date | null;
+  evidenceDeadline: Date | null;
+  pendingTimeRequest: { id: string; requestedByUserId: string; proposedStart: Date } | null;
 }
 
 export interface MatchView {
@@ -68,6 +95,7 @@ export interface MatchView {
   goalsA: number | null;
   goalsB: number | null;
   winnerParticipantId: string | null;
+  doubleForfeit: boolean;
   games: MatchGameView[];
 }
 
@@ -168,6 +196,7 @@ export class TournamentMatchesService {
       });
     }
 
+    const schedule = this.scheduleContext(tournament);
     const games = matches
       .filter((m) => m.status === 'scheduled' && m.participantAId && m.participantBId)
       .flatMap((m) =>
@@ -175,6 +204,12 @@ export class TournamentMatchesService {
           m.id,
           playersByParticipant.get(m.participantAId!) ?? [],
           playersByParticipant.get(m.participantBId!) ?? [],
+          {
+            dayStart: schedule.firstDay + (m.stage === 'group' ? (m.round - 1) * DAY_MS : 0),
+            hours: schedule.hours,
+            notBefore: schedule.earliest,
+            rng,
+          },
         ),
       );
 
@@ -192,6 +227,7 @@ export class TournamentMatchesService {
       message: `The fixtures for "${tournament.name}" have been drawn (${groupsText}). Check your first match.`,
       link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
     });
+    await this.notifyScheduled(tournament, games);
 
     return this.getStructure(tournamentId);
   }
@@ -205,6 +241,13 @@ export class TournamentMatchesService {
     });
 
     const entrants = new Map((tournament.participants ?? []).map((p) => [p.id, entrantView(p)]));
+    const gameIds = matches.flatMap((m) => (m.games ?? []).map((g) => g.id));
+    const pendingRequests = gameIds.length
+      ? await this.dataSource
+          .getRepository(TournamentGameTimeRequest)
+          .find({ where: { gameId: In(gameIds), status: 'pending' } })
+      : [];
+    const requestByGame = new Map(pendingRequests.map((r) => [r.gameId, r]));
     const toView = (m: TournamentMatch): MatchView => ({
       id: m.id,
       stage: m.stage,
@@ -220,7 +263,8 @@ export class TournamentMatchesService {
       goalsA: m.goalsA,
       goalsB: m.goalsB,
       winnerParticipantId: m.winnerParticipantId,
-      games: (m.games ?? []).map(gameView),
+      doubleForfeit: m.doubleForfeit,
+      games: (m.games ?? []).map((g) => gameView(g, requestByGame.get(g.id) ?? null)),
     });
 
     const groupMatches = matches.filter((m) => m.stage === 'group');
@@ -256,10 +300,11 @@ export class TournamentMatchesService {
   }
 
   /**
-   * Called after a game is approved. Once every game of the fixture is
-   * approved the fixture is scored and completed; a knockout winner moves on,
-   * a finished group stage draws the knockout, and the final ends the tournament.
-   * A level knockout fixture needs `deciderWinner` (the decider game's winner).
+   * Called whenever a game gets its final result (approved, walkover or
+   * forfeited). Once every game is done the fixture is scored and completed; a
+   * knockout winner moves on, a finished group stage draws the knockout, and
+   * the final ends the tournament. A fixture where every game was forfeited is
+   * a double forfeit (both lose). A level knockout fixture needs `deciderWinner`.
    */
   async completeFixtureIfReady(
     matchId: string,
@@ -267,11 +312,23 @@ export class TournamentMatchesService {
   ): Promise<'pending' | 'needs_decider' | 'completed'> {
     const match = await this.matchesRepository.findOne({ where: { id: matchId }, relations: { games: true } });
     if (!match || match.status === 'completed' || match.status === 'bye') return 'completed';
-    if ((match.games ?? []).some((g) => g.status !== 'approved')) return 'pending';
+    const games = match.games ?? [];
+    if (!games.length || games.some((g) => !FINISHED_GAME_STATUSES.includes(g.status))) return 'pending';
 
     const tournament = await this.tournamentsService.findOne(match.tournamentId);
+
+    if (games.every((g) => g.status === 'forfeited')) {
+      await this.matchesRepository.update(
+        { id: match.id },
+        { status: 'completed', doubleForfeit: true, scoreA: 0, scoreB: 0, goalsA: 0, goalsB: 0, winnerParticipantId: null, completedAt: new Date() },
+      );
+      if (match.stage === 'knockout') await this.advanceWinner(tournament, match, null);
+      else await this.drawKnockoutIfGroupsDone(tournament);
+      return 'completed';
+    }
+
     const outcome = fixtureOutcome(
-      (match.games ?? []).map((g) => ({ goalsA: g.goalsA ?? 0, goalsB: g.goalsB ?? 0 })),
+      games.map((g) => ({ goalsA: g.goalsA ?? 0, goalsB: g.goalsB ?? 0 })),
       { isSeries: tournament.type === TournamentType.CVC, deciderWinner },
     );
     if (match.stage === 'knockout' && !outcome.winner) return 'needs_decider';
@@ -291,21 +348,28 @@ export class TournamentMatchesService {
       },
     );
 
-    if (match.stage === 'knockout') await this.advanceWinner(tournament, match, winnerId!);
+    if (match.stage === 'knockout') await this.advanceWinner(tournament, match, winnerId);
     else await this.drawKnockoutIfGroupsDone(tournament);
     return 'completed';
   }
 
-  /** Moves a knockout winner into the next fixture (creating its games), or ends the tournament. */
-  private async advanceWinner(tournament: Tournament, match: TournamentMatch, winnerId: string): Promise<void> {
-    const winnerName = tournament.participants?.find((p) => p.id === winnerId);
+  /**
+   * Moves a knockout result into the next fixture once both feeders are done:
+   * two entrants → schedule the games; one → walkover; none (both feeders
+   * forfeited) → double forfeit that keeps propagating. The final ends the
+   * tournament (possibly without a champion).
+   */
+  private async advanceWinner(tournament: Tournament, match: TournamentMatch, winnerId: string | null): Promise<void> {
     const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`;
 
     if (!match.nextMatchId) {
       await this.dataSource.getRepository(Tournament).update({ id: tournament.id }, { status: TournamentStatus.COMPLETED });
+      const champion = tournament.participants?.find((p) => p.id === winnerId);
       await this.tournamentsService.notifyParticipants(tournament, '', {
         title: 'Tournament finished',
-        message: `${entrantView(winnerName!).name} won "${tournament.name}"! Congratulations to the champions.`,
+        message: champion
+          ? `${entrantView(champion).name} won "${tournament.name}"! Congratulations to the champions.`
+          : `"${tournament.name}" has finished without a champion — both finalists forfeited.`,
         link,
       });
       return;
@@ -320,24 +384,50 @@ export class TournamentMatchesService {
       { participantAId: next.participantAId, participantBId: next.participantBId },
     );
 
-    if (next.participantAId && next.participantBId && !(next.games ?? []).length) {
-      const entrants = (tournament.participants ?? []).filter((p) =>
-        [next.participantAId, next.participantBId].includes(p.id),
+    const feeders = await this.matchesRepository.find({ where: { nextMatchId: next.id } });
+    const feedersDone = feeders.every((f) => f.id === match.id || f.status === 'completed' || f.status === 'bye');
+    if (!feedersDone) return;
+
+    const present = [next.participantAId, next.participantBId].filter((id): id is string => Boolean(id));
+
+    if (present.length === 1) {
+      await this.matchesRepository.update(
+        { id: next.id },
+        { status: 'bye', winnerParticipantId: present[0], completedAt: new Date() },
       );
-      const players = await this.fixturePlayers(entrants, tournament.type === TournamentType.CVC);
-      await this.dataSource
-        .getRepository(TournamentMatchGame)
-        .save(this.buildGames(next.id, players.get(next.participantAId) ?? [], players.get(next.participantBId) ?? []));
-      await this.tournamentsService.notifyParticipants(
-        { ...tournament, participants: entrants } as Tournament,
-        '',
-        {
-          title: `${next.roundName} is set`,
-          message: `${entrants.map((p) => entrantView(p).name).join(' vs ')} — your ${next.roundName} in "${tournament.name}" is ready.`,
-          link: `${link}&match=${next.id}`,
-        },
-      );
+      await this.advanceWinner(tournament, next, present[0]);
+      return;
     }
+    if (present.length === 0) {
+      await this.matchesRepository.update(
+        { id: next.id },
+        { status: 'completed', doubleForfeit: true, winnerParticipantId: null, completedAt: new Date() },
+      );
+      await this.advanceWinner(tournament, next, null);
+      return;
+    }
+    if ((next.games ?? []).length) return;
+
+    const entrants = (tournament.participants ?? []).filter((p) => present.includes(p.id));
+    const players = await this.fixturePlayers(entrants, tournament.type === TournamentType.CVC);
+    const schedule = this.scheduleContext(tournament);
+    const newGames = this.buildGames(
+      next.id,
+      players.get(next.participantAId!) ?? [],
+      players.get(next.participantBId!) ?? [],
+      { dayStart: schedule.firstDay, hours: schedule.hours, notBefore: schedule.earliest, rng: Math.random },
+    );
+    await this.dataSource.getRepository(TournamentMatchGame).save(newGames);
+    await this.notifyScheduled(tournament, newGames);
+    await this.tournamentsService.notifyParticipants(
+      { ...tournament, participants: entrants } as Tournament,
+      '',
+      {
+        title: `${next.roundName} is set`,
+        message: `${entrants.map((p) => entrantView(p).name).join(' vs ')} — your ${next.roundName} in "${tournament.name}" is ready.`,
+        link: `${link}&match=${next.id}`,
+      },
+    );
   }
 
   /** When every group fixture is complete, the top 2 of each group are drawn into the knockout. */
@@ -361,9 +451,17 @@ export class TournamentMatchesService {
       qualifiers.some((q) => q.winner === p.id || q.runnerUp === p.id),
     );
     const players = await this.fixturePlayers(qualified, tournament.type === TournamentType.CVC);
+    const schedule = this.scheduleContext(tournament);
     const games = matches
       .filter((m) => m.participantAId && m.participantBId)
-      .flatMap((m) => this.buildGames(m.id, players.get(m.participantAId!) ?? [], players.get(m.participantBId!) ?? []));
+      .flatMap((m) =>
+        this.buildGames(m.id, players.get(m.participantAId!) ?? [], players.get(m.participantBId!) ?? [], {
+          dayStart: schedule.firstDay,
+          hours: schedule.hours,
+          notBefore: schedule.earliest,
+          rng: Math.random,
+        }),
+      );
 
     await this.dataSource.transaction(async (manager) => {
       await manager.save(TournamentMatch, [...matches].sort((a, b) => b.round - a.round));
@@ -375,6 +473,7 @@ export class TournamentMatchesService {
       message: `The group stage of "${tournament.name}" is over. ${qualified.length} teams go through to the knockout — check the bracket.`,
       link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
     });
+    await this.notifyScheduled(tournament, games);
   }
 
   /** Knockout tree from first-round pairings; byes advance immediately. */
@@ -425,12 +524,19 @@ export class TournamentMatchesService {
     matchId: string,
     playersA: FixturePlayer[],
     playersB: FixturePlayer[],
+    slot?: ScheduleSlot,
   ): TournamentMatchGame[] {
     const count = Math.max(playersA.length, playersB.length, 1);
     return Array.from({ length: count }, (_, index) => {
       const a = playersA[index];
       const b = playersB[index];
+      const range = slot ? assignRange(slot.dayStart, slot.hours, slot.rng, slot.notBefore) : null;
       return Object.assign(new TournamentMatchGame(), {
+        id: randomUUID(),
+        scheduledStart: range?.start ?? null,
+        scheduledEnd: range?.end ?? null,
+        systemScheduledStart: range?.start ?? null,
+        evidenceDeadline: range?.evidenceDeadline ?? null,
         matchId,
         slot: index + 1,
         isDecider: false,
@@ -445,6 +551,52 @@ export class TournamentMatchesService {
         status: 'pending' as const,
       });
     });
+  }
+
+  /**
+   * Scheduling bounds for new games: the organizer's play hours and the first
+   * playable day at least 3h after the later of tournament start and now.
+   */
+  private scheduleContext(tournament: Tournament): { hours: PlayHours; earliest: Date; firstDay: number } {
+    const hours = normalizePlayHours(tournament.playHoursStart, tournament.playHoursEnd);
+    const startMs = new Date(tournament.startAt).getTime();
+    const base = Number.isNaN(startMs) ? Date.now() : Math.max(startMs, Date.now());
+    const earliest = new Date(base + FIRST_GAME_DELAY_MS);
+    return { hours, earliest, firstDay: firstPlayableDay(earliest, hours) };
+  }
+
+  /** One notification per player with their game time(s), linking to the timing panel. */
+  private async notifyScheduled(tournament: Tournament, games: TournamentMatchGame[]): Promise<void> {
+    const byPlayer = new Map<string, Array<{ game: TournamentMatchGame; opponent: string }>>();
+    for (const game of games) {
+      if (!game.scheduledStart || !game.scheduledEnd) continue;
+      const pairs: Array<[string | null, string]> = [
+        [game.playerAUserId, game.playerBName],
+        [game.playerBUserId, game.playerAName],
+      ];
+      for (const [userId, opponent] of pairs) {
+        if (!userId) continue;
+        byPlayer.set(userId, [...(byPlayer.get(userId) ?? []), { game, opponent }]);
+      }
+    }
+
+    const base = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`;
+    await Promise.all(
+      [...byPlayer].map(([userId, entries]) => {
+        const sorted = entries.sort((x, y) => x.game.scheduledStart!.getTime() - y.game.scheduledStart!.getTime());
+        const first = sorted[0];
+        const when = formatRange({ start: first.game.scheduledStart!, end: first.game.scheduledEnd! });
+        const message =
+          sorted.length === 1
+            ? `Your match vs ${first.opponent} in "${tournament.name}" is scheduled for ${when} (Bangladesh time). Upload your evidence within 30 minutes after it ends.`
+            : `You have ${sorted.length} matches scheduled in "${tournament.name}". First: vs ${first.opponent}, ${when} (Bangladesh time).`;
+        return this.tournamentsService.sendNotifications([userId], {
+          title: 'Match scheduled',
+          message,
+          link: `${base}&match=${first.game.matchId}&game=${first.game.id}&panel=time`,
+        });
+      }),
+    );
   }
 
   /** Who plays for each entrant: the club's starters in lineup order, or the player. */
@@ -494,7 +646,7 @@ function entrantView(p: TournamentParticipant): EntrantView {
   };
 }
 
-function gameView(g: TournamentMatchGame): MatchGameView {
+function gameView(g: TournamentMatchGame, pendingRequest: TournamentGameTimeRequest | null): MatchGameView {
   return {
     id: g.id,
     slot: g.slot,
@@ -506,6 +658,14 @@ function gameView(g: TournamentMatchGame): MatchGameView {
     status: g.status,
     submittedSides: (g.submissions ?? []).map((s) => s.side).sort(),
     reviewNote: g.reviewNote,
+    resolution: g.resolution,
+    scheduledStart: g.scheduledStart,
+    scheduledEnd: g.scheduledEnd,
+    systemScheduledStart: g.systemScheduledStart,
+    evidenceDeadline: g.evidenceDeadline,
+    pendingTimeRequest: pendingRequest
+      ? { id: pendingRequest.id, requestedByUserId: pendingRequest.requestedByUserId, proposedStart: pendingRequest.proposedStart }
+      : null,
   };
 }
 
@@ -524,5 +684,6 @@ function toCompletedFixture(m: TournamentMatch): CompletedFixture {
     goalsA: m.goalsA ?? 0,
     goalsB: m.goalsB ?? 0,
     winner,
+    doubleForfeit: m.doubleForfeit,
   };
 }

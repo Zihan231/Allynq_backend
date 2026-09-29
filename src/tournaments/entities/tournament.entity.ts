@@ -91,6 +91,13 @@ export class Tournament {
   @Column({ type: 'jsonb', nullable: true })
   bracket!: BracketMatch[] | null;
 
+  /** Daily play hours (minutes after local midnight, Dhaka time); null = default 19:00–01:00. */
+  @Column({ type: 'smallint', nullable: true })
+  playHoursStart!: number | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  playHoursEnd!: number | null;
+
   /** Set when fixtures are generated: 'knockout' or 'groups_knockout'. */
   @Column({ type: 'varchar', length: 24, nullable: true })
   format!: TournamentFormat | null;
