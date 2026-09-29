@@ -38,6 +38,8 @@ import {
 } from './enums/tournament.enum.js';
 
 const LINEUP_CUTOFF_MS = 2 * 60 * 60 * 1000;
+// TEMP (testing auto bracket generation): allow start times < 2h away. Set back to true.
+const ENFORCE_START_LEAD = false;
 
 @Injectable()
 export class TournamentsService {
@@ -335,7 +337,7 @@ export class TournamentsService {
     if (dto.startAt !== undefined) {
       const startAt = new Date(dto.startAt);
       if (startAt.getTime() !== new Date(tournament.startAt).getTime()) {
-        if (startAt.getTime() <= Date.now() + LINEUP_CUTOFF_MS) {
+        if (ENFORCE_START_LEAD && startAt.getTime() <= Date.now() + LINEUP_CUTOFF_MS) {
           throw new BadRequestException(
             'Start time must be at least 2 hours in the future to allow lineup submissions',
           );
