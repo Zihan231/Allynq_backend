@@ -27,6 +27,17 @@ const LINEUP_CUTOFF_MS = 2 * 60 * 60 * 1000;
 
 const CLUB_NAMES = ['Padma Tigers', 'Meghna Hawks', 'Jamuna Wolves', 'Karnaphuli Kings', 'Surma Strikers', 'Teesta Titans', 'Buriganga Bulls', 'Rupsha Rangers'];
 const COLORS = ['#E63946', '#1D3557', '#2A9D8F', '#F4A261', '#8338EC', '#FF006E', '#3A86FF', '#06D6A0'];
+// Crests shipped in the frontend's public/ folder.
+const LOGOS = [
+  '/arsenal/arsenal-logo-transparent.png',
+  '/atleteco di madrid/atletico-logo-transparent.png',
+  '/barca/barca-logo-transparent.png',
+  '/bayern/bayern-logo-transparent.png',
+  '/chelsea/chelsea-logo-transparent.png',
+  '/man city/mancity-logo-transparent.png',
+  '/manu/manu-logo-transparent.png',
+  '/real madrid/real-madrid-logo-preview.png',
+];
 const FIRST = ['Arif', 'Tanvir', 'Rakib', 'Sabbir', 'Nayeem', 'Fahim', 'Shakib', 'Imran', 'Rasel', 'Mahin', 'Sajid', 'Tamim', 'Rifat', 'Jubayer', 'Asif', 'Hasib'];
 const LAST = ['Hossain', 'Rahman', 'Islam', 'Ahmed', 'Chowdhury', 'Karim', 'Uddin', 'Sarker', 'Mia', 'Talukder'];
 const POSITIONS = Object.values(EfootballPosition);
@@ -86,8 +97,8 @@ async function main() {
       const clubId = randomUUID();
       const name = `${CLUB_NAMES[c]} ${run.toUpperCase()}`;
       await runner.query(
-        `INSERT INTO clubs (id, name, color, initials, description, points, "joinPolicy", "communityIds", location)
-         VALUES ($1, $2, $3, $4, $5, $6, 'instant', $7, 'Dhaka')`,
+        `INSERT INTO clubs (id, name, color, initials, description, points, "joinPolicy", "communityIds", location, "dpUrl")
+         VALUES ($1, $2, $3, $4, $5, $6, 'instant', $7, 'Dhaka', $8)`,
         [
           clubId,
           name,
@@ -96,6 +107,7 @@ async function main() {
           `${name} — demo club.`,
           randInt(500, 3000),
           JSON.stringify([communityId]),
+          LOGOS[c % LOGOS.length],
         ],
       );
       await runner.query('INSERT INTO community_clubs ("communityId", "clubId") VALUES ($1, $2)', [communityId, clubId]);
