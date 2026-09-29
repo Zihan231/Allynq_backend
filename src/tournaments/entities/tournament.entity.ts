@@ -98,6 +98,10 @@ export class Tournament {
   @Column({ type: 'smallint', nullable: true })
   playHoursEnd!: number | null;
 
+  /** User ids of the match officials (reviewers besides the President / Vice President). */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  matchOfficialIds!: string[];
+
   /** Set when fixtures are generated: 'knockout' or 'groups_knockout'. */
   @Column({ type: 'varchar', length: 24, nullable: true })
   format!: TournamentFormat | null;

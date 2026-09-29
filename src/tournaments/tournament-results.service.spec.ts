@@ -40,6 +40,8 @@ function setup(
     communityId: 'c1',
     creatorId: 'organizer',
     community: { creatorId: 'organizer' },
+    // user-a plays in g1 and is also an official: they still can't review their own game.
+    matchOfficialIds: ['match-official', 'user-a'],
     participants: [
       { id: 'pa', clubId: 'club-a' },
       { id: 'pb', clubId: 'club-b' },
@@ -58,8 +60,9 @@ function setup(
   };
   const matchesRepository = { update: vi.fn().mockResolvedValue({}) };
   const profilesRepository = { findOne: vi.fn().mockResolvedValue(options.callerProfile ?? null) };
+  // The community President / Vice President lookup (the query filters by role).
   const communityMembersRepository = {
-    find: vi.fn().mockResolvedValue([{ profile: { userId: 'discipline-head' } }]),
+    find: vi.fn().mockResolvedValue([{ profile: { userId: 'organizer' } }]),
   };
   const tournamentsService = {
     findOne: vi.fn().mockResolvedValue(tournament),
@@ -112,7 +115,7 @@ describe('TournamentResultsService.submitGameResult', () => {
 
     expect(gamesRepository.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'submitted' }));
     const recipients = tournamentsService.sendNotifications.mock.calls.map(([ids]) => ids).flat();
-    expect(recipients.sort()).toEqual(['discipline-head', 'organizer']);
+    expect(recipients.sort()).toEqual(['match-official', 'organizer']);
   });
 
   it('does not let club officials upload for their players (CvC)', async () => {
@@ -176,7 +179,7 @@ describe('TournamentResultsService.submitGameResult', () => {
 });
 
 describe('TournamentResultsService.reviewGame', () => {
-  it.each([['the organizer', 'organizer'], ['the Head of Discipline', 'discipline-head']])(
+  it.each([['the community President', 'organizer'], ['a match official', 'match-official']])(
     'lets %s approve with the official score and completes the fixture when ready',
     async (_who, reviewer) => {
       const { service, gamesRepository, matchesService, tournamentsService } = setup({ gameStatus: 'submitted' });
@@ -231,7 +234,15 @@ describe('TournamentResultsService.reviewGame', () => {
     expect(gamesRepository.update).not.toHaveBeenCalled();
   });
 
-  it('forbids players from reviewing', async () => {
+  it('forbids community officials who are not President, Vice President or a match official', async () => {
+    const { service, gamesRepository } = setup({ gameStatus: 'submitted' });
+    await expect(
+      service.reviewGame('discipline-head', 't1', 'g1', { action: 'approve', goalsA: 2, goalsB: 1 }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(gamesRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('forbids players from reviewing, even a match official reviewing their own game', async () => {
     const { service, gamesRepository } = setup({ gameStatus: 'submitted' });
     await expect(
       service.reviewGame('user-a', 't1', 'g1', { action: 'approve', goalsA: 9, goalsB: 0 }),
@@ -313,7 +324,7 @@ describe('TournamentResultsService.resolveExpiredGames', () => {
     await service.resolveExpiredGames();
 
     expect(tournamentsService.sendNotifications).toHaveBeenCalledWith(
-      expect.arrayContaining(['organizer', 'discipline-head']),
+      expect.arrayContaining(['organizer', 'match-official']),
       expect.objectContaining({ title: 'Knockout fixture needs a decision' }),
     );
   });

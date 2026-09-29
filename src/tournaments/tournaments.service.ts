@@ -130,6 +130,7 @@ export class TournamentsService {
       entryFeeBdt,
       prizePoolBdt: dto.prizePoolBdt ?? 0,
       ...this.resolvePlayHours(dto.playHoursStart, dto.playHoursEnd),
+      matchOfficialIds: await this.resolveMatchOfficials(dto.communityId, dto.matchOfficialIds),
       registrationDeadline: dto.registrationDeadline
         ? new Date(dto.registrationDeadline)
         : teamSubmissionDeadline,
@@ -140,7 +141,40 @@ export class TournamentsService {
       creatorId: userId,
     });
 
-    return this.tournamentsRepository.save(tournament);
+    const saved = await this.tournamentsRepository.save(tournament);
+    await this.notifyNewOfficials(saved, saved.matchOfficialIds, userId);
+    return saved;
+  }
+
+  /**
+   * Match officials must be members of the hosting community. The President
+   * and Vice President already review every match, so they aren't stored.
+   */
+  private async resolveMatchOfficials(communityId: string, userIds: string[] | undefined): Promise<string[]> {
+    const unique = [...new Set(userIds ?? [])];
+    if (!unique.length) return [];
+    const rows: Array<{ userId: string; role: string }> = await this.communityMembersRepository.query(
+      `SELECT ep."userId", m.role FROM community_members m
+         JOIN efootball_profiles ep ON ep.id = m."profileId"
+        WHERE m."communityId" = $1 AND ep."userId" = ANY($2)`,
+      [communityId, unique],
+    );
+    const roleByUser = new Map(rows.map((r) => [r.userId, r.role]));
+    if (unique.some((id) => !roleByUser.has(id))) {
+      throw new BadRequestException('Match officials must be members of the hosting community');
+    }
+    const leaders: string[] = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
+    return unique.filter((id) => !leaders.includes(roleByUser.get(id)!));
+  }
+
+  private async notifyNewOfficials(tournament: Tournament, officialIds: string[], actorUserId: string): Promise<void> {
+    const recipients = officialIds.filter((id) => id !== actorUserId);
+    if (!recipients.length) return;
+    await this.sendNotifications(recipients, {
+      title: 'You are a match official',
+      message: `You were appointed as a match official for "${tournament.name}". You'll review the evidence players upload after each match window closes.`,
+      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
+    });
   }
 
   /** Validated daily play hours (both or neither); null = system default 19:00–01:00. */
@@ -392,6 +426,17 @@ export class TournamentsService {
       }
     }
 
+    let newOfficials: string[] = [];
+    if (dto.matchOfficialIds !== undefined) {
+      const next = await this.resolveMatchOfficials(tournament.communityId, dto.matchOfficialIds);
+      const current = tournament.matchOfficialIds ?? [];
+      if (next.length !== current.length || next.some((id) => !current.includes(id))) {
+        newOfficials = next.filter((id) => !current.includes(id));
+        tournament.matchOfficialIds = next;
+        changes.push('match officials');
+      }
+    }
+
     if (!changes.length) return tournament;
 
     // Save only the tournament's own columns, not the loaded relations.
@@ -399,6 +444,7 @@ export class TournamentsService {
       tournament;
     await this.tournamentsRepository.save(columns);
 
+    await this.notifyNewOfficials(tournament, newOfficials, userId);
     await this.notifyParticipants(tournament, userId, {
       title: 'Tournament updated',
       message: `"${tournament.name}" was updated by the organizer. Changed: ${changes.join(', ')}.`,

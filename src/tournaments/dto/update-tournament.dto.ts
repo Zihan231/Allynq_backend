@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsDivisibleBy,
   IsInt,
@@ -6,9 +8,11 @@ import {
   IsOptional,
   IsString,
   Max,
+  IsUUID,
   Min,
   ValidateIf,
 } from 'class-validator';
+import { MAX_MATCH_OFFICIALS } from './create-tournament.dto.js';
 
 /**
  * Editable tournament details. Format, roster preset and roster size are fixed
@@ -52,6 +56,13 @@ export class UpdateTournamentDto {
   @Min(0)
   @Max(1439)
   playHoursEnd?: number;
+
+  /** Community members who review match evidence alongside the President and Vice President. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MATCH_OFFICIALS)
+  @IsUUID('all', { each: true })
+  matchOfficialIds?: string[];
 
   @IsOptional()
   @IsDateString()

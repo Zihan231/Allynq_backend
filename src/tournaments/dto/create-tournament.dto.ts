@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsDivisibleBy,
@@ -12,6 +14,8 @@ import {
   Min,
 } from 'class-validator';
 import { TournamentPreset, TournamentType } from '../enums/tournament.enum.js';
+
+export const MAX_MATCH_OFFICIALS = 10;
 
 export class CreateTournamentDto {
   @IsString()
@@ -75,6 +79,13 @@ export class CreateTournamentDto {
   @Min(0)
   @Max(1439)
   playHoursEnd?: number;
+
+  /** Community members who review match evidence alongside the President and Vice President. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MATCH_OFFICIALS)
+  @IsUUID('all', { each: true })
+  matchOfficialIds?: string[];
 
   @IsOptional()
   @IsDateString()

@@ -27,7 +27,7 @@ const RESUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Goals credited to the side that uploaded evidence when the other did not. */
 const WALKOVER_GOALS = 3;
 /** Community staff who review evidence (plus the tournament creator). */
-const REVIEWER_ROLES = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT, CommunityRole.HEAD_OF_DISCIPLINE];
+const REVIEWER_ROLES = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
 
 export interface ReviewGameView {
   gameId: string;
@@ -122,6 +122,9 @@ export class TournamentResultsService {
       throw new BadRequestException('This fixture is already completed');
     }
     assertReviewOpen(game);
+    if (userId === game.playerAUserId || userId === game.playerBUserId) {
+      throw new ForbiddenException("You can't review a game you played in");
+    }
 
     const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket&match=${game.matchId}`;
     const players = [game.playerAUserId, game.playerBUserId, ...(game.submissions ?? []).map((s) => s.submittedByUserId)];
@@ -186,7 +189,7 @@ export class TournamentResultsService {
   async assertCanReview(userId: string, tournament: Tournament): Promise<void> {
     if (!(await this.reviewerUserIds(tournament)).includes(userId)) {
       throw new ForbiddenException(
-        'Only community officials (President, Vice President or Head of Discipline) can review results',
+        "Only the community President, Vice President or this tournament's match officials can review results",
       );
     }
   }
@@ -314,7 +317,7 @@ export class TournamentResultsService {
     }
   }
 
-  /** Tournament creator, community creator, and community President / VP / Head of Discipline. */
+  /** The hosting community's President and Vice President, plus the tournament's match officials. */
   async reviewerUserIds(tournament: Tournament): Promise<string[]> {
     const members = await this.communityMembersRepository.find({
       where: { communityId: tournament.communityId, role: In(REVIEWER_ROLES) },
@@ -322,7 +325,7 @@ export class TournamentResultsService {
     });
     return Array.from(
       new Set(
-        [tournament.creatorId, tournament.community?.creatorId, ...members.map((m) => m.profile?.userId)].filter(
+        [...members.map((m) => m.profile?.userId), ...(tournament.matchOfficialIds ?? [])].filter(
           (id): id is string => Boolean(id),
         ),
       ),
