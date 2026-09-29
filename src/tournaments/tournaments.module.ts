@@ -12,6 +12,7 @@ import { TournamentMatchGame } from './entities/tournament-match-game.entity.js'
 import { TournamentMatch } from './entities/tournament-match.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
 import { TournamentMatchesService } from './tournament-matches.service.js';
+import { TournamentResultsService } from './tournament-results.service.js';
 import { TournamentsController } from './tournaments.controller.js';
 import { TournamentsService } from './tournaments.service.js';
 
@@ -32,7 +33,7 @@ import { TournamentsService } from './tournaments.service.js';
     NotificationsModule,
   ],
   controllers: [TournamentsController],
-  providers: [TournamentsService, TournamentMatchesService],
+  providers: [TournamentsService, TournamentMatchesService, TournamentResultsService],
   exports: [TournamentsService],
 })
 export class TournamentsModule {}

@@ -459,7 +459,7 @@ export class TournamentsService {
     );
   }
 
-  private async notifyParticipants(
+  async notifyParticipants(
     tournament: Tournament,
     actorUserId: string,
     notification: { title: string; message: string; link: string },
@@ -469,7 +469,7 @@ export class TournamentsService {
   }
 
   /** Notification failures are logged, never surfaced: the edit/delete already succeeded. */
-  private async sendNotifications(
+  async sendNotifications(
     userIds: string[],
     notification: { title: string; message: string; link: string },
   ): Promise<void> {

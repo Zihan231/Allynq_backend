@@ -8,8 +8,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
@@ -18,7 +21,10 @@ import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
+import { ReviewGameDto } from './dto/review-game.dto.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
+import { type EvidenceFiles, evidenceUploadOptions, MAX_SCREENSHOTS } from './evidence-upload.js';
+import { type ReviewDecision, TournamentResultsService } from './tournament-results.service.js';
 import { TournamentMatchesService } from './tournament-matches.service.js';
 import { TournamentsService } from './tournaments.service.js';
 
@@ -27,6 +33,7 @@ export class TournamentsController {
   constructor(
     private readonly tournamentsService: TournamentsService,
     private readonly matchesService: TournamentMatchesService,
+    private readonly resultsService: TournamentResultsService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -96,5 +103,56 @@ export class TournamentsController {
   @Get(':id/structure')
   getStructure(@Param('id', ParseUUIDPipe) id: string) {
     return this.matchesService.getStructure(id);
+  }
+
+  /** Multipart: goalsA, goalsB + screenshots (1–3 images) + video (1 file). */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/games/:gameId/submission')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'screenshots', maxCount: MAX_SCREENSHOTS },
+        { name: 'video', maxCount: 1 },
+      ],
+      evidenceUploadOptions,
+    ),
+  )
+  submitGameResult(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('gameId', ParseUUIDPipe) gameId: string,
+    // Validated inside the service so rejected uploads are removed from disk.
+    @Body() body: Record<string, unknown>,
+    @UploadedFiles() files: EvidenceFiles,
+  ) {
+    return this.resultsService.submitGameResult(user.id, id, gameId, body, files ?? {});
+  }
+
+  /** Officials: games with evidence waiting for review. */
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/review-queue')
+  getReviewQueue(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.resultsService.getReviewQueue(user.id, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/games/:gameId/review')
+  getGameForReview(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('gameId', ParseUUIDPipe) gameId: string,
+  ) {
+    return this.resultsService.getGameForReview(user.id, id, gameId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/games/:gameId/review')
+  reviewGame(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('gameId', ParseUUIDPipe) gameId: string,
+    @Body() decision: ReviewGameDto,
+  ) {
+    return this.resultsService.reviewGame(user.id, id, gameId, decision as ReviewDecision);
   }
 }

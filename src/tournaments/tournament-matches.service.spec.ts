@@ -32,6 +32,7 @@ function setup(entrants: ReturnType<typeof participants>, type: TournamentType, 
   const tournamentsService = {
     findOne: vi.fn().mockResolvedValue(tournament),
     assertCanManage: vi.fn().mockResolvedValue(undefined),
+    notifyParticipants: vi.fn().mockResolvedValue(undefined),
   };
   const matchesRepository = {
     count: vi.fn().mockResolvedValue(existing),
@@ -68,6 +69,11 @@ describe('TournamentMatchesService.generateStructure', () => {
     await service.generateStructure('organizer', 't1');
 
     expect(tournamentsService.assertCanManage).toHaveBeenCalled();
+    expect(tournamentsService.notifyParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      'organizer',
+      expect.objectContaining({ title: 'Fixtures are out' }),
+    );
     expect(saved.update).toMatchObject({ format: 'knockout' });
     expect(saved.matches.map((m) => m.roundName).sort()).toEqual(['Final', 'Semi-final', 'Semi-final']);
     // 2 semi-finals × 4 starter pairings; the final waits for its entrants.
@@ -121,5 +127,104 @@ describe('TournamentMatchesService.generateStructure', () => {
     entrants[2].lineup = null;
     const { service } = setup(entrants, TournamentType.CVC);
     await expect(service.generateStructure('organizer', 't1')).rejects.toThrow(/Club 3/);
+  });
+});
+
+describe('TournamentMatchesService.completeFixtureIfReady', () => {
+  const approved = (goalsA: number, goalsB: number) => ({ status: 'approved', goalsA, goalsB });
+
+  function advanceSetup(match: Record<string, unknown>, extra: { next?: Record<string, unknown>; all?: unknown[] } = {}) {
+    const updates: Array<[unknown, unknown]> = [];
+    const saved: { games: unknown[]; matches: unknown[]; tournament: unknown } = { games: [], matches: [], tournament: null };
+    const tournament = {
+      id: 't1', name: 'Cup', communityId: 'c1', type: TournamentType.PVP,
+      participants: ['pa', 'pb', 'pc', 'pd'].map((id) => ({ id, userId: `u-${id}`, user: { name: id.toUpperCase() } })),
+    };
+    const matchesRepository = {
+      findOne: vi.fn(async ({ where }: { where: { id: string } }) =>
+        where.id === match.id ? match : where.id === extra.next?.id ? extra.next : null),
+      update: vi.fn(async (where: unknown, values: unknown) => { updates.push([where, values]); }),
+      find: vi.fn().mockResolvedValue(extra.all ?? []),
+      create: vi.fn((m) => Object.assign(new TournamentMatch(), m)),
+    };
+    const repoFor = (entity: unknown) => ({
+      save: vi.fn(async (rows: unknown) => { if (entity === TournamentMatchGame) saved.games = rows as unknown[]; }),
+      update: vi.fn(async (_w: unknown, values: unknown) => { saved.tournament = values; }),
+    });
+    const dataSource = {
+      getRepository: vi.fn(repoFor),
+      transaction: vi.fn(async (work: (m: unknown) => Promise<void>) =>
+        work({
+          save: vi.fn(async (entity: unknown, rows: unknown[]) => {
+            if (entity === TournamentMatch) saved.matches = rows;
+            else saved.games = rows;
+          }),
+        })),
+    };
+    const tournamentsService = {
+      findOne: vi.fn().mockResolvedValue(tournament),
+      notifyParticipants: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new TournamentMatchesService(
+      matchesRepository as never,
+      { find: vi.fn().mockResolvedValue([]) } as never,
+      dataSource as never,
+      tournamentsService as never,
+    );
+    return { service, updates, saved, tournamentsService };
+  }
+
+  it('waits until every game is approved', async () => {
+    const { service, updates } = advanceSetup({ id: 'm1', status: 'in_review', stage: 'knockout', games: [approved(1, 0), { status: 'submitted' }] });
+    expect(await service.completeFixtureIfReady('m1')).toBe('pending');
+    expect(updates).toHaveLength(0);
+  });
+
+  it('moves a knockout winner into the next fixture and creates its games', async () => {
+    const next = { id: 'm3', participantAId: null, participantBId: 'pc', games: [], roundName: 'Final' };
+    const { service, updates, saved } = advanceSetup(
+      { id: 'm1', status: 'in_review', stage: 'knockout', participantAId: 'pa', participantBId: 'pb', nextMatchId: 'm3', nextSlot: 'A', games: [approved(0, 2)] },
+      { next },
+    );
+
+    expect(await service.completeFixtureIfReady('m1')).toBe('completed');
+    expect(updates[0][1]).toMatchObject({ status: 'completed', winnerParticipantId: 'pb', scoreA: 0, scoreB: 2 });
+    expect(updates[1]).toEqual([{ id: 'm3' }, { participantAId: 'pb', participantBId: 'pc' }]);
+    expect(saved.games).toHaveLength(1);
+  });
+
+  it('needs a decider for a level knockout fixture', async () => {
+    const match = { id: 'm1', status: 'in_review', stage: 'knockout', participantAId: 'pa', participantBId: 'pb', nextMatchId: null, games: [approved(1, 1)] };
+    const { service } = advanceSetup(match);
+    expect(await service.completeFixtureIfReady('m1')).toBe('needs_decider');
+    expect(await service.completeFixtureIfReady('m1', 'A')).toBe('completed');
+  });
+
+  it('finishes the tournament after the final', async () => {
+    const { service, saved, tournamentsService } = advanceSetup({
+      id: 'final', status: 'in_review', stage: 'knockout', participantAId: 'pa', participantBId: 'pb', nextMatchId: null, games: [approved(3, 1)],
+    });
+    await service.completeFixtureIfReady('final');
+    expect(saved.tournament).toMatchObject({ status: 'completed' });
+    expect(tournamentsService.notifyParticipants).toHaveBeenCalledWith(expect.anything(), '', expect.objectContaining({ title: 'Tournament finished' }));
+  });
+
+  it('draws the knockout once the last group fixture completes', async () => {
+    const done = (id: string, group: string, a: string, b: string, winner: string) => ({
+      id, stage: 'group', groupLabel: group, status: 'completed', participantAId: a, participantBId: b,
+      scoreA: winner === a ? 1 : 0, scoreB: winner === b ? 1 : 0, goalsA: winner === a ? 1 : 0, goalsB: winner === b ? 1 : 0, winnerParticipantId: winner,
+    });
+    const all = [done('g1', 'A', 'pa', 'pb', 'pa'), done('g2', 'B', 'pc', 'pd', 'pc')];
+    const { service, saved } = advanceSetup(
+      { id: 'g2', status: 'in_review', stage: 'group', participantAId: 'pc', participantBId: 'pd', games: [approved(1, 0)] },
+      { all },
+    );
+
+    await service.completeFixtureIfReady('g2');
+
+    const knockout = saved.matches as TournamentMatch[];
+    expect(knockout.map((m) => m.roundName).sort()).toEqual(['Final', 'Semi-final', 'Semi-final']);
+    const semis = knockout.filter((m) => m.roundName === 'Semi-final').map((m) => [m.participantAId, m.participantBId]);
+    expect(semis).toEqual(expect.arrayContaining([['pa', 'pd'], ['pc', 'pb']]));
   });
 });

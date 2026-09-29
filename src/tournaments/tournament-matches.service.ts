@@ -12,8 +12,9 @@ import {
   QUALIFIERS_PER_GROUP,
   type TournamentFormat,
 } from './bracket/format.js';
-import { planKnockout, seededPairs } from './bracket/knockout.js';
+import { crossGroupPairs, planKnockout, seededPairs } from './bracket/knockout.js';
 import { roundRobin } from './bracket/round-robin.js';
+import { fixtureOutcome } from './bracket/scoring.js';
 import { computeStandings, type CompletedFixture, type StandingRow } from './bracket/standings.js';
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
@@ -47,6 +48,9 @@ export interface MatchGameView {
   goalsA: number | null;
   goalsB: number | null;
   status: TournamentMatchGame['status'];
+  /** Sides that have submitted evidence (the evidence itself is only shown to reviewers). */
+  submittedSides: Array<'A' | 'B'>;
+  reviewNote: string | null;
 }
 
 export interface MatchView {
@@ -182,6 +186,13 @@ export class TournamentMatchesService {
       await manager.update(Tournament, { id: tournament.id }, { format, status: TournamentStatus.ONGOING });
     });
 
+    const groupsText = format === 'knockout' ? 'a straight knockout' : `${groupCount(participants.length)} groups`;
+    await this.tournamentsService.notifyParticipants(tournament, userId, {
+      title: 'Fixtures are out',
+      message: `The fixtures for "${tournament.name}" have been drawn (${groupsText}). Check your first match.`,
+      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
+    });
+
     return this.getStructure(tournamentId);
   }
 
@@ -189,7 +200,7 @@ export class TournamentMatchesService {
     const tournament = await this.tournamentsService.findOne(tournamentId);
     const matches = await this.matchesRepository.find({
       where: { tournamentId },
-      relations: { games: true },
+      relations: { games: { submissions: true } },
       order: { round: 'ASC', matchNumber: 'ASC', games: { slot: 'ASC' } },
     });
 
@@ -242,6 +253,128 @@ export class TournamentMatchesService {
         rounds,
       },
     };
+  }
+
+  /**
+   * Called after a game is approved. Once every game of the fixture is
+   * approved the fixture is scored and completed; a knockout winner moves on,
+   * a finished group stage draws the knockout, and the final ends the tournament.
+   * A level knockout fixture needs `deciderWinner` (the decider game's winner).
+   */
+  async completeFixtureIfReady(
+    matchId: string,
+    deciderWinner?: 'A' | 'B' | null,
+  ): Promise<'pending' | 'needs_decider' | 'completed'> {
+    const match = await this.matchesRepository.findOne({ where: { id: matchId }, relations: { games: true } });
+    if (!match || match.status === 'completed' || match.status === 'bye') return 'completed';
+    if ((match.games ?? []).some((g) => g.status !== 'approved')) return 'pending';
+
+    const tournament = await this.tournamentsService.findOne(match.tournamentId);
+    const outcome = fixtureOutcome(
+      (match.games ?? []).map((g) => ({ goalsA: g.goalsA ?? 0, goalsB: g.goalsB ?? 0 })),
+      { isSeries: tournament.type === TournamentType.CVC, deciderWinner },
+    );
+    if (match.stage === 'knockout' && !outcome.winner) return 'needs_decider';
+
+    const winnerId =
+      outcome.winner === 'A' ? match.participantAId : outcome.winner === 'B' ? match.participantBId : null;
+    await this.matchesRepository.update(
+      { id: match.id },
+      {
+        status: 'completed',
+        scoreA: outcome.scoreA,
+        scoreB: outcome.scoreB,
+        goalsA: outcome.goalsA,
+        goalsB: outcome.goalsB,
+        winnerParticipantId: winnerId,
+        completedAt: new Date(),
+      },
+    );
+
+    if (match.stage === 'knockout') await this.advanceWinner(tournament, match, winnerId!);
+    else await this.drawKnockoutIfGroupsDone(tournament);
+    return 'completed';
+  }
+
+  /** Moves a knockout winner into the next fixture (creating its games), or ends the tournament. */
+  private async advanceWinner(tournament: Tournament, match: TournamentMatch, winnerId: string): Promise<void> {
+    const winnerName = tournament.participants?.find((p) => p.id === winnerId);
+    const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`;
+
+    if (!match.nextMatchId) {
+      await this.dataSource.getRepository(Tournament).update({ id: tournament.id }, { status: TournamentStatus.COMPLETED });
+      await this.tournamentsService.notifyParticipants(tournament, '', {
+        title: 'Tournament finished',
+        message: `${entrantView(winnerName!).name} won "${tournament.name}"! Congratulations to the champions.`,
+        link,
+      });
+      return;
+    }
+
+    const next = await this.matchesRepository.findOne({ where: { id: match.nextMatchId }, relations: { games: true } });
+    if (!next) return;
+    if (match.nextSlot === 'A') next.participantAId = winnerId;
+    else next.participantBId = winnerId;
+    await this.matchesRepository.update(
+      { id: next.id },
+      { participantAId: next.participantAId, participantBId: next.participantBId },
+    );
+
+    if (next.participantAId && next.participantBId && !(next.games ?? []).length) {
+      const entrants = (tournament.participants ?? []).filter((p) =>
+        [next.participantAId, next.participantBId].includes(p.id),
+      );
+      const players = await this.fixturePlayers(entrants, tournament.type === TournamentType.CVC);
+      await this.dataSource
+        .getRepository(TournamentMatchGame)
+        .save(this.buildGames(next.id, players.get(next.participantAId) ?? [], players.get(next.participantBId) ?? []));
+      await this.tournamentsService.notifyParticipants(
+        { ...tournament, participants: entrants } as Tournament,
+        '',
+        {
+          title: `${next.roundName} is set`,
+          message: `${entrants.map((p) => entrantView(p).name).join(' vs ')} — your ${next.roundName} in "${tournament.name}" is ready.`,
+          link: `${link}&match=${next.id}`,
+        },
+      );
+    }
+  }
+
+  /** When every group fixture is complete, the top 2 of each group are drawn into the knockout. */
+  private async drawKnockoutIfGroupsDone(tournament: Tournament): Promise<void> {
+    const all = await this.matchesRepository.find({ where: { tournamentId: tournament.id } });
+    const groupMatches = all.filter((m) => m.stage === 'group');
+    if (all.some((m) => m.stage === 'knockout') || groupMatches.some((m) => m.status !== 'completed')) return;
+
+    const labels = [...new Set(groupMatches.map((m) => m.groupLabel!))].sort();
+    const qualifiers = labels.map((label) => {
+      const own = groupMatches.filter((m) => m.groupLabel === label);
+      const ids = [...new Set(own.flatMap((m) => [m.participantAId, m.participantBId]))].filter(
+        (id): id is string => Boolean(id),
+      );
+      const table = computeStandings(ids, own.filter(isCompletedFixture).map(toCompletedFixture));
+      return { winner: table[0].entrantId, runnerUp: table[1].entrantId };
+    });
+
+    const matches = this.buildKnockout(tournament.id, crossGroupPairs(qualifiers));
+    const qualified = (tournament.participants ?? []).filter((p) =>
+      qualifiers.some((q) => q.winner === p.id || q.runnerUp === p.id),
+    );
+    const players = await this.fixturePlayers(qualified, tournament.type === TournamentType.CVC);
+    const games = matches
+      .filter((m) => m.participantAId && m.participantBId)
+      .flatMap((m) => this.buildGames(m.id, players.get(m.participantAId!) ?? [], players.get(m.participantBId!) ?? []));
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.save(TournamentMatch, [...matches].sort((a, b) => b.round - a.round));
+      if (games.length) await manager.save(TournamentMatchGame, games);
+    });
+
+    await this.tournamentsService.notifyParticipants(tournament, '', {
+      title: 'Knockout draw is out',
+      message: `The group stage of "${tournament.name}" is over. ${qualified.length} teams go through to the knockout — check the bracket.`,
+      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
+    });
   }
 
   /** Knockout tree from first-round pairings; byes advance immediately. */
@@ -371,6 +504,8 @@ function gameView(g: TournamentMatchGame): MatchGameView {
     goalsA: g.goalsA,
     goalsB: g.goalsB,
     status: g.status,
+    submittedSides: (g.submissions ?? []).map((s) => s.side).sort(),
+    reviewNote: g.reviewNote,
   };
 }
 
