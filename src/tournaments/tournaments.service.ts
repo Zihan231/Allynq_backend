@@ -39,6 +39,13 @@ import {
 
 const LINEUP_CUTOFF_MS = 2 * 60 * 60 * 1000;
 
+/** Community roles that may be appointed as a tournament's match officials. */
+export const MATCH_OFFICIAL_ROLES: CommunityRole[] = [
+  CommunityRole.TEAM_MANAGER,
+  CommunityRole.HEAD_OF_DISCIPLINE,
+  CommunityRole.SCOUT,
+];
+
 export interface PlayerCommitment {
   profileId: string;
   tournamentId: string;
@@ -147,8 +154,9 @@ export class TournamentsService {
   }
 
   /**
-   * Match officials must be members of the hosting community. The President
-   * and Vice President already review every match, so they aren't stored.
+   * Match officials must hold an official role in the hosting community (Team
+   * Manager, Head of Discipline or Scout). The President and Vice President
+   * already review every match, so they aren't stored.
    */
   private async resolveMatchOfficials(communityId: string, userIds: string[] | undefined): Promise<string[]> {
     const unique = [...new Set(userIds ?? [])];
@@ -160,11 +168,14 @@ export class TournamentsService {
       [communityId, unique],
     );
     const roleByUser = new Map(rows.map((r) => [r.userId, r.role]));
-    if (unique.some((id) => !roleByUser.has(id))) {
-      throw new BadRequestException('Match officials must be members of the hosting community');
-    }
     const leaders: string[] = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
-    return unique.filter((id) => !leaders.includes(roleByUser.get(id)!));
+    const officials = unique.filter((id) => !leaders.includes(roleByUser.get(id) ?? ''));
+    if (officials.some((id) => !MATCH_OFFICIAL_ROLES.includes(roleByUser.get(id) as CommunityRole))) {
+      throw new BadRequestException(
+        'Match officials must be community officials (Team Manager, Head of Discipline or Scout)',
+      );
+    }
+    return officials;
   }
 
   private async notifyNewOfficials(tournament: Tournament, officialIds: string[], actorUserId: string): Promise<void> {

@@ -60,9 +60,15 @@ function setup(
   };
   const matchesRepository = { update: vi.fn().mockResolvedValue({}) };
   const profilesRepository = { findOne: vi.fn().mockResolvedValue(options.callerProfile ?? null) };
-  // The community President / Vice President lookup (the query filters by role).
+  // Community members holding a reviewer or official role (the query filters by role).
+  // 'discipline-head' holds an official role but isn't one of this tournament's officials.
   const communityMembersRepository = {
-    find: vi.fn().mockResolvedValue([{ profile: { userId: 'organizer' } }]),
+    find: vi.fn().mockResolvedValue([
+      { role: 'President', profile: { userId: 'organizer' } },
+      { role: 'Head of Discipline', profile: { userId: 'match-official' } },
+      { role: 'Scout', profile: { userId: 'user-a' } },
+      { role: 'Head of Discipline', profile: { userId: 'discipline-head' } },
+    ]),
   };
   const tournamentsService = {
     findOne: vi.fn().mockResolvedValue(tournament),
@@ -231,6 +237,17 @@ describe('TournamentResultsService.reviewGame', () => {
     await expect(
       service.reviewGame('organizer', 't1', 'g1', { action: 'approve', goalsA: 2, goalsB: 1 }),
     ).rejects.toThrow(BadRequestException);
+    expect(gamesRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('stops a match official who lost their official role from reviewing', async () => {
+    const { service, gamesRepository, tournamentsService } = setup({ gameStatus: 'submitted' });
+    const tournament = await tournamentsService.findOne('t1');
+    tournamentsService.findOne.mockResolvedValue({ ...tournament, matchOfficialIds: ['demoted'] });
+
+    await expect(
+      service.reviewGame('demoted', 't1', 'g1', { action: 'approve', goalsA: 2, goalsB: 1 }),
+    ).rejects.toThrow(ForbiddenException);
     expect(gamesRepository.update).not.toHaveBeenCalled();
   });
 

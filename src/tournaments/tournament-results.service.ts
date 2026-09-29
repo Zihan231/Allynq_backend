@@ -20,7 +20,7 @@ import {
   removeEvidence,
 } from './evidence-upload.js';
 import { TournamentMatchesService } from './tournament-matches.service.js';
-import { TournamentsService } from './tournaments.service.js';
+import { MATCH_OFFICIAL_ROLES, TournamentsService } from './tournaments.service.js';
 
 /** After a rejection both players get this long to upload new evidence. */
 const RESUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -317,17 +317,22 @@ export class TournamentResultsService {
     }
   }
 
-  /** The hosting community's President and Vice President, plus the tournament's match officials. */
+  /**
+   * The hosting community's President and Vice President, plus the tournament's
+   * match officials who still hold an official role (a demoted official stops reviewing).
+   */
   async reviewerUserIds(tournament: Tournament): Promise<string[]> {
     const members = await this.communityMembersRepository.find({
-      where: { communityId: tournament.communityId, role: In(REVIEWER_ROLES) },
+      where: { communityId: tournament.communityId, role: In([...REVIEWER_ROLES, ...MATCH_OFFICIAL_ROLES]) },
       relations: { profile: true },
     });
+    const officialIds = tournament.matchOfficialIds ?? [];
     return Array.from(
       new Set(
-        [...members.map((m) => m.profile?.userId), ...(tournament.matchOfficialIds ?? [])].filter(
-          (id): id is string => Boolean(id),
-        ),
+        members
+          .filter((m) => REVIEWER_ROLES.includes(m.role) || officialIds.includes(m.profile?.userId ?? ''))
+          .map((m) => m.profile?.userId)
+          .filter((id): id is string => Boolean(id)),
       ),
     );
   }
