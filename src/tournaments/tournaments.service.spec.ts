@@ -451,6 +451,32 @@ describe('TournamentsService lineup notifications', () => {
     return { service, sent, createNotification };
   }
 
+  it('refuses team changes once the tournament is finished', async () => {
+    const { createNotification } = setup();
+    const participantsRepository = {
+      findOne: vi.fn().mockResolvedValue({ id: 'participant-id', lineup: null, club: { name: 'Test FC', members } }),
+      save: vi.fn(),
+      query: vi.fn().mockResolvedValue([]),
+    };
+    const service = new TournamentsService(
+      { findOne: vi.fn().mockResolvedValue({ ...tournament, status: TournamentStatus.COMPLETED }) } as never,
+      participantsRepository as never,
+      {} as never,
+      { findOne: vi.fn().mockResolvedValue(null) } as never,
+      {} as never,
+      { findOne: vi.fn().mockResolvedValue({ id: 'manager', communityId, communityRole: CommunityRole.MEMBER }) } as never,
+      { createNotification } as never,
+    );
+
+    await expect(
+      service.submitLineup('manager-user', 'tournament-id', 'participant-id', {
+        starters: [player('manager'), player('a')],
+        substitutes: [player('b')],
+      }),
+    ).rejects.toThrow(/finished/);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+  });
+
   it('notifies every picked player (but not the submitter) when a club registers', async () => {
     const { service, sent } = setup();
 

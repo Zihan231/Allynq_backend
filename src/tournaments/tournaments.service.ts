@@ -819,6 +819,13 @@ export class TournamentsService {
       throw new NotFoundException('Tournament participant record not found');
     }
 
+    if (
+      tournament.status === TournamentStatus.COMPLETED ||
+      tournament.status === TournamentStatus.CANCELLED
+    ) {
+      throw new BadRequestException('This tournament is finished; its teams can no longer be changed');
+    }
+
     // Enforce 2-hour pre-match cutoff deadline
     const now = new Date();
     if (now > new Date(tournament.teamSubmissionDeadline)) {
