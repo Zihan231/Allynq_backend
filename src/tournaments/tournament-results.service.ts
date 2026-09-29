@@ -93,7 +93,7 @@ export class TournamentResultsService {
       relations: { match: true, submissions: true },
       order: { updatedAt: 'ASC' },
     });
-    return games.map((game) => this.toReviewView(tournament, game));
+    return games.filter((game) => reviewOpen(game)).map((game) => this.toReviewView(tournament, game));
   }
 
   /** One game with both sides' evidence, for the review screen. */
@@ -101,6 +101,7 @@ export class TournamentResultsService {
     const tournament = await this.tournamentsService.findOne(tournamentId);
     await this.assertCanReview(userId, tournament);
     const game = await this.loadGame(tournamentId, gameId);
+    assertReviewOpen(game);
     return this.toReviewView(tournament, game);
   }
 
@@ -120,6 +121,7 @@ export class TournamentResultsService {
     if (game.match!.status === 'completed' || game.match!.status === 'bye') {
       throw new BadRequestException('This fixture is already completed');
     }
+    assertReviewOpen(game);
 
     const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket&match=${game.matchId}`;
     const players = [game.playerAUserId, game.playerBUserId, ...(game.submissions ?? []).map((s) => s.submittedByUserId)];
@@ -426,6 +428,19 @@ export class TournamentResultsService {
       }
     }
     return expired.length;
+  }
+}
+
+/** Officials may review only after the match range and 30-minute evidence window have ended. */
+function reviewOpen(game: Pick<TournamentMatchGame, 'evidenceDeadline'>, now = Date.now()): boolean {
+  return !game.evidenceDeadline || now > new Date(game.evidenceDeadline).getTime();
+}
+
+function assertReviewOpen(game: Pick<TournamentMatchGame, 'evidenceDeadline'>): void {
+  if (!reviewOpen(game)) {
+    throw new BadRequestException(
+      `Review opens after the evidence window closes at ${formatTime(game.evidenceDeadline!)} (Bangladesh time)`,
+    );
   }
 }
 

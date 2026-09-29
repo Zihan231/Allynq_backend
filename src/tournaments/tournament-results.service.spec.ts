@@ -219,12 +219,46 @@ describe('TournamentResultsService.reviewGame', () => {
     await expect(service.reviewGame('organizer', 't1', 'g1', { action: 'approve' })).rejects.toThrow(BadRequestException);
   });
 
+  it('blocks reviews until the evidence deadline has passed', async () => {
+    const { service, gamesRepository } = setup({
+      gameStatus: 'submitted',
+      evidenceDeadline: new Date(Date.now() + HOUR),
+    });
+
+    await expect(
+      service.reviewGame('organizer', 't1', 'g1', { action: 'approve', goalsA: 2, goalsB: 1 }),
+    ).rejects.toThrow(BadRequestException);
+    expect(gamesRepository.update).not.toHaveBeenCalled();
+  });
+
   it('forbids players from reviewing', async () => {
     const { service, gamesRepository } = setup({ gameStatus: 'submitted' });
     await expect(
       service.reviewGame('user-a', 't1', 'g1', { action: 'approve', goalsA: 9, goalsB: 0 }),
     ).rejects.toThrow(ForbiddenException);
     expect(gamesRepository.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('TournamentResultsService review visibility', () => {
+  it('hides games from the review queue until the evidence deadline has passed', async () => {
+    const { service, gamesRepository } = setup({
+      gameStatus: 'submitted',
+      evidenceDeadline: new Date(Date.now() + HOUR),
+      expired: [],
+    });
+    gamesRepository.find.mockResolvedValueOnce([await gamesRepository.findOne()]);
+
+    await expect(service.getReviewQueue('organizer', 't1')).resolves.toEqual([]);
+  });
+
+  it('blocks the review detail endpoint until the evidence deadline has passed', async () => {
+    const { service } = setup({
+      gameStatus: 'submitted',
+      evidenceDeadline: new Date(Date.now() + HOUR),
+    });
+
+    await expect(service.getGameForReview('organizer', 't1', 'g1')).rejects.toThrow(BadRequestException);
   });
 });
 
