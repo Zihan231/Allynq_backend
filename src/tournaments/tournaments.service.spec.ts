@@ -157,7 +157,7 @@ describe('TournamentsService.update / remove', () => {
   const organizerId = 'organizer-id';
   const tournamentId = 'tournament-id';
 
-  function setup(options: { callerRole?: CommunityRole; organizer?: boolean } = {}) {
+  function setup(options: { callerRole?: CommunityRole; organizer?: boolean; started?: boolean } = {}) {
     const tournament = {
       id: tournamentId,
       name: 'Winter Cup',
@@ -170,7 +170,7 @@ describe('TournamentsService.update / remove', () => {
       maxParticipants: 16,
       entryFeeBdt: 0,
       prizePoolBdt: 0,
-      startAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      startAt: new Date(Date.now() + (options.started ? -1 : 24) * 60 * 60 * 1000),
       endAt: null,
       participants: [
         { clubId: 'club-1', userId: null, registeredByUserId: 'registrar-1' },
@@ -270,6 +270,18 @@ describe('TournamentsService.update / remove', () => {
       'president-1',
       expect.objectContaining({ title: 'Tournament cancelled' }),
     );
+  });
+
+  it.each([
+    ['edit', (s: TournamentsService) => s.update(organizerId, tournamentId, { name: 'X' })],
+    ['delete', (s: TournamentsService) => s.remove(organizerId, tournamentId)],
+  ])('locks organizers out of %s once the tournament is live', async (_action, run) => {
+    const { service, tournamentsRepository, notificationsService } = setup({ started: true });
+
+    await expect(run(service)).rejects.toThrow(BadRequestException);
+    expect(tournamentsRepository.save).not.toHaveBeenCalled();
+    expect(tournamentsRepository.delete).not.toHaveBeenCalled();
+    expect(notificationsService.createNotification).not.toHaveBeenCalled();
   });
 
   it.each([

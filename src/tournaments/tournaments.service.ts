@@ -305,12 +305,8 @@ export class TournamentsService {
   ): Promise<Tournament> {
     const tournament = await this.findOne(tournamentId);
     await this.assertCanManage(userId, tournament, 'edit tournaments');
-
-    if (
-      tournament.status === TournamentStatus.COMPLETED ||
-      tournament.status === TournamentStatus.CANCELLED
-    ) {
-      throw new BadRequestException('Finished tournaments can no longer be edited');
+    if (this.isLocked(tournament)) {
+      throw new BadRequestException('Live or finished tournaments can no longer be edited');
     }
 
     const changes: string[] = [];
@@ -407,6 +403,9 @@ export class TournamentsService {
   async remove(userId: string, tournamentId: string): Promise<{ id: string }> {
     const tournament = await this.findOne(tournamentId);
     await this.assertCanManage(userId, tournament, 'delete tournaments');
+    if (this.isLocked(tournament)) {
+      throw new BadRequestException('Live or finished tournaments can no longer be deleted');
+    }
 
     // Resolve recipients before the participants are cascade-deleted.
     const recipients = await this.participantRecipients(tournament, userId);
@@ -419,6 +418,16 @@ export class TournamentsService {
     });
 
     return { id: tournament.id };
+  }
+
+  /** Once a tournament has started (or ended), organizers can no longer edit or delete it. */
+  isLocked(tournament: Tournament, now = Date.now()): boolean {
+    return (
+      new Date(tournament.startAt).getTime() <= now ||
+      tournament.status === TournamentStatus.ONGOING ||
+      tournament.status === TournamentStatus.COMPLETED ||
+      tournament.status === TournamentStatus.CANCELLED
+    );
   }
 
   /**
