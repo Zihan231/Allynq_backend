@@ -106,6 +106,16 @@ export class TournamentsController {
     return this.tournamentsService.join(user.id, id, dto);
   }
 
+  /** Members of a club already playing in another active tournament (can't be picked). */
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/club-commitments')
+  getClubCommitments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('clubId', ParseUUIDPipe) clubId: string,
+  ) {
+    return this.tournamentsService.getClubCommitments(id, clubId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post(':id/participants/:participantId/lineup')
   submitLineup(

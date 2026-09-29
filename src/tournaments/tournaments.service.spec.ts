@@ -305,7 +305,7 @@ describe('TournamentsService.join (CvC team submission)', () => {
   const presidentProfileId = 'president-profile';
   const player = (profileId: string) => ({ profileId, name: profileId });
 
-  function setup() {
+  function setup(commitments: unknown[] = []) {
     const tournament = {
       id: 'tournament-id',
       communityId,
@@ -322,6 +322,7 @@ describe('TournamentsService.join (CvC team submission)', () => {
       findOne: vi.fn().mockResolvedValue(null),
       create: vi.fn((p) => p),
       save: vi.fn((p) => Promise.resolve(p)),
+      query: vi.fn().mockResolvedValue(commitments),
     };
     const clubsRepository = {
       findOne: vi.fn().mockResolvedValue({
@@ -375,6 +376,24 @@ describe('TournamentsService.join (CvC team submission)', () => {
     ).rejects.toThrow(BadRequestException);
     expect(participantsRepository.save).not.toHaveBeenCalled();
   });
+
+  it('rejects a lineup with a player already in another active tournament', async () => {
+    const { service, participantsRepository } = setup([
+      { profileId: 'p2', tournamentId: 'other', tournamentName: 'Summer Cup' },
+    ]);
+
+    await expect(
+      service.join('user-id', 'tournament-id', {
+        clubId: 'club-id',
+        lineup: { starters: [player(presidentProfileId), player('p2')], substitutes: [player('p3')] },
+      }),
+    ).rejects.toThrow(/p2 \("Summer Cup"\)/);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+    expect(participantsRepository.query).toHaveBeenCalledWith(expect.any(String), [
+      'tournament-id',
+      [presidentProfileId, 'p2', 'p3'],
+    ]);
+  });
 });
 
 describe('TournamentsService lineup notifications', () => {
@@ -414,6 +433,7 @@ describe('TournamentsService lineup notifications', () => {
       ),
       create: vi.fn((p) => p),
       save: vi.fn((p) => Promise.resolve(p)),
+      query: vi.fn().mockResolvedValue([]),
     };
     const service = new TournamentsService(
       { findOne: vi.fn().mockResolvedValue(tournament) } as never,

@@ -38,6 +38,12 @@ import {
 } from './enums/tournament.enum.js';
 
 const LINEUP_CUTOFF_MS = 2 * 60 * 60 * 1000;
+
+export interface PlayerCommitment {
+  profileId: string;
+  tournamentId: string;
+  tournamentName: string;
+}
 // TEMP (testing auto bracket generation): allow start times < 2h away. Set back to true.
 const ENFORCE_START_LEAD = false;
 
@@ -611,6 +617,13 @@ export class TournamentsService {
         );
       }
 
+      const [commitment] = await this.findPlayerCommitments([callerProfile.id], tournament.id);
+      if (commitment) {
+        throw new BadRequestException(
+          `You are already registered in "${commitment.tournamentName}". A player can take part in only one active tournament at a time.`,
+        );
+      }
+
       const participant = this.participantsRepository.create({
         tournamentId,
         participantType: ParticipantType.PLAYER,
@@ -679,6 +692,7 @@ export class TournamentsService {
     }
 
     this.assertValidLineup(tournament, club.members ?? [], dto.lineup);
+    await this.assertPlayersAvailable(tournament, dto.lineup);
 
     const participant = this.participantsRepository.create({
       tournamentId,
@@ -725,6 +739,58 @@ export class TournamentsService {
     if (profileIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException('Every player in the lineup must be a member of the club');
     }
+  }
+
+  /**
+   * A player can take part in only one active (not completed / cancelled)
+   * tournament at a time: in a club's team (starter or sub) or registered
+   * individually for a PvP tournament.
+   */
+  private async assertPlayersAvailable(tournament: Tournament, lineup: SubmitLineupDto): Promise<void> {
+    const players = [...lineup.starters, ...lineup.substitutes];
+    const commitments = await this.findPlayerCommitments(players.map((p) => p.profileId), tournament.id);
+    if (!commitments.length) return;
+    const nameOf = (profileId: string) => players.find((p) => p.profileId === profileId)?.name || 'A player';
+    const list = commitments.map((c) => `${nameOf(c.profileId)} ("${c.tournamentName}")`).join(', ');
+    throw new BadRequestException(
+      `Already registered in another tournament: ${list}. A player can take part in only one active tournament at a time.`,
+    );
+  }
+
+  /** Which of these players are already in another active tournament, and which one. */
+  async findPlayerCommitments(
+    profileIds: string[],
+    excludeTournamentId: string,
+  ): Promise<PlayerCommitment[]> {
+    if (!profileIds.length) return [];
+    return this.participantsRepository.query(
+      `SELECT DISTINCT ON (x."profileId") x."profileId", t.id AS "tournamentId", t.name AS "tournamentName"
+         FROM (
+           SELECT p."tournamentId", e->>'profileId' AS "profileId"
+             FROM tournament_participants p,
+                  jsonb_array_elements(
+                    COALESCE(p.lineup->'starters', '[]'::jsonb) || COALESCE(p.lineup->'substitutes', '[]'::jsonb)
+                  ) e
+            WHERE p.lineup IS NOT NULL
+           UNION ALL
+           SELECT p."tournamentId", ep.id::text
+             FROM tournament_participants p
+             JOIN efootball_profiles ep ON ep."userId" = p."userId"
+            WHERE p."participantType" = 'player'
+         ) x
+         JOIN tournaments t ON t.id = x."tournamentId"
+        WHERE t.status NOT IN ('completed', 'cancelled')
+          AND t.id <> $1
+          AND x."profileId" = ANY($2)
+        ORDER BY x."profileId", t."startAt"`,
+      [excludeTournamentId, profileIds],
+    );
+  }
+
+  /** Club members already taking part in another active tournament (for the team picker). */
+  async getClubCommitments(tournamentId: string, clubId: string): Promise<PlayerCommitment[]> {
+    const members = await this.profilesRepository.find({ where: { clubId }, select: { id: true } });
+    return this.findPlayerCommitments(members.map((m) => m.id), tournamentId);
   }
 
   private toLineup(dto: SubmitLineupDto) {
@@ -788,6 +854,7 @@ export class TournamentsService {
       }
 
       this.assertValidLineup(tournament, club?.members ?? [], dto);
+      await this.assertPlayersAvailable(tournament, dto);
     }
 
     const previousLineup = participant.lineup;
