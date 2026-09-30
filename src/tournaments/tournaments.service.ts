@@ -305,6 +305,13 @@ export class TournamentsService {
       });
     }
 
+    if (query.clubId) {
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM tournament_participants cp WHERE cp."tournamentId" = t.id AND cp."clubId" = :clubId)`,
+        { clubId: query.clubId },
+      );
+    }
+
     if (query.search) {
       qb.andWhere(
         '(LOWER(t.name) LIKE :search OR LOWER(community.name) LIKE :search)',

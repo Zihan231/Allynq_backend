@@ -14,6 +14,11 @@ export class TournamentQueryDto {
   @IsUUID()
   communityId?: string;
 
+  /** Only tournaments this club has entered. */
+  @IsOptional()
+  @IsUUID()
+  clubId?: string;
+
   @IsOptional()
   @IsString()
   hasPrize?: string; // 'true' or 'false'
