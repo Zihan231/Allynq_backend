@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { TournamentType } from '../enums/tournament.enum.js';
 
 export class TournamentQueryDto {
@@ -34,4 +34,13 @@ export class TournamentQueryDto {
   @IsOptional()
   @IsString()
   joined?: string;
+
+  /**
+   * The current user's tournaments (requires auth): 'joined' (they or their club
+   * entered), 'hosted' (their community hosts it as President / Vice President,
+   * or they created it) or 'mine' (either).
+   */
+  @IsOptional()
+  @IsIn(['joined', 'hosted', 'mine'])
+  scope?: 'joined' | 'hosted' | 'mine';
 }

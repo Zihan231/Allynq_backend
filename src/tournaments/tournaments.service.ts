@@ -46,6 +46,31 @@ export const MATCH_OFFICIAL_ROLES: CommunityRole[] = [
   CommunityRole.SCOUT,
 ];
 
+/** Community roles that host (organize) the community's tournaments. */
+const LEADER_ROLES: string[] = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
+
+/** SQL: the user (`user` placeholder) or their club entered tournament `t`. */
+const joinedSql = (user: string) =>
+  `EXISTS (
+    SELECT 1 FROM tournament_participants tp
+     WHERE tp."tournamentId" = t.id
+       AND (tp."userId" = ${user}
+         OR tp."clubId" = (SELECT jp."clubId" FROM efootball_profiles jp WHERE jp."userId" = ${user}))
+  )`;
+
+/**
+ * SQL: the user hosts tournament `t` (joined with its `community`): they created
+ * it or the community, or they're its President / Vice President (`roles`: text[]).
+ */
+const hostedSql = (user: string, roles: string) =>
+  `(t."creatorId" = ${user}
+    OR community."creatorId" = ${user}
+    OR t."communityId" IN (
+      SELECT m."communityId" FROM community_members m
+        JOIN efootball_profiles lp ON lp.id = m."profileId"
+       WHERE lp."userId" = ${user} AND m.role::text = ANY(${roles})
+    ))`;
+
 export interface PlayerCommitment {
   profileId: string;
   tournamentId: string;
@@ -168,8 +193,7 @@ export class TournamentsService {
       [communityId, unique],
     );
     const roleByUser = new Map(rows.map((r) => [r.userId, r.role]));
-    const leaders: string[] = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
-    const officials = unique.filter((id) => !leaders.includes(roleByUser.get(id) ?? ''));
+    const officials = unique.filter((id) => !LEADER_ROLES.includes(roleByUser.get(id) ?? ''));
     if (officials.some((id) => !MATCH_OFFICIAL_ROLES.includes(roleByUser.get(id) as CommunityRole))) {
       throw new BadRequestException(
         'Match officials must be community officials (Team Manager, Head of Discipline or Scout)',
@@ -261,17 +285,14 @@ export class TournamentsService {
         ['id', 'name', 'color', 'initials', 'dpUrl', 'creatorId'].map((column) => `community.${column}`),
       );
 
-    if (query.joined === 'true') {
+    const scope = query.scope ?? (query.joined === 'true' ? 'joined' : undefined);
+    if (scope) {
       if (!userId) return [];
-      qb.andWhere(
-        `EXISTS (
-          SELECT 1 FROM tournament_participants tp
-          WHERE tp."tournamentId" = t.id
-            AND (tp."userId" = :userId
-              OR tp."clubId" = (SELECT p."clubId" FROM efootball_profiles p WHERE p."userId" = :userId))
-        )`,
-        { userId },
-      );
+      const conditions = [
+        scope !== 'hosted' ? joinedSql(':userId') : null,
+        scope !== 'joined' ? hostedSql(':userId', ':leaderRoles') : null,
+      ].filter(Boolean);
+      qb.andWhere(`(${conditions.join(' OR ')})`, { userId, leaderRoles: LEADER_ROLES });
     }
 
     if (query.type) {
@@ -325,8 +346,48 @@ export class TournamentsService {
       .groupBy('p.tournamentId')
       .getRawMany();
     const countById = new Map(counts.map((c) => [c.tournamentId, c.count]));
+    const ids = tournaments.map((t) => t.id);
 
-    return tournaments.map((t) => ({ ...t, participantCount: countById.get(t.id) ?? 0 }));
+    // Champion of each finished tournament: the winner of its last knockout match.
+    const completedIds = tournaments.filter((t) => t.status === TournamentStatus.COMPLETED).map((t) => t.id);
+    const champions: Array<{ tournamentId: string; name: string; dpUrl: string | null }> = completedIds.length
+      ? await this.participantsRepository.query(
+          `SELECT DISTINCT ON (m."tournamentId") m."tournamentId", COALESCE(c.name, u.name) AS name,
+                  COALESCE(c."dpUrl", u."dpUrl") AS "dpUrl"
+             FROM tournament_matches m
+             JOIN tournament_participants p ON p.id = m."winnerParticipantId"
+             LEFT JOIN clubs c ON c.id = p."clubId"
+             LEFT JOIN users u ON u.id = p."userId"
+            WHERE m."tournamentId" = ANY($1) AND m.stage = 'knockout'
+            ORDER BY m."tournamentId", m.round DESC`,
+          [completedIds],
+        )
+      : [];
+    const championById = new Map(champions.map((c) => [c.tournamentId, { name: c.name, dpUrl: c.dpUrl }]));
+
+    // How the viewer relates to each tournament: they host it, and / or they (or their club) entered it.
+    let joinedIds = new Set<string>();
+    let hostedIds = new Set<string>();
+    if (userId) {
+      const rows: Array<{ id: string; joined: boolean; hosted: boolean }> = await this.tournamentsRepository.query(
+        `SELECT t.id,
+                ${joinedSql('$2')} AS joined,
+                ${hostedSql('$2', '$3')} AS hosted
+           FROM tournaments t LEFT JOIN communities community ON community.id = t."communityId"
+          WHERE t.id = ANY($1)`,
+        [ids, userId, LEADER_ROLES],
+      );
+      joinedIds = new Set(rows.filter((r) => r.joined).map((r) => r.id));
+      hostedIds = new Set(rows.filter((r) => r.hosted).map((r) => r.id));
+    }
+
+    return tournaments.map((t) => ({
+      ...t,
+      participantCount: countById.get(t.id) ?? 0,
+      champion: championById.get(t.id) ?? null,
+      joinedByMe: joinedIds.has(t.id),
+      hostedByMe: hostedIds.has(t.id),
+    }));
   }
 
   async findOne(id: string): Promise<Tournament> {
