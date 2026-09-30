@@ -11,7 +11,9 @@ import { ClubRole, CommunityRole, LineupStatus } from '../users/enums/user-attri
  * demo players when it doesn't have enough members who are free (not already
  * in another active tournament). The remaining slots go to new demo clubs.
  *
- *   node --loader ts-node/esm src/seeds/seed-tournament-entries.ts <tournamentId> [existingClubId ...]
+ *   node --loader ts-node/esm src/seeds/seed-tournament-entries.ts <tournamentId> [existingClubId ...] [--extra-free=N]
+ *
+ * --extra-free=N also gives each existing club N more players who stay out of every tournament.
  *
  * Demo logins: demo.entry.<run>.<club>.<n>@allync.demo / 123456
  */
@@ -63,7 +65,9 @@ async function insertRows(runner: QueryRunner, table: string, columns: string[],
 }
 
 async function main() {
-  const [tournamentId, ...existingClubIds] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const extraFree = Number(args.find((a) => a.startsWith('--extra-free='))?.split('=')[1] ?? 0);
+  const [tournamentId, ...existingClubIds] = args.filter((a) => !a.startsWith('--'));
   if (!tournamentId) throw new Error('Usage: seed-tournament-entries <tournamentId> [existingClubId ...]');
 
   const dataSource = new DataSource({
@@ -213,6 +217,10 @@ async function main() {
       const added = missing ? await addPlayers(clubId, communityIds, club.name.toLowerCase().replace(/\W+/g, ''), missing, false) : [];
       await register(clubId, president.userId, [...free, ...added]);
       console.log(`- ${club.name}: ${free.length} free member(s) + ${added.length} new player(s) → team of ${teamSize} submitted`);
+      if (extraFree > 0) {
+        await addPlayers(clubId, communityIds, `${club.name.toLowerCase().replace(/\W+/g, '')}free`, extraFree, false);
+        console.log(`  + ${extraFree} extra free player(s) added to ${club.name}`);
+      }
     }
 
     // 2. New demo clubs for every remaining slot.
