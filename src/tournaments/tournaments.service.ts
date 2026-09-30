@@ -234,15 +234,22 @@ export class TournamentsService {
     if (!unique.length) return [];
 
     if (host.kind === 'club') {
-      const profiles = await this.profilesRepository.find({
-        where: { userId: In(unique), clubId: host.id },
-        select: { userId: true, clubRole: true },
-      });
+      const [profiles, club] = await Promise.all([
+        this.profilesRepository.find({
+          where: { userId: In(unique), clubId: host.id },
+          select: { userId: true, clubRole: true },
+        }),
+        this.clubsRepository.findOne({ where: { id: host.id }, select: { id: true, matchOfficialIds: true } }),
+      ]);
       const roleByUser = new Map(profiles.map((p) => [p.userId, p.clubRole ?? '']));
+      const nominees = new Set(club?.matchOfficialIds ?? []);
       const officials = unique.filter((id) => !CLUB_LEADER_ROLES.includes(roleByUser.get(id) ?? ''));
-      if (officials.some((id) => !CLUB_OFFICIAL_ROLES.includes(roleByUser.get(id) ?? ''))) {
+      // Eligible: club members who are staff, or whom the club nominated as match officials.
+      const eligible = (id: string) =>
+        roleByUser.has(id) && (CLUB_OFFICIAL_ROLES.includes(roleByUser.get(id)!) || nominees.has(id));
+      if (officials.some((id) => !eligible(id))) {
         throw new BadRequestException(
-          'Match officials must be club officials (Captain, Vice-Captain, Academy Captain or Manager)',
+          "Match officials must be club staff (Captain, Vice-Captain, Academy Captain or Manager) or one of the club's match-official nominees",
         );
       }
       return officials;

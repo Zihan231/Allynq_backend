@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Put,
   Post,
   Query,
   UseGuards,
@@ -16,7 +17,9 @@ import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ClubsService } from './clubs.service.js';
 import { RequireClubRoles } from './decorators/require-club-roles.decorator.js';
+import { AssignPositionDto } from './dto/assign-position.dto.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
+import { SetMatchOfficialsDto } from './dto/set-match-officials.dto.js';
 import { TransferPresidentDto } from './dto/transfer-president.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
@@ -92,6 +95,30 @@ export class ClubsController {
     @Body() dto: ChangeManagerDto,
   ) {
     return this.clubsService.changeManager(id, user, dto);
+  }
+
+  /** Club Settings: put a member in a staff position, or clear theirs (`role: Player`). */
+  @UseGuards(JwtAuthGuard, ClubRoleGuard)
+  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY)
+  @Patch(':id/positions')
+  assignPosition(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Body() dto: AssignPositionDto,
+  ) {
+    return this.clubsService.assignPosition(id, user, dto);
+  }
+
+  /** Club Settings: the members nominated as match officials for club tournaments. */
+  @UseGuards(JwtAuthGuard, ClubRoleGuard)
+  @RequireClubRoles(ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY)
+  @Put(':id/match-officials')
+  setMatchOfficials(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Body() dto: SetMatchOfficialsDto,
+  ) {
+    return this.clubsService.setMatchOfficials(id, user, dto);
   }
 
   @UseGuards(JwtAuthGuard, ClubRoleGuard)

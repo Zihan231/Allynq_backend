@@ -51,6 +51,13 @@ export class Club {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   communityIds!: string[];
 
+  /**
+   * User ids of members nominated as match officials: together with the club
+   * staff they can be picked to review evidence in the club's tournaments.
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  matchOfficialIds!: string[];
+
   @Column({ type: 'enum', enum: ClubStage, default: ClubStage.FOUNDATION })
   stage!: ClubStage;
 

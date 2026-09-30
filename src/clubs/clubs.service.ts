@@ -1,13 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CommunitiesService } from '../communities/communities.service.js';
 import { FileStorageService } from '../common/services/file-storage.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
+import { AssignPositionDto } from './dto/assign-position.dto.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
+import { SetMatchOfficialsDto } from './dto/set-match-officials.dto.js';
 import { TransferPresidentDto } from './dto/transfer-president.dto.js';
 import { CreateClubDto } from './dto/create-club.dto.js';
 import { UpdateClubDto } from './dto/update-club.dto.js';
@@ -319,6 +321,93 @@ export class ClubsService {
         role: ClubRole.MANAGER,
       },
     };
+  }
+
+  /**
+   * Club Settings: puts a member in a staff position (General Secretary,
+   * Manager, Captain, Vice-Captain, Academy Captain) or clears theirs (`Player`).
+   * Each position has one holder, so the previous holder becomes a Player.
+   * The President changes only through the presidency transfer.
+   */
+  async assignPosition(clubId: string, caller: User, dto: AssignPositionDto) {
+    const club = await this.findOne(clubId);
+    await this.assertClubLeader(club.id, caller.id);
+
+    const target = await this.efootballProfilesRepository.findOne({
+      where: { id: dto.profileId, clubId: club.id },
+      relations: { user: true },
+    });
+    if (!target) throw new BadRequestException('That player is not a member of this club');
+    if (target.clubRole === ClubRole.PRESIDENT) {
+      throw new BadRequestException("The President's position changes only through a presidency transfer");
+    }
+    if (target.clubRole === dto.role) return { success: true, changed: false };
+
+    let previousHolder: { profileId: string; name: string } | null = null;
+    if (dto.role !== ClubRole.PLAYER) {
+      const holder = await this.efootballProfilesRepository.findOne({
+        where: { clubId: club.id, clubRole: dto.role },
+        relations: { user: true },
+      });
+      if (holder && holder.id !== target.id) {
+        holder.clubRole = ClubRole.PLAYER;
+        await this.efootballProfilesRepository.save(holder);
+        previousHolder = { profileId: holder.id, name: holder.user?.name ?? 'Player' };
+      }
+    }
+
+    target.clubRole = dto.role;
+    await this.efootballProfilesRepository.save(target);
+
+    if (dto.role !== ClubRole.PLAYER && target.userId !== caller.id) {
+      void this.notificationsService
+        .createNotification(target.userId, {
+          title: 'New club position',
+          message: `You are now ${dto.role} of ${club.name}.`,
+          type: 'system',
+          link: `/dashboard/efootball/clubs/${club.id}`,
+          code: 'club.positionAssigned',
+          params: { role: dto.role, club: club.name },
+        })
+        .catch((err) => this.logger.error(`Failed to notify new ${dto.role}: ${err.message}`));
+    }
+
+    return {
+      success: true,
+      changed: true,
+      member: { profileId: target.id, name: target.user?.name ?? 'Player', role: dto.role },
+      previousHolder,
+    };
+  }
+
+  /** Club Settings: the members nominated as match officials for the club's tournaments. */
+  async setMatchOfficials(clubId: string, caller: User, dto: SetMatchOfficialsDto): Promise<{ matchOfficialIds: string[] }> {
+    const club = await this.findOne(clubId);
+    await this.assertClubLeader(club.id, caller.id);
+
+    const userIds = [...new Set(dto.userIds)];
+    if (userIds.length) {
+      const members = await this.efootballProfilesRepository.find({
+        where: { clubId: club.id, userId: In(userIds) },
+        select: { userId: true },
+      });
+      const memberIds = new Set(members.map((m) => m.userId));
+      if (userIds.some((id) => !memberIds.has(id))) {
+        throw new BadRequestException('Match officials must be members of the club');
+      }
+    }
+
+    await this.clubsRepository.update({ id: club.id }, { matchOfficialIds: userIds });
+    return { matchOfficialIds: userIds };
+  }
+
+  /** Club President or General Secretary of this club (the route guard checks roles too). */
+  private async assertClubLeader(clubId: string, userId: string): Promise<void> {
+    const profile = await this.efootballProfilesRepository.findOne({ where: { userId } });
+    const leaders: (ClubRole | null)[] = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
+    if (!profile || profile.clubId !== clubId || !leaders.includes(profile.clubRole)) {
+      throw new ForbiddenException('Only the Club President or General Secretary can change club settings');
+    }
   }
 
   async join(clubId: string, user: User) {

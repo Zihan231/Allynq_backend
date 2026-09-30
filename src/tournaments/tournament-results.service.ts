@@ -342,14 +342,25 @@ export class TournamentResultsService {
     const officialIds = tournament.matchOfficialIds ?? [];
 
     if (tournament.hostClubId) {
-      const staff = await this.profilesRepository.find({
-        where: { clubId: tournament.hostClubId, clubRole: In([...CLUB_LEADER_ROLES, ...CLUB_OFFICIAL_ROLES]) },
+      // Leaders, plus appointed officials who are still club members and still eligible:
+      // staff, or on the club's match-official nominee list.
+      const nominees = new Set(tournament.hostClub?.matchOfficialIds ?? []);
+      const members = await this.profilesRepository.find({
+        where: [
+          { clubId: tournament.hostClubId, clubRole: In(CLUB_LEADER_ROLES) },
+          ...(officialIds.length ? [{ clubId: tournament.hostClubId, userId: In(officialIds) }] : []),
+        ],
         select: { userId: true, clubRole: true },
       });
       return Array.from(
         new Set(
-          staff
-            .filter((p) => CLUB_LEADER_ROLES.includes(p.clubRole ?? '') || officialIds.includes(p.userId))
+          members
+            .filter(
+              (p) =>
+                CLUB_LEADER_ROLES.includes(p.clubRole ?? '') ||
+                (officialIds.includes(p.userId) &&
+                  (CLUB_OFFICIAL_ROLES.includes(p.clubRole ?? '') || nominees.has(p.userId))),
+            )
             .map((p) => p.userId),
         ),
       );

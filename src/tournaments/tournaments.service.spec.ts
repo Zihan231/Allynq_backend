@@ -163,6 +163,8 @@ describe('TournamentsService club-hosted tournaments', () => {
     gs: { id: 'p-gs', userId: 'gs', clubId, clubRole: ClubRole.GENERAL_SECRETARY },
     captain: { id: 'p-captain', userId: 'captain', clubId, clubRole: ClubRole.CAPTAIN },
     player: { id: 'p-player', userId: 'player', clubId, clubRole: ClubRole.PLAYER },
+    // A regular member the club nominated as a match official.
+    nominee: { id: 'p-nominee', userId: 'nominee', clubId, clubRole: ClubRole.PLAYER },
     outsider: { id: 'p-outsider', userId: 'outsider', clubId: 'another-club', clubRole: ClubRole.PLAYER },
   };
 
@@ -201,12 +203,13 @@ describe('TournamentsService club-hosted tournaments', () => {
       ),
     };
     const notificationsService = { createNotification: vi.fn().mockResolvedValue({}) };
+    const clubsRepository = { findOne: vi.fn().mockResolvedValue({ id: clubId, matchOfficialIds: ['nominee'] }) };
     const service = new TournamentsService(
       tournamentsRepository as never,
       participantsRepository as never,
       {} as never,
       {} as never,
-      {} as never,
+      clubsRepository as never,
       profilesRepository as never,
       notificationsService as never,
     );
@@ -245,13 +248,16 @@ describe('TournamentsService club-hosted tournaments', () => {
     await expect(service.create('president', { ...dto, hostClubId: undefined })).rejects.toThrow(BadRequestException);
   });
 
-  it('only accepts club staff as match officials (the President / GS are dropped)', async () => {
+  it('only accepts club staff or club nominees as match officials (the President / GS are dropped)', async () => {
     const { service } = setup();
     await expect(service.create('president', { ...dto, matchOfficialIds: ['player'] })).rejects.toThrow(
       BadRequestException,
     );
-    const created = await service.create('president', { ...dto, matchOfficialIds: ['gs', 'captain'] });
-    expect(created.matchOfficialIds).toEqual(['captain']);
+    await expect(service.create('president', { ...dto, matchOfficialIds: ['outsider'] })).rejects.toThrow(
+      BadRequestException,
+    );
+    const created = await service.create('president', { ...dto, matchOfficialIds: ['gs', 'captain', 'nominee'] });
+    expect(created.matchOfficialIds).toEqual(['captain', 'nominee']);
   });
 
   it('lets a club member join', async () => {
