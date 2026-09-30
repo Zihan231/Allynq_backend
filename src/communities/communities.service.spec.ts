@@ -331,3 +331,81 @@ describe('CommunitiesService', () => {
     });
   });
 });
+
+describe('CommunitiesService.assignRole (Settings → Positions)', () => {
+  const communityId = 'comm-1';
+
+  function setup() {
+    const profiles = [
+      { id: 'p-pres', userId: 'pres', communityId, clubId: null, communityRole: CommunityRole.PRESIDENT },
+      { id: 'p-vp', userId: 'vp', communityId, clubId: null, communityRole: CommunityRole.VICE_PRESIDENT },
+      { id: 'p-a', userId: 'a', communityId, clubId: null, communityRole: CommunityRole.MEMBER },
+      { id: 'p-club', userId: 'c', communityId: null, clubId: 'club-1', communityRole: null },
+    ].map((p) => ({ ...p, user: { name: p.userId } }));
+    const members = profiles.map((p) => ({
+      id: `m-${p.userId}`,
+      communityId,
+      profileId: p.id,
+      role: p.communityRole ?? CommunityRole.MEMBER,
+    }));
+    const match = <T extends object>(rows: T[], where: Record<string, unknown>) =>
+      rows.filter((r) => Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v));
+
+    const communityMembersRepo = {
+      findOne: vi.fn(({ where }) => Promise.resolve(match(members, where)[0] ?? null)),
+      find: vi.fn(({ where }) => Promise.resolve(match(members, where))),
+      save: vi.fn((m) => Promise.resolve(m)),
+    };
+    const profilesRepo = {
+      findOne: vi.fn(({ where }) => Promise.resolve(match(profiles, where)[0] ?? null)),
+      save: vi.fn((p) => Promise.resolve(p)),
+    };
+    const notificationsService = { createNotification: vi.fn().mockResolvedValue({}) };
+    const service = new CommunitiesService(
+      { findOne: vi.fn().mockResolvedValue({ id: communityId, name: 'Test Comm', creatorId: 'pres' }) } as never,
+      communityMembersRepo as never,
+      {} as never,
+      {} as never,
+      profilesRepo as never,
+      {} as never,
+      notificationsService as never,
+    );
+    const roleOf = (userId: string) => members.find((m) => m.id === `m-${userId}`)!.role;
+    return { service, roleOf, notificationsService };
+  }
+  const pres = { id: 'pres' } as User;
+
+  it('appoints a new Vice President and makes the previous one a Member', async () => {
+    const { service, roleOf, notificationsService } = setup();
+    await service.assignRole(communityId, pres, { targetUserId: 'a', role: CommunityRole.VICE_PRESIDENT });
+    expect(roleOf('a')).toBe(CommunityRole.VICE_PRESIDENT);
+    expect(roleOf('vp')).toBe(CommunityRole.MEMBER);
+    expect(notificationsService.createNotification).toHaveBeenCalledWith(
+      'a',
+      expect.objectContaining({ code: 'community.positionAssigned' }),
+    );
+  });
+
+  it('lets several members hold an official role', async () => {
+    const { service, roleOf } = setup();
+    await service.assignRole(communityId, pres, { targetUserId: 'a', role: CommunityRole.SCOUT });
+    await service.assignRole(communityId, pres, { targetUserId: 'vp', role: CommunityRole.SCOUT });
+    expect(roleOf('a')).toBe(CommunityRole.SCOUT);
+    expect(roleOf('vp')).toBe(CommunityRole.SCOUT);
+  });
+
+  it('refuses the presidency, changing the President, and a club member as VP', async () => {
+    const { service, roleOf } = setup();
+    await expect(
+      service.assignRole(communityId, pres, { targetUserId: 'a', role: CommunityRole.PRESIDENT }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.assignRole(communityId, pres, { targetUserId: 'pres', role: CommunityRole.MEMBER }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.assignRole(communityId, pres, { targetUserId: 'c', role: CommunityRole.VICE_PRESIDENT }),
+    ).rejects.toThrow(BadRequestException);
+    expect(roleOf('c')).toBe(CommunityRole.MEMBER);
+    expect(roleOf('vp')).toBe(CommunityRole.VICE_PRESIDENT);
+  });
+});

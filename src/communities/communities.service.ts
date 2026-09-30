@@ -973,10 +973,21 @@ export class CommunitiesService {
     };
   }
 
+  /**
+   * Community Settings → Positions (President only, via the controller guard).
+   * - The presidency moves only through a handover, and the President's own role can't be changed here.
+   * - There is one Vice President; appointing a new one makes the previous VP a Member. Leaders can't
+   *   be in a club, so a club member can't become VP.
+   * - Team Managers, Heads of Discipline and Scouts (the match-official pool) can have several holders.
+   * - Setting `Member` clears the member's position.
+   */
   async assignRole(communityId: string, presidentUser: User, dto: AssignRoleDto): Promise<any> {
     const community = await this.communitiesRepository.findOne({ where: { id: communityId } });
     if (!community) {
       throw new NotFoundException(`Community ${communityId} not found`);
+    }
+    if (dto.role === CommunityRole.PRESIDENT) {
+      throw new BadRequestException('The presidency can only be handed over with Transfer authority.');
     }
 
     let targetProfile: EfootballProfile | null = null;
@@ -996,42 +1007,47 @@ export class CommunitiesService {
       throw new NotFoundException('Target player profile not found');
     }
 
-    let member = await this.communityMembersRepository.findOne({
+    const member = await this.communityMembersRepository.findOne({
       where: { communityId, profileId: targetProfile.id },
     });
 
     if (!member) {
       throw new BadRequestException('Target player is not a member of this community');
     }
-
-    // Handle President transfer
-    if (dto.role === CommunityRole.PRESIDENT) {
-      const currentPresidentProfile = await this.efootballProfilesRepository.findOne({
-        where: { userId: presidentUser.id },
-      });
-
-      if (currentPresidentProfile) {
-        const currentPresidentMember = await this.communityMembersRepository.findOne({
-          where: { communityId, profileId: currentPresidentProfile.id },
-        });
-        if (currentPresidentMember) {
-          currentPresidentMember.role = CommunityRole.MEMBER;
-          await this.communityMembersRepository.save(currentPresidentMember);
-        }
-        currentPresidentProfile.communityRole = CommunityRole.MEMBER;
-        await this.efootballProfilesRepository.save(currentPresidentProfile);
-      }
-
-      community.creatorId = targetProfile.userId;
-      await this.communitiesRepository.save(community);
+    if (member.role === CommunityRole.PRESIDENT || targetProfile.userId === community.creatorId) {
+      throw new BadRequestException("The President's position can't be changed here.");
+    }
+    if (member.role === dto.role) {
+      return { success: true, message: 'No change', member };
+    }
+    if (dto.role === CommunityRole.VICE_PRESIDENT && targetProfile.clubId) {
+      throw new BadRequestException(
+        'Club members cannot be Vice President. They need to leave their club first.',
+      );
     }
 
-    member.role = dto.role;
-    await this.communityMembersRepository.save(member);
+    if (dto.role === CommunityRole.VICE_PRESIDENT) {
+      const previous = await this.communityMembersRepository.find({
+        where: { communityId, role: CommunityRole.VICE_PRESIDENT },
+      });
+      for (const vp of previous) {
+        await this.setMemberRole(communityId, vp, CommunityRole.MEMBER);
+      }
+    }
 
-    if (targetProfile.communityId === communityId) {
-      targetProfile.communityRole = dto.role;
-      await this.efootballProfilesRepository.save(targetProfile);
+    await this.setMemberRole(communityId, member, dto.role, targetProfile);
+
+    if (dto.role !== CommunityRole.MEMBER) {
+      void this.notificationsService
+        .createNotification(targetProfile.userId, {
+          title: 'New community position',
+          message: `You are now ${dto.role} of ${community.name}.`,
+          type: 'system',
+          link: `/dashboard/efootball/community/${community.id}`,
+          code: 'community.positionAssigned',
+          params: { role: dto.role, community: community.name },
+        })
+        .catch(() => undefined);
     }
 
     return {
@@ -1039,6 +1055,23 @@ export class CommunitiesService {
       message: `Assigned role ${dto.role} to ${targetProfile.user?.name ?? 'member'}`,
       member,
     };
+  }
+
+  /** Saves a member's community role on the membership row and, for direct members, on their profile. */
+  private async setMemberRole(
+    communityId: string,
+    member: CommunityMember,
+    role: CommunityRole,
+    profile?: EfootballProfile | null,
+  ) {
+    member.role = role;
+    await this.communityMembersRepository.save(member);
+    const target =
+      profile ?? (await this.efootballProfilesRepository.findOne({ where: { id: member.profileId } }));
+    if (target && target.communityId === communityId) {
+      target.communityRole = role;
+      await this.efootballProfilesRepository.save(target);
+    }
   }
 
   async handoverAuthority(
