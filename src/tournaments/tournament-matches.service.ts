@@ -241,7 +241,13 @@ export class TournamentMatchesService {
       const ordered = [...matches].sort((a, b) => b.round - a.round);
       await manager.save(TournamentMatch, ordered);
       if (games.length) await manager.save(TournamentMatchGame, games);
-      await manager.update(Tournament, { id: tournament.id }, { format, status: TournamentStatus.ONGOING });
+      // Fixtures are out, but it only goes live at its start time (see startDueTournaments).
+      const started = new Date(tournament.startAt).getTime() <= Date.now();
+      await manager.update(
+        Tournament,
+        { id: tournament.id },
+        { format, status: started ? TournamentStatus.ONGOING : TournamentStatus.SUBMISSION_PHASE },
+      );
     });
 
     const groupsText = format === 'knockout' ? 'a straight knockout' : `${groupCount(participants.length)} groups`;
@@ -253,6 +259,20 @@ export class TournamentMatchesService {
     await this.notifyScheduled(tournament, games);
 
     return this.getStructure(tournamentId);
+  }
+
+  /**
+   * Called by the deadline job: tournaments whose fixtures are out go live
+   * once their start time arrives.
+   */
+  async startDueTournaments(now = new Date()): Promise<number> {
+    const started: unknown[] = await this.dataSource.query(
+      `UPDATE tournaments SET status = $1
+        WHERE status = $2 AND format IS NOT NULL AND "startAt" <= $3
+        RETURNING id`,
+      [TournamentStatus.ONGOING, TournamentStatus.SUBMISSION_PHASE, now],
+    );
+    return (started[0] as unknown[] | undefined)?.length ?? 0;
   }
 
   /**

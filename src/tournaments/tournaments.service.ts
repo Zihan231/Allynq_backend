@@ -626,9 +626,13 @@ export class TournamentsService {
     return { id: tournament.id };
   }
 
-  /** Once a tournament has started (or ended), organizers can no longer edit or delete it. */
+  /**
+   * Once fixtures are out, or the tournament has started (or ended), organizers
+   * can no longer edit or delete it.
+   */
   isLocked(tournament: Tournament, now = Date.now()): boolean {
     return (
+      Boolean(tournament.format) ||
       new Date(tournament.startAt).getTime() <= now ||
       tournament.status === TournamentStatus.ONGOING ||
       tournament.status === TournamentStatus.COMPLETED ||

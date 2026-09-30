@@ -126,6 +126,20 @@ describe('TournamentMatchesService.generateStructure', () => {
     expect(saved.games).toHaveLength(playable.length);
   });
 
+  it('keeps a tournament out of "live" until its start time, even once fixtures are out', async () => {
+    const early = setup(participants(4, TournamentType.PVP), TournamentType.PVP);
+    const future = { ...(await early.tournamentsService.findOne()), startAt: new Date(Date.now() + 3 * 60 * 60 * 1000) };
+    early.tournamentsService.findOne.mockResolvedValue(future);
+    await early.service.generateStructure('organizer', 't1');
+    expect(early.saved.update).toMatchObject({ format: 'knockout', status: 'submission_phase' });
+
+    const late = setup(participants(4, TournamentType.PVP), TournamentType.PVP);
+    const past = { ...(await late.tournamentsService.findOne()), startAt: new Date(Date.now() - 60 * 1000) };
+    late.tournamentsService.findOne.mockResolvedValue(past);
+    await late.service.generateStructure(null, 't1');
+    expect(late.saved.update).toMatchObject({ format: 'knockout', status: 'ongoing' });
+  });
+
   it('seeds a PvP knockout by player points, not by who registered first', async () => {
     // Registered p1…p8, but points rise with the number: p8 is the strongest.
     const { service, saved, profilesRepository } = setup(participants(8, TournamentType.PVP), TournamentType.PVP);

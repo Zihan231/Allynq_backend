@@ -413,6 +413,13 @@ describe('TournamentsService.update / remove', () => {
     expect(notificationsService.createNotification).not.toHaveBeenCalled();
   });
 
+  it('locks editing once fixtures are out, even before the start time', () => {
+    const { service } = setup();
+    const future = { startAt: new Date(Date.now() + 24 * 60 * 60 * 1000), status: TournamentStatus.SUBMISSION_PHASE };
+    expect(service.isLocked({ ...future, format: 'knockout' } as never)).toBe(true);
+    expect(service.isLocked({ ...future, status: TournamentStatus.REGISTRATION_OPEN, format: null } as never)).toBe(false);
+  });
+
   it.each([
     ['edit', (s: TournamentsService) => s.update('member-id', tournamentId, { name: 'X' })],
     ['delete', (s: TournamentsService) => s.remove('member-id', tournamentId)],
