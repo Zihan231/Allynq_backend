@@ -44,9 +44,10 @@ export class Notification {
   @Column({ type: 'boolean', default: false })
   read!: boolean;
 
-  @CreateDateColumn()
+  // With a time zone, so the moment reads the same whatever the server's local zone is.
+  @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamp with time zone' })
   updatedAt!: Date;
 }
