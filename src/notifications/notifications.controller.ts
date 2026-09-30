@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   MessageEvent,
   Param,
   ParseUUIDPipe,
   Patch,
+  Query,
   Sse,
   UseGuards,
 } from '@nestjs/common';
@@ -18,10 +20,24 @@ import { NotificationsService } from './notifications.service.js';
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
+  /** Newest first. `?limit=` (1–100, default 30), `?before=<ISO date>` for older pages, `?unread=true`. */
   @UseGuards(JwtAuthGuard)
   @Get()
-  getNotifications(@CurrentUser() user: User) {
-    return this.notificationsService.getUserNotifications(user.id);
+  getNotifications(
+    @CurrentUser() user: User,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+    @Query('unread') unread?: string,
+  ) {
+    const beforeDate = before ? new Date(before) : undefined;
+    if (beforeDate && Number.isNaN(beforeDate.getTime())) {
+      throw new BadRequestException('`before` must be a valid date');
+    }
+    return this.notificationsService.getUserNotifications(user.id, {
+      limit: limit ? Number(limit) || undefined : undefined,
+      before: beforeDate,
+      unreadOnly: unread === 'true',
+    });
   }
 
   @UseGuards(JwtAuthGuard)

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { filter, interval, map, merge, Observable, Subject } from 'rxjs';
-import { In, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
@@ -171,11 +171,20 @@ export class NotificationsService {
   }
 
   /**
-   * Retrieve recent notifications for a user.
+   * A user's notifications, newest first. `before` pages back through older
+   * ones (pass the `createdAt` of the last one received); `unreadOnly` filters.
    */
-  async getUserNotifications(userId: string, limit = 30): Promise<Notification[]> {
+  async getUserNotifications(
+    userId: string,
+    options: { limit?: number; before?: Date; unreadOnly?: boolean } = {},
+  ): Promise<Notification[]> {
+    const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
     return this.notificationsRepository.find({
-      where: { userId },
+      where: {
+        userId,
+        ...(options.before ? { createdAt: LessThan(options.before) } : {}),
+        ...(options.unreadOnly ? { read: false } : {}),
+      },
       order: { createdAt: 'DESC' },
       take: limit,
     });

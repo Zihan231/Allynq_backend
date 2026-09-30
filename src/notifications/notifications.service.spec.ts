@@ -154,4 +154,22 @@ describe('NotificationsService', () => {
     const count = await service.getUnreadCount('user-1');
     expect(count).toBe(2);
   });
+
+  it('lists the latest 30 notifications by default', async () => {
+    await service.getUserNotifications('user-1');
+    expect(mockNotificationRepo.find).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      order: { createdAt: 'DESC' },
+      take: 30,
+    });
+  });
+
+  it('pages back to older notifications, unread only, with a capped page size', async () => {
+    const before = new Date('2026-09-30T10:00:00Z');
+    await service.getUserNotifications('user-1', { limit: 500, before, unreadOnly: true });
+    const [options] = mockNotificationRepo.find.mock.calls[0];
+    expect(options.take).toBe(100);
+    expect(options.where).toMatchObject({ userId: 'user-1', read: false });
+    expect(options.where.createdAt).toMatchObject({ _type: 'lessThan', _value: before });
+  });
 });
