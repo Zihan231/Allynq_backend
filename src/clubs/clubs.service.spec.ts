@@ -74,6 +74,30 @@ describe('ClubsService settings (positions and match-official nominees)', () => 
     ).rejects.toThrow(ForbiddenException);
   });
 
+  it.each([
+    ['instant', 'joined'],
+    ['approval', 'request'],
+  ])('refuses a community leader joining a club (%s join policy)', async (joinPolicy) => {
+    const profilesRepository = {
+      findOne: vi.fn().mockResolvedValue({ id: 'p-leader', userId: 'leader', clubId: null }),
+      save: vi.fn(),
+    };
+    const joinRequests = { findOne: vi.fn().mockResolvedValue(null), create: vi.fn(), save: vi.fn() };
+    const communitiesService = { isCommunityLeader: vi.fn().mockResolvedValue(true), onClubMemberAdded: vi.fn() };
+    const service = new ClubsService(
+      { findOne: vi.fn().mockResolvedValue({ id: clubId, name: 'Test FC', joinPolicy, members: [] }) } as never,
+      profilesRepository as never,
+      joinRequests as never,
+      communitiesService as never,
+      {} as never,
+      { createNotification: vi.fn(), notifyClubAuthorities: vi.fn().mockResolvedValue([]) } as never,
+    );
+
+    await expect(service.join(clubId, { id: 'leader', name: 'Leader' } as never)).rejects.toThrow(ForbiddenException);
+    expect(profilesRepository.save).not.toHaveBeenCalled();
+    expect(joinRequests.save).not.toHaveBeenCalled();
+  });
+
   it('saves match-official nominees, members only', async () => {
     const { service, clubsRepository } = setup();
 

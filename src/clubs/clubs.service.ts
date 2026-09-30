@@ -429,6 +429,14 @@ export class ClubsService {
       throw new BadRequestException('You are already a member of a club. Please leave your current club first.');
     }
 
+    // Community leaders run their community's competitions, so they stay out of clubs
+    // (the same rule as creating a club).
+    if (await this.communitiesService.isCommunityLeader(user.id)) {
+      throw new ForbiddenException(
+        'Community Presidents and Vice Presidents cannot join a club. Hand over your community role first.',
+      );
+    }
+
     // Handle approval-based join policy
     if (club.joinPolicy === JoinPolicy.APPROVAL) {
       const existingReq = await this.clubJoinRequestsRepository.findOne({
@@ -534,6 +542,13 @@ export class ClubsService {
 
     if (request.status !== 'pending') {
       throw new BadRequestException(`Request is already ${request.status}`);
+    }
+
+    // The requester may have become a community leader since asking to join.
+    if (dto.status === 'approved' && (await this.communitiesService.isCommunityLeader(request.requesterUserId))) {
+      throw new BadRequestException(
+        'This player is now a Community President or Vice President and cannot join a club. Reject the request instead.',
+      );
     }
 
     request.status = dto.status;
