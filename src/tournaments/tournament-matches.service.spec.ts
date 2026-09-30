@@ -60,7 +60,7 @@ function setup(entrants: ReturnType<typeof participants>, type: TournamentType, 
     dataSource as never,
     tournamentsService as never,
   );
-  return { service, saved, tournamentsService };
+  return { service, saved, tournamentsService, profilesRepository };
 }
 
 describe('TournamentMatchesService.generateStructure', () => {
@@ -79,8 +79,11 @@ describe('TournamentMatchesService.generateStructure', () => {
     expect(saved.matches.map((m) => m.roundName).sort()).toEqual(['Final', 'Semi-final', 'Semi-final']);
     // 2 semi-finals × 4 starter pairings; the final waits for its entrants.
     expect(saved.games).toHaveLength(8);
-    const semiGames = saved.games.filter((g) => g.matchId === saved.matches.find((m) => m.participantAId === 'p1')!.id);
-    expect(semiGames.map((g) => [g.slot, g.playerAProfileId])).toEqual([
+    // Equal points → random seeding, so p1 may be either side of its semi-final.
+    const p1Semi = saved.matches.find((m) => m.participantAId === 'p1' || m.participantBId === 'p1')!;
+    const p1Side = p1Semi.participantAId === 'p1' ? 'playerAProfileId' : 'playerBProfileId';
+    const semiGames = saved.games.filter((g) => g.matchId === p1Semi.id);
+    expect(semiGames.map((g) => [g.slot, g[p1Side]])).toEqual([
       [1, 'c1s1'], [2, 'c1s2'], [3, 'c1s3'], [4, 'c1s4'],
     ]);
     // Saved deepest rounds first so nextMatchId references exist.
@@ -121,6 +124,40 @@ describe('TournamentMatchesService.generateStructure', () => {
     // Games only for fixtures that already have both entrants.
     const playable = saved.matches.filter((m) => m.status === 'scheduled' && m.participantAId && m.participantBId);
     expect(saved.games).toHaveLength(playable.length);
+  });
+
+  it('seeds a PvP knockout by player points, not by who registered first', async () => {
+    // Registered p1…p8, but points rise with the number: p8 is the strongest.
+    const { service, saved, profilesRepository } = setup(participants(8, TournamentType.PVP), TournamentType.PVP);
+    profilesRepository.find.mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) => ({ userId: `user${i + 1}`, points: (i + 1) * 100 })),
+    );
+
+    await service.generateStructure('organizer', 't1');
+
+    const quarterFinals = saved.matches
+      .filter((m) => m.roundName === 'Quarter-final')
+      .map((m) => [m.participantAId, m.participantBId].sort().join(' v '))
+      .sort();
+    // Seeds by points: 1=p8 … 8=p1, paired 1v8, 4v5, 2v7, 3v6.
+    expect(quarterFinals).toEqual(['p1 v p8', 'p2 v p7', 'p3 v p6', 'p4 v p5']);
+  });
+
+  it('seeds a CvC knockout by club points', async () => {
+    const clubs = participants(4, TournamentType.CVC).map((p, i) => ({
+      ...p,
+      club: { name: `Club ${i + 1}`, points: [300, 100, 400, 200][i] },
+    }));
+    const { service, saved } = setup(clubs, TournamentType.CVC);
+
+    await service.generateStructure('organizer', 't1');
+
+    // Seeds: p3 (400), p1 (300), p4 (200), p2 (100) → semis p3 v p2 and p1 v p4.
+    const semis = saved.matches
+      .filter((m) => m.roundName === 'Semi-final')
+      .map((m) => [m.participantAId, m.participantBId].sort().join(' v '))
+      .sort();
+    expect(semis).toEqual(['p1 v p4', 'p2 v p3']);
   });
 
   it('splits 12 PvP players into 2 round-robin groups of 6', async () => {

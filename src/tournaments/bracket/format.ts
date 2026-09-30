@@ -45,6 +45,19 @@ export function shuffle<T>(items: readonly T[], rng: () => number = Math.random)
   return copy;
 }
 
+/**
+ * Knockout seeding by strength: highest points first (seed 1), missing points
+ * count as 0, and entrants with equal points are ordered randomly (shuffled
+ * first, then stable-sorted, so `rng` alone decides ties).
+ */
+export function seedByPoints<T extends string>(
+  entrants: readonly T[],
+  pointsById: ReadonlyMap<T, number>,
+  rng: () => number = Math.random,
+): T[] {
+  return shuffle(entrants, rng).sort((a, b) => (pointsById.get(b) ?? 0) - (pointsById.get(a) ?? 0));
+}
+
 /** Randomly draws entrants into `groups` groups whose sizes differ by at most 1. */
 export function drawGroups<T>(entrants: readonly T[], groups: number, rng: () => number = Math.random): T[][] {
   const result: T[][] = Array.from({ length: groups }, () => []);

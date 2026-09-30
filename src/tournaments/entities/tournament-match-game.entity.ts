@@ -107,6 +107,10 @@ export class TournamentMatchGame {
   @Column({ type: 'timestamp with time zone', nullable: true })
   evidenceDeadline!: Date | null;
 
+  /** When reviewers were told this game is ready (sent once, after the evidence window closes). */
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  reviewReadyNotifiedAt!: Date | null;
+
   @Column({ type: 'uuid', nullable: true })
   reviewedByUserId!: string | null;
 

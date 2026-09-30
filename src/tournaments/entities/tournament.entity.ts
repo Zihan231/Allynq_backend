@@ -10,6 +10,7 @@ import {
   type Relation,
   UpdateDateColumn,
 } from 'typeorm';
+import { Club } from '../../clubs/entities/club.entity.js';
 import { Community } from '../../communities/entities/community.entity.js';
 import { User } from '../../users/entities/user.entity.js';
 import {
@@ -106,13 +107,23 @@ export class Tournament {
   @Column({ type: 'varchar', length: 24, nullable: true })
   format!: TournamentFormat | null;
 
-  @ManyToOne(() => Community, { onDelete: 'CASCADE' })
+  /** Hosting community. Exactly one of `communityId` / `hostClubId` is set. */
+  @ManyToOne(() => Community, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'communityId' })
-  community!: Relation<Community>;
+  community!: Relation<Community> | null;
 
   @Index()
-  @Column({ type: 'uuid' })
-  communityId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  communityId!: string | null;
+
+  /** Hosting club (club tournaments are PvP, for the club's members). */
+  @ManyToOne(() => Club, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'hostClubId' })
+  hostClub!: Relation<Club> | null;
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hostClubId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'creatorId' })
@@ -129,4 +140,34 @@ export class Tournament {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+}
+
+export type TournamentHost = { kind: 'community'; id: string } | { kind: 'club'; id: string };
+
+/** Who hosts a tournament: its community, or (for club tournaments) its club. */
+export function hostOf(tournament: Pick<Tournament, 'communityId' | 'hostClubId'>): TournamentHost {
+  return tournament.hostClubId
+    ? { kind: 'club', id: tournament.hostClubId }
+    : { kind: 'community', id: tournament.communityId ?? '' };
+}
+
+/** App link to a tournament page (optionally with a query such as `?tab=bracket&match=…`). */
+export function tournamentLink(
+  tournament: Pick<Tournament, 'id' | 'communityId' | 'hostClubId'>,
+  query = '',
+): string {
+  const host = hostOf(tournament);
+  const base =
+    host.kind === 'club'
+      ? `/dashboard/efootball/clubs/${host.id}/tournaments/${tournament.id}`
+      : `/dashboard/efootball/community/${host.id}/tournaments/${tournament.id}`;
+  return `${base}${query}`;
+}
+
+/** App link to the host's tournament list (community or club Tournaments tab). */
+export function hostTournamentsLink(tournament: Pick<Tournament, 'communityId' | 'hostClubId'>): string {
+  const host = hostOf(tournament);
+  return host.kind === 'club'
+    ? `/dashboard/efootball/clubs/${host.id}?tab=tournaments`
+    : `/dashboard/efootball/community/${host.id}?tab=tournaments`;
 }

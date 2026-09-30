@@ -17,6 +17,10 @@ function setup(
     scheduledStart?: Date | null;
     evidenceDeadline?: Date | null;
     expired?: object[];
+    /** Games returned by the "both uploaded, window closed" lookup of the deadline job. */
+    readyForReview?: object[];
+    /** Host the tournament in a club instead of a community. */
+    clubHost?: boolean;
   } = {},
 ) {
   const match = { id: 'm1', tournamentId: 't1', status: 'scheduled', participantAId: 'pa', participantBId: 'pb' };
@@ -37,11 +41,13 @@ function setup(
     id: 't1',
     name: 'Cup',
     type: options.type ?? TournamentType.PVP,
-    communityId: 'c1',
+    communityId: options.clubHost ? null : 'c1',
+    hostClubId: options.clubHost ? 'host-club' : null,
     creatorId: 'organizer',
-    community: { creatorId: 'organizer' },
+    community: options.clubHost ? null : { creatorId: 'organizer' },
     // user-a plays in g1 and is also an official: they still can't review their own game.
-    matchOfficialIds: ['match-official', 'user-a'],
+    // In the club host, 'demoted' was appointed but no longer holds a staff role.
+    matchOfficialIds: options.clubHost ? ['captain', 'demoted'] : ['match-official', 'user-a'],
     participants: [
       { id: 'pa', clubId: 'club-a' },
       { id: 'pb', clubId: 'club-b' },
@@ -51,7 +57,9 @@ function setup(
     findOne: vi.fn().mockResolvedValue(game),
     save: vi.fn().mockResolvedValue({}),
     update: vi.fn().mockResolvedValue({}),
-    find: vi.fn().mockResolvedValue(options.expired ?? []),
+    find: vi.fn().mockImplementation(({ where }: { where?: { status?: unknown } }) =>
+      Promise.resolve(where?.status === 'submitted' ? (options.readyForReview ?? []) : (options.expired ?? [])),
+    ),
   };
   const submissionsRepository = {
     create: vi.fn((s) => ({ screenshotPaths: [], videoPath: null, ...s })),
@@ -59,7 +67,16 @@ function setup(
     delete: vi.fn().mockResolvedValue({}),
   };
   const matchesRepository = { update: vi.fn().mockResolvedValue({}) };
-  const profilesRepository = { findOne: vi.fn().mockResolvedValue(options.callerProfile ?? null) };
+  const profilesRepository = {
+    findOne: vi.fn().mockResolvedValue(options.callerProfile ?? null),
+    // Hosting club's leaders and staff (the query filters by club role).
+    find: vi.fn().mockResolvedValue([
+      { userId: 'club-president', clubRole: ClubRole.PRESIDENT },
+      { userId: 'club-gs', clubRole: ClubRole.GENERAL_SECRETARY },
+      { userId: 'captain', clubRole: ClubRole.CAPTAIN },
+      { userId: 'other-manager', clubRole: ClubRole.MANAGER },
+    ]),
+  };
   // Community members holding a reviewer or official role (the query filters by role).
   // 'discipline-head' holds an official role but isn't one of this tournament's officials.
   const communityMembersRepository = {
@@ -112,7 +129,7 @@ describe('TournamentResultsService.submitGameResult', () => {
     );
   });
 
-  it('sends the game to review once both players have uploaded', async () => {
+  it('sends the game to review once both players have uploaded, without telling reviewers yet', async () => {
     const { service, gamesRepository, tournamentsService } = setup({
       existing: [{ side: 'B', screenshotPaths: ['/uploads/evidence/b.png'], videoPath: '/uploads/evidence/b.mp4' }],
     });
@@ -120,8 +137,8 @@ describe('TournamentResultsService.submitGameResult', () => {
     await service.submitGameResult('user-a', 't1', 'g1', { goalsA: 1, goalsB: 0 }, evidence);
 
     expect(gamesRepository.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'submitted' }));
-    const recipients = tournamentsService.sendNotifications.mock.calls.map(([ids]) => ids).flat();
-    expect(recipients.sort()).toEqual(['match-official', 'organizer']);
+    // Reviewers hear about it once the evidence window closes (resolveExpiredGames).
+    expect(tournamentsService.sendNotifications).not.toHaveBeenCalled();
   });
 
   it('does not let club officials upload for their players (CvC)', async () => {
@@ -290,6 +307,31 @@ describe('TournamentResultsService review visibility', () => {
   });
 });
 
+describe('TournamentResultsService reviewers of a club tournament', () => {
+  it('are the club President and General Secretary plus officials who still hold a staff role', async () => {
+    const { service, tournamentsService } = setup({ clubHost: true });
+    const tournament = await tournamentsService.findOne('t1');
+
+    const reviewers = await service.reviewerUserIds(tournament as never);
+
+    // 'demoted' was appointed but lost their staff role; 'other-manager' was never appointed.
+    expect(reviewers.sort()).toEqual(['captain', 'club-gs', 'club-president']);
+  });
+
+  it('lets a club official review and stops everyone else', async () => {
+    const { service, gamesRepository } = setup({ clubHost: true, gameStatus: 'submitted' });
+
+    await expect(
+      service.reviewGame('other-manager', 't1', 'g1', { action: 'approve', goalsA: 1, goalsB: 0 }),
+    ).rejects.toThrow(ForbiddenException);
+    await service.reviewGame('captain', 't1', 'g1', { action: 'approve', goalsA: 1, goalsB: 0 });
+    expect(gamesRepository.update).toHaveBeenCalledWith(
+      { id: 'g1' },
+      expect.objectContaining({ status: 'approved', reviewedByUserId: 'captain' }),
+    );
+  });
+});
+
 describe('TournamentResultsService.resolveExpiredGames', () => {
   const expiredGame = (submissions: object[]) => ({
     id: 'g1',
@@ -332,6 +374,21 @@ describe('TournamentResultsService.resolveExpiredGames', () => {
       ['user-a', 'user-b'],
       expect.objectContaining({ title: 'Game forfeited' }),
     );
+  });
+
+  it('tells reviewers (not the players) once a both-sides game’s window has closed', async () => {
+    const readyGame = { ...expiredGame([{ side: 'A' }, { side: 'B' }]), status: 'submitted' };
+    const { service, gamesRepository, tournamentsService } = setup({ readyForReview: [readyGame] });
+
+    expect(await service.resolveExpiredGames()).toBe(1);
+
+    expect(gamesRepository.update).toHaveBeenCalledWith({ id: 'g1' }, { reviewReadyNotifiedAt: expect.any(Date) });
+    // The lookup only returns games not yet announced, so each game is announced once.
+    expect(gamesRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: 'submitted', reviewReadyNotifiedAt: expect.anything() }) }),
+    );
+    const call = tournamentsService.sendNotifications.mock.calls.find(([, n]) => n.title === 'Result ready for review');
+    expect(call?.[0].sort()).toEqual(['match-official', 'organizer']);
   });
 
   it('asks officials for a decider when a knockout fixture ends level', async () => {

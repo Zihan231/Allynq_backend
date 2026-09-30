@@ -153,6 +153,135 @@ describe('TournamentsService.create roster presets', () => {
   });
 });
 
+describe('TournamentsService club-hosted tournaments', () => {
+  const clubId = '7a1c1e0e-0000-4000-8000-000000000000';
+  const tournamentId = 'club-cup';
+
+  /** Profiles by user id: the caller's club membership and staff roles. */
+  const profiles: Record<string, { id: string; userId: string; clubId: string | null; clubRole: ClubRole | null }> = {
+    president: { id: 'p-president', userId: 'president', clubId, clubRole: ClubRole.PRESIDENT },
+    gs: { id: 'p-gs', userId: 'gs', clubId, clubRole: ClubRole.GENERAL_SECRETARY },
+    captain: { id: 'p-captain', userId: 'captain', clubId, clubRole: ClubRole.CAPTAIN },
+    player: { id: 'p-player', userId: 'player', clubId, clubRole: ClubRole.PLAYER },
+    outsider: { id: 'p-outsider', userId: 'outsider', clubId: 'another-club', clubRole: ClubRole.PLAYER },
+  };
+
+  function setup() {
+    const tournament = {
+      id: tournamentId,
+      name: 'Club Cup',
+      communityId: null,
+      hostClubId: clubId,
+      community: null,
+      creatorId: 'president',
+      status: TournamentStatus.REGISTRATION_OPEN,
+      type: TournamentType.PVP,
+      maxParticipants: 8,
+      participants: [],
+      registrationDeadline: new Date(Date.now() + 60 * 60 * 1000),
+      startAt: new Date(Date.now() + 5 * 60 * 60 * 1000),
+    };
+    const tournamentsRepository = {
+      create: vi.fn((t) => t),
+      save: vi.fn((t) => Promise.resolve({ id: 'new-id', ...t })),
+      findOne: vi.fn().mockResolvedValue(tournament),
+    };
+    const participantsRepository = {
+      findOne: vi.fn().mockResolvedValue(null),
+      create: vi.fn((p) => p),
+      save: vi.fn((p) => Promise.resolve(p)),
+      query: vi.fn().mockResolvedValue([]),
+    };
+    const profilesRepository = {
+      findOne: vi.fn(({ where }: { where: { userId: string } }) => Promise.resolve(profiles[where.userId] ?? null)),
+      find: vi.fn(({ where }: { where: { userId: { _value: string[] }; clubId: string } }) =>
+        Promise.resolve(
+          Object.values(profiles).filter((p) => where.userId._value.includes(p.userId) && p.clubId === where.clubId),
+        ),
+      ),
+    };
+    const notificationsService = { createNotification: vi.fn().mockResolvedValue({}) };
+    const service = new TournamentsService(
+      tournamentsRepository as never,
+      participantsRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      profilesRepository as never,
+      notificationsService as never,
+    );
+    return { service, tournamentsRepository, participantsRepository };
+  }
+
+  const dto = {
+    name: 'Club Cup',
+    type: TournamentType.PVP,
+    hostClubId: clubId,
+    startAt: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(),
+    maxParticipants: 8,
+  };
+
+  it.each(['president', 'gs'])('lets the club %s create a PvP tournament hosted by the club', async (caller) => {
+    const { service, tournamentsRepository } = setup();
+
+    const created = await service.create(caller, { ...dto, matchOfficialIds: ['captain'] });
+
+    expect(tournamentsRepository.save).toHaveBeenCalled();
+    expect(created).toMatchObject({ hostClubId: clubId, communityId: null, type: 'pvp', matchOfficialIds: ['captain'] });
+  });
+
+  it.each(['player', 'captain', 'outsider'])('forbids a club %s from creating one', async (caller) => {
+    const { service, tournamentsRepository } = setup();
+    await expect(service.create(caller, dto)).rejects.toThrow(ForbiddenException);
+    expect(tournamentsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects club vs club, and a tournament with two hosts or none', async () => {
+    const { service } = setup();
+    await expect(service.create('president', { ...dto, type: TournamentType.CVC })).rejects.toThrow(BadRequestException);
+    await expect(
+      service.create('president', { ...dto, communityId: '6f1c1e0e-0000-4000-8000-000000000000' }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(service.create('president', { ...dto, hostClubId: undefined })).rejects.toThrow(BadRequestException);
+  });
+
+  it('only accepts club staff as match officials (the President / GS are dropped)', async () => {
+    const { service } = setup();
+    await expect(service.create('president', { ...dto, matchOfficialIds: ['player'] })).rejects.toThrow(
+      BadRequestException,
+    );
+    const created = await service.create('president', { ...dto, matchOfficialIds: ['gs', 'captain'] });
+    expect(created.matchOfficialIds).toEqual(['captain']);
+  });
+
+  it('lets a club member join', async () => {
+    const { service, participantsRepository } = setup();
+    await service.join('player', tournamentId, {});
+    expect(participantsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ tournamentId, userId: 'player', participantType: 'player' }),
+    );
+  });
+
+  it.each([
+    ['a player from another club', 'outsider'],
+    ['the club President', 'president'],
+    ['the club General Secretary', 'gs'],
+  ])('forbids %s from joining', async (_who, caller) => {
+    const { service, participantsRepository } = setup();
+    await expect(service.join(caller, tournamentId, {})).rejects.toThrow(ForbiddenException);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('applies the one-active-tournament rule to club tournaments too', async () => {
+    const { service, participantsRepository } = setup();
+    participantsRepository.query.mockResolvedValue([
+      { profileId: 'p-player', tournamentId: 'other', tournamentName: 'Community Cup' },
+    ]);
+    await expect(service.join('player', tournamentId, {})).rejects.toThrow(/Community Cup/);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+  });
+});
+
 describe('TournamentsService.update / remove', () => {
   const organizerId = 'organizer-id';
   const tournamentId = 'tournament-id';

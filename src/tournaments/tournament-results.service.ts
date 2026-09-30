@@ -5,14 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThanOrEqual, Repository } from 'typeorm';
+import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { CommunityRole } from '../users/enums/user-attributes.enum.js';
 import { TournamentGameSubmission } from './entities/tournament-game-submission.entity.js';
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
-import { Tournament } from './entities/tournament.entity.js';
+import { Tournament, tournamentLink } from './entities/tournament.entity.js';
 import {
   type EvidenceFiles,
   evidenceUrl,
@@ -20,7 +20,12 @@ import {
   removeEvidence,
 } from './evidence-upload.js';
 import { TournamentMatchesService } from './tournament-matches.service.js';
-import { MATCH_OFFICIAL_ROLES, TournamentsService } from './tournaments.service.js';
+import {
+  CLUB_LEADER_ROLES,
+  CLUB_OFFICIAL_ROLES,
+  MATCH_OFFICIAL_ROLES,
+  TournamentsService,
+} from './tournaments.service.js';
 
 /** After a rejection both players get this long to upload new evidence. */
 const RESUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -126,7 +131,7 @@ export class TournamentResultsService {
       throw new ForbiddenException("You can't review a game you played in");
     }
 
-    const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket&match=${game.matchId}`;
+    const link = tournamentLink(tournament, `?tab=bracket&match=${game.matchId}`);
     const players = [game.playerAUserId, game.playerBUserId, ...(game.submissions ?? []).map((s) => s.submittedByUserId)];
     const playerIds = Array.from(new Set(players.filter((id): id is string => Boolean(id) && id !== userId)));
 
@@ -318,15 +323,32 @@ export class TournamentResultsService {
   }
 
   /**
-   * The hosting community's President and Vice President, plus the tournament's
-   * match officials who still hold an official role (a demoted official stops reviewing).
+   * The host's leaders plus the tournament's match officials who still hold an
+   * official role (a demoted official stops reviewing). Community tournaments:
+   * the community President / Vice President. Club tournaments: the club
+   * President / General Secretary.
    */
   async reviewerUserIds(tournament: Tournament): Promise<string[]> {
+    const officialIds = tournament.matchOfficialIds ?? [];
+
+    if (tournament.hostClubId) {
+      const staff = await this.profilesRepository.find({
+        where: { clubId: tournament.hostClubId, clubRole: In([...CLUB_LEADER_ROLES, ...CLUB_OFFICIAL_ROLES]) },
+        select: { userId: true, clubRole: true },
+      });
+      return Array.from(
+        new Set(
+          staff
+            .filter((p) => CLUB_LEADER_ROLES.includes(p.clubRole ?? '') || officialIds.includes(p.userId))
+            .map((p) => p.userId),
+        ),
+      );
+    }
+
     const members = await this.communityMembersRepository.find({
-      where: { communityId: tournament.communityId, role: In([...REVIEWER_ROLES, ...MATCH_OFFICIAL_ROLES]) },
+      where: { communityId: tournament.communityId!, role: In([...REVIEWER_ROLES, ...MATCH_OFFICIAL_ROLES]) },
       relations: { profile: true },
     });
-    const officialIds = tournament.matchOfficialIds ?? [];
     return Array.from(
       new Set(
         members
@@ -345,20 +367,14 @@ export class TournamentResultsService {
     actorUserId: string,
     bothSidesIn: boolean,
   ): Promise<void> {
-    const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket&match=${match.id}`;
+    const link = tournamentLink(tournament, `?tab=bracket&match=${match.id}`);
     const submitter = side === 'A' ? game.playerAName : game.playerBName;
     const opponentUserId = side === 'A' ? game.playerBUserId : game.playerAUserId;
     const fixture = `${game.playerAName} vs ${game.playerBName}`;
 
-    if (bothSidesIn) {
-      const reviewers = (await this.reviewerUserIds(tournament)).filter((id) => id !== actorUserId);
-      await this.tournamentsService.sendNotifications(reviewers, {
-        title: 'Result ready for review',
-        message: `Both players of ${fixture} in "${tournament.name}" uploaded their evidence.`,
-        link,
-      });
-      return;
-    }
+    // Reviewers are told once the evidence window closes (see resolveExpiredGames): players
+    // may still replace their evidence until then, and reviews only open at that point.
+    if (bothSidesIn) return;
     if (opponentUserId && opponentUserId !== actorUserId) {
       const deadline = game.evidenceDeadline ? ` before ${formatTime(game.evidenceDeadline)}` : '';
       await this.tournamentsService.sendNotifications([opponentUserId], {
@@ -372,9 +388,28 @@ export class TournamentResultsService {
   /**
    * Called every minute by the deadline job. Games whose evidence window has
    * closed are decided: one side uploaded → that side wins by walkover; nobody
-   * uploaded → both lose (double forfeit). Both uploaded → already in review.
+   * uploaded → both lose (double forfeit). Both uploaded → reviewers are told,
+   * once, that the result is ready for review.
    */
   async resolveExpiredGames(now = new Date()): Promise<number> {
+    const readyForReview = await this.gamesRepository.find({
+      where: { status: 'submitted', evidenceDeadline: LessThanOrEqual(now), reviewReadyNotifiedAt: IsNull() },
+      relations: { match: true },
+    });
+    for (const game of readyForReview) {
+      await this.gamesRepository.update({ id: game.id }, { reviewReadyNotifiedAt: now });
+      if (!game.match || game.match.status === 'completed') continue;
+      const tournament = await this.tournamentsService.findOne(game.match.tournamentId);
+      const reviewers = (await this.reviewerUserIds(tournament)).filter(
+        (id) => id !== game.playerAUserId && id !== game.playerBUserId,
+      );
+      await this.tournamentsService.sendNotifications(reviewers, {
+        title: 'Result ready for review',
+        message: `Both players of ${game.playerAName} vs ${game.playerBName} in "${tournament.name}" uploaded their evidence and the upload window has closed.`,
+        link: tournamentLink(tournament, `?tab=bracket&match=${game.matchId}`),
+      });
+    }
+
     const expired = await this.gamesRepository.find({
       where: { status: In(['pending', 'awaiting_opponent', 'rejected']), evidenceDeadline: LessThanOrEqual(now) },
       relations: { match: true, submissions: true },
@@ -383,7 +418,7 @@ export class TournamentResultsService {
     for (const game of expired) {
       if (!game.match || game.match.status === 'completed') continue;
       const tournament = await this.tournamentsService.findOne(game.match.tournamentId);
-      const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket&match=${game.matchId}`;
+      const link = tournamentLink(tournament, `?tab=bracket&match=${game.matchId}`);
       const uploadedSides = (game.submissions ?? []).map((sub) => sub.side);
       const fixture = `${game.playerAName} vs ${game.playerBName}`;
 
@@ -435,7 +470,7 @@ export class TournamentResultsService {
         });
       }
     }
-    return expired.length;
+    return expired.length + readyForReview.length;
   }
 }
 

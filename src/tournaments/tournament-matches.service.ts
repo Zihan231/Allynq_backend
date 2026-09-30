@@ -10,6 +10,7 @@ import {
   groupLabel,
   MIN_ENTRANTS,
   QUALIFIERS_PER_GROUP,
+  seedByPoints,
   type TournamentFormat,
 } from './bracket/format.js';
 import { crossGroupPairs, planKnockout, seededPairs } from './bracket/knockout.js';
@@ -29,7 +30,7 @@ import { TournamentGameTimeRequest } from './entities/tournament-game-time-reque
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
-import { Tournament } from './entities/tournament.entity.js';
+import { Tournament, tournamentLink } from './entities/tournament.entity.js';
 import { TournamentStatus, TournamentType } from './enums/tournament.enum.js';
 import { TournamentsService } from './tournaments.service.js';
 
@@ -186,7 +187,13 @@ export class TournamentMatchesService {
     const matches: TournamentMatch[] = [];
 
     if (format === 'knockout') {
-      matches.push(...this.buildKnockout(tournament.id, seededPairs(participants.map((p) => p.id))));
+      // Seeded by strength so the strongest can't meet early and get any byes; ties drawn randomly.
+      const seeds = seedByPoints(
+        participants.map((p) => p.id),
+        await this.entrantPoints(participants, isCvC),
+        rng,
+      );
+      matches.push(...this.buildKnockout(tournament.id, seededPairs(seeds)));
     } else {
       let matchNumber = 0;
       const groups = drawGroups(participants.map((p) => p.id), groupCount(participants.length), rng);
@@ -241,7 +248,7 @@ export class TournamentMatchesService {
     await this.tournamentsService.notifyParticipants(tournament, userId ?? '', {
       title: 'Fixtures are out',
       message: `The fixtures for "${tournament.name}" have been drawn (${groupsText}). Check your first match.`,
-      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
+      link: tournamentLink(tournament, `?tab=bracket`),
     });
     await this.notifyScheduled(tournament, games);
 
@@ -407,7 +414,7 @@ export class TournamentMatchesService {
    * tournament (possibly without a champion).
    */
   private async advanceWinner(tournament: Tournament, match: TournamentMatch, winnerId: string | null): Promise<void> {
-    const link = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`;
+    const link = tournamentLink(tournament, `?tab=bracket`);
 
     if (!match.nextMatchId) {
       await this.dataSource.getRepository(Tournament).update({ id: tournament.id }, { status: TournamentStatus.COMPLETED });
@@ -518,7 +525,7 @@ export class TournamentMatchesService {
     await this.tournamentsService.notifyParticipants(tournament, '', {
       title: 'Knockout draw is out',
       message: `The group stage of "${tournament.name}" is over. ${qualified.length} teams go through to the knockout — check the bracket.`,
-      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
+      link: tournamentLink(tournament, `?tab=bracket`),
     });
     await this.notifyScheduled(tournament, games);
   }
@@ -627,7 +634,7 @@ export class TournamentMatchesService {
       }
     }
 
-    const base = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`;
+    const base = tournamentLink(tournament, `?tab=bracket`);
     await Promise.all(
       [...byPlayer].map(([userId, entries]) => {
         const sorted = entries.sort((x, y) => x.game.scheduledStart!.getTime() - y.game.scheduledStart!.getTime());
@@ -644,6 +651,22 @@ export class TournamentMatchesService {
         });
       }),
     );
+  }
+
+  /** Seeding strength per entrant: the club's points (CvC) or the player's profile points (PvP). */
+  private async entrantPoints(
+    participants: TournamentParticipant[],
+    isCvC: boolean,
+  ): Promise<Map<string, number>> {
+    if (isCvC) {
+      return new Map(participants.map((p) => [p.id, p.club?.points ?? 0]));
+    }
+    const userIds = participants.map((p) => p.userId).filter((id): id is string => Boolean(id));
+    const profiles = userIds.length
+      ? await this.profilesRepository.find({ where: { userId: In(userIds) }, select: { userId: true, points: true } })
+      : [];
+    const pointsByUser = new Map(profiles.map((profile) => [profile.userId, profile.points ?? 0]));
+    return new Map(participants.map((p) => [p.id, (p.userId && pointsByUser.get(p.userId)) || 0]));
   }
 
   /** Who plays for each entrant: the club's starters in lineup order, or the player. */

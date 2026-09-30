@@ -29,8 +29,15 @@ export class CreateTournamentDto {
   @IsEnum(TournamentType)
   type!: TournamentType;
 
+  /** Hosting community. Exactly one of `communityId` / `hostClubId` is required. */
+  @IsOptional()
   @IsUUID()
-  communityId!: string;
+  communityId?: string;
+
+  /** Hosting club: a PvP tournament for the club's members, run by its President / General Secretary. */
+  @IsOptional()
+  @IsUUID()
+  hostClubId?: string;
 
   @IsOptional()
   @IsString()

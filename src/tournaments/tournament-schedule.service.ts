@@ -9,7 +9,7 @@ import { LessThanOrEqual, Repository } from 'typeorm';
 import { formatRange, localDayStart, MINUTE_MS, rangeFrom } from './bracket/schedule.js';
 import { TournamentGameTimeRequest } from './entities/tournament-game-time-request.entity.js';
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
-import { Tournament } from './entities/tournament.entity.js';
+import { Tournament, tournamentLink } from './entities/tournament.entity.js';
 import { TournamentsService } from './tournaments.service.js';
 
 /** Proposed times must leave the opponent at least this long to react. */
@@ -182,7 +182,7 @@ export class TournamentScheduleService {
   }
 
   private timingLink(tournament: Tournament, game: TournamentMatchGame): string {
-    return `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket&match=${game.matchId}&game=${game.id}&panel=time`;
+    return tournamentLink(tournament, `?tab=bracket&match=${game.matchId}&game=${game.id}&panel=time`);
   }
 }
 

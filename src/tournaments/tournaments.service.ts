@@ -23,7 +23,14 @@ import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
 import { normalizePlayHours, playHoursError } from './bracket/schedule.js';
-import { BracketMatch, Tournament } from './entities/tournament.entity.js';
+import {
+  BracketMatch,
+  hostOf,
+  hostTournamentsLink,
+  Tournament,
+  type TournamentHost,
+  tournamentLink,
+} from './entities/tournament.entity.js';
 import {
   TournamentParticipant,
   type TournamentLineup,
@@ -49,6 +56,17 @@ export const MATCH_OFFICIAL_ROLES: CommunityRole[] = [
 /** Community roles that host (organize) the community's tournaments. */
 const LEADER_ROLES: string[] = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
 
+/** Club roles that host (organize) a club's tournaments. */
+export const CLUB_LEADER_ROLES: string[] = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
+
+/** Club roles that may be appointed as a club tournament's match officials. */
+export const CLUB_OFFICIAL_ROLES: string[] = [
+  ClubRole.CAPTAIN,
+  ClubRole.VICE_CAPTAIN,
+  ClubRole.ACADEMY_CAPTAIN,
+  ClubRole.MANAGER,
+];
+
 /** SQL: the user (`user` placeholder) or their club entered tournament `t`. */
 const joinedSql = (user: string) =>
   `EXISTS (
@@ -60,15 +78,20 @@ const joinedSql = (user: string) =>
 
 /**
  * SQL: the user hosts tournament `t` (joined with its `community`): they created
- * it or the community, or they're its President / Vice President (`roles`: text[]).
+ * it or the community, they're the hosting community's President / Vice President
+ * (`roles`: text[]), or the hosting club's President / General Secretary (`clubRoles`: text[]).
  */
-const hostedSql = (user: string, roles: string) =>
+const hostedSql = (user: string, roles: string, clubRoles: string) =>
   `(t."creatorId" = ${user}
     OR community."creatorId" = ${user}
     OR t."communityId" IN (
       SELECT m."communityId" FROM community_members m
         JOIN efootball_profiles lp ON lp.id = m."profileId"
        WHERE lp."userId" = ${user} AND m.role::text = ANY(${roles})
+    )
+    OR t."hostClubId" IN (
+      SELECT cp."clubId" FROM efootball_profiles cp
+       WHERE cp."userId" = ${user} AND cp."clubRole"::text = ANY(${clubRoles})
     ))`;
 
 export interface PlayerCommitment {
@@ -100,40 +123,21 @@ export class TournamentsService {
   ) {}
 
   async create(userId: string, dto: CreateTournamentDto): Promise<Tournament> {
-    const community = await this.communitiesRepository.findOne({
-      where: { id: dto.communityId },
-    });
-    if (!community) {
-      throw new NotFoundException(`Community ${dto.communityId} not found`);
+    if (Boolean(dto.communityId) === Boolean(dto.hostClubId)) {
+      throw new BadRequestException('Choose exactly one host for the tournament: a community or a club');
     }
 
-    // Check that caller is President or Vice President of this community
-    const callerProfile = await this.profilesRepository.findOne({
-      where: { userId },
-    });
-
-    if (!callerProfile) {
-      throw new ForbiddenException('User eFootball profile not found');
-    }
-
-    const membership = await this.communityMembersRepository.findOne({
-      where: { communityId: dto.communityId, profileId: callerProfile.id },
-    });
-
-    const isCreator = community.creatorId === userId;
-    const isProfileAuthority =
-      callerProfile.communityId === dto.communityId &&
-      (callerProfile.communityRole === CommunityRole.PRESIDENT ||
-        callerProfile.communityRole === CommunityRole.VICE_PRESIDENT);
-    const isMembershipAuthority =
-      membership &&
-      (membership.role === CommunityRole.PRESIDENT ||
-        membership.role === CommunityRole.VICE_PRESIDENT);
-
-    if (!isCreator && !isProfileAuthority && !isMembershipAuthority) {
-      throw new ForbiddenException(
-        'Only the Community President or Vice President can create tournaments',
-      );
+    let host: TournamentHost;
+    if (dto.hostClubId) {
+      // Club tournaments: PvP between the club's members, run by its President / General Secretary.
+      await this.assertClubLeader(userId, dto.hostClubId, 'create club tournaments');
+      if (dto.type !== TournamentType.PVP) {
+        throw new BadRequestException('Club tournaments are Player vs Player only');
+      }
+      host = { kind: 'club', id: dto.hostClubId };
+    } else {
+      await this.assertCommunityLeaderForCreate(userId, dto.communityId!);
+      host = { kind: 'community', id: dto.communityId! };
     }
 
     const startAt = new Date(dto.startAt);
@@ -162,14 +166,15 @@ export class TournamentsService {
       entryFeeBdt,
       prizePoolBdt: dto.prizePoolBdt ?? 0,
       ...this.resolvePlayHours(dto.playHoursStart, dto.playHoursEnd),
-      matchOfficialIds: await this.resolveMatchOfficials(dto.communityId, dto.matchOfficialIds),
+      matchOfficialIds: await this.resolveMatchOfficials(host, dto.matchOfficialIds),
       registrationDeadline: dto.registrationDeadline
         ? new Date(dto.registrationDeadline)
         : teamSubmissionDeadline,
       teamSubmissionDeadline,
       startAt,
       endAt: dto.endAt ? new Date(dto.endAt) : null,
-      communityId: dto.communityId,
+      communityId: host.kind === 'community' ? host.id : null,
+      hostClubId: host.kind === 'club' ? host.id : null,
       creatorId: userId,
     });
 
@@ -178,19 +183,70 @@ export class TournamentsService {
     return saved;
   }
 
+  /** Community tournaments are created by the community's creator, President or Vice President. */
+  private async assertCommunityLeaderForCreate(userId: string, communityId: string): Promise<void> {
+    const community = await this.communitiesRepository.findOne({ where: { id: communityId } });
+    if (!community) {
+      throw new NotFoundException(`Community ${communityId} not found`);
+    }
+
+    const callerProfile = await this.profilesRepository.findOne({ where: { userId } });
+    if (!callerProfile) {
+      throw new ForbiddenException('User eFootball profile not found');
+    }
+
+    const membership = await this.communityMembersRepository.findOne({
+      where: { communityId, profileId: callerProfile.id },
+    });
+
+    const isCreator = community.creatorId === userId;
+    const isProfileAuthority =
+      callerProfile.communityId === communityId && LEADER_ROLES.includes(callerProfile.communityRole ?? '');
+    const isMembershipAuthority = Boolean(membership && LEADER_ROLES.includes(membership.role));
+
+    if (!isCreator && !isProfileAuthority && !isMembershipAuthority) {
+      throw new ForbiddenException('Only the Community President or Vice President can create tournaments');
+    }
+  }
+
+  /** Club tournaments are run by the club's President or General Secretary. */
+  private async assertClubLeader(userId: string, clubId: string, action: string): Promise<void> {
+    const profile = await this.profilesRepository.findOne({ where: { userId } });
+    if (!profile || profile.clubId !== clubId || !CLUB_LEADER_ROLES.includes(profile.clubRole ?? '')) {
+      throw new ForbiddenException(`Only the Club President or General Secretary can ${action}`);
+    }
+  }
+
   /**
-   * Match officials must hold an official role in the hosting community (Team
-   * Manager, Head of Discipline or Scout). The President and Vice President
-   * already review every match, so they aren't stored.
+   * Match officials review evidence alongside the host's leaders, who always
+   * review and so aren't stored. Community tournaments: community officials
+   * (Team Manager, Head of Discipline or Scout). Club tournaments: club staff
+   * (Captain, Vice-Captain, Academy Captain or Manager).
    */
-  private async resolveMatchOfficials(communityId: string, userIds: string[] | undefined): Promise<string[]> {
+  private async resolveMatchOfficials(host: TournamentHost, userIds: string[] | undefined): Promise<string[]> {
     const unique = [...new Set(userIds ?? [])];
     if (!unique.length) return [];
+
+    if (host.kind === 'club') {
+      const profiles = await this.profilesRepository.find({
+        where: { userId: In(unique), clubId: host.id },
+        select: { userId: true, clubRole: true },
+      });
+      const roleByUser = new Map(profiles.map((p) => [p.userId, p.clubRole ?? '']));
+      const officials = unique.filter((id) => !CLUB_LEADER_ROLES.includes(roleByUser.get(id) ?? ''));
+      if (officials.some((id) => !CLUB_OFFICIAL_ROLES.includes(roleByUser.get(id) ?? ''))) {
+        throw new BadRequestException(
+          'Match officials must be club officials (Captain, Vice-Captain, Academy Captain or Manager)',
+        );
+      }
+      return officials;
+    }
+
     const rows: Array<{ userId: string; role: string }> = await this.communityMembersRepository.query(
       `SELECT ep."userId", m.role FROM community_members m
          JOIN efootball_profiles ep ON ep.id = m."profileId"
         WHERE m."communityId" = $1 AND ep."userId" = ANY($2)`,
-      [communityId, unique],
+      [host.id, unique],
     );
     const roleByUser = new Map(rows.map((r) => [r.userId, r.role]));
     const officials = unique.filter((id) => !LEADER_ROLES.includes(roleByUser.get(id) ?? ''));
@@ -208,7 +264,7 @@ export class TournamentsService {
     await this.sendNotifications(recipients, {
       title: 'You are a match official',
       message: `You were appointed as a match official for "${tournament.name}". You'll review the evidence players upload after each match window closes.`,
-      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}?tab=bracket`,
+      link: tournamentLink(tournament, '?tab=bracket'),
     });
   }
 
@@ -277,22 +333,29 @@ export class TournamentsService {
         [
           'id', 'name', 'description', 'type', 'status', 'preset', 'startersCount', 'subsCount',
           'maxParticipants', 'entryFeeBdt', 'prizePoolBdt', 'registrationDeadline',
-          'teamSubmissionDeadline', 'startAt', 'endAt', 'communityId', 'creatorId', 'createdAt', 'updatedAt',
+          'teamSubmissionDeadline', 'startAt', 'endAt', 'communityId', 'hostClubId', 'creatorId', 'createdAt',
+          'updatedAt',
         ].map((column) => `t.${column}`),
       )
       .leftJoin('t.community', 'community')
       .addSelect(
         ['id', 'name', 'color', 'initials', 'dpUrl', 'creatorId'].map((column) => `community.${column}`),
-      );
+      )
+      .leftJoin('t.hostClub', 'hostClub')
+      .addSelect(['id', 'name', 'color', 'initials', 'dpUrl'].map((column) => `hostClub.${column}`));
 
     const scope = query.scope ?? (query.joined === 'true' ? 'joined' : undefined);
     if (scope) {
       if (!userId) return [];
       const conditions = [
         scope !== 'hosted' ? joinedSql(':userId') : null,
-        scope !== 'joined' ? hostedSql(':userId', ':leaderRoles') : null,
+        scope !== 'joined' ? hostedSql(':userId', ':leaderRoles', ':clubLeaderRoles') : null,
       ].filter(Boolean);
-      qb.andWhere(`(${conditions.join(' OR ')})`, { userId, leaderRoles: LEADER_ROLES });
+      qb.andWhere(`(${conditions.join(' OR ')})`, {
+        userId,
+        leaderRoles: LEADER_ROLES,
+        clubLeaderRoles: CLUB_LEADER_ROLES,
+      });
     }
 
     if (query.type) {
@@ -312,9 +375,13 @@ export class TournamentsService {
       );
     }
 
+    if (query.hostClubId) {
+      qb.andWhere('t.hostClubId = :hostClubId', { hostClubId: query.hostClubId });
+    }
+
     if (query.search) {
       qb.andWhere(
-        '(LOWER(t.name) LIKE :search OR LOWER(community.name) LIKE :search)',
+        '(LOWER(t.name) LIKE :search OR LOWER(community.name) LIKE :search OR LOWER(hostClub.name) LIKE :search)',
         { search: `%${query.search.toLowerCase().trim()}%` },
       );
     }
@@ -379,10 +446,10 @@ export class TournamentsService {
       const rows: Array<{ id: string; joined: boolean; hosted: boolean }> = await this.tournamentsRepository.query(
         `SELECT t.id,
                 ${joinedSql('$2')} AS joined,
-                ${hostedSql('$2', '$3')} AS hosted
+                ${hostedSql('$2', '$3', '$4')} AS hosted
            FROM tournaments t LEFT JOIN communities community ON community.id = t."communityId"
           WHERE t.id = ANY($1)`,
-        [ids, userId, LEADER_ROLES],
+        [ids, userId, LEADER_ROLES, CLUB_LEADER_ROLES],
       );
       joinedIds = new Set(rows.filter((r) => r.joined).map((r) => r.id));
       hostedIds = new Set(rows.filter((r) => r.hosted).map((r) => r.id));
@@ -402,6 +469,7 @@ export class TournamentsService {
       where: { id },
       relations: {
         community: true,
+        hostClub: true,
         creator: true,
         participants: {
           club: {
@@ -507,7 +575,7 @@ export class TournamentsService {
 
     let newOfficials: string[] = [];
     if (dto.matchOfficialIds !== undefined) {
-      const next = await this.resolveMatchOfficials(tournament.communityId, dto.matchOfficialIds);
+      const next = await this.resolveMatchOfficials(hostOf(tournament), dto.matchOfficialIds);
       const current = tournament.matchOfficialIds ?? [];
       if (next.length !== current.length || next.some((id) => !current.includes(id))) {
         newOfficials = next.filter((id) => !current.includes(id));
@@ -519,15 +587,20 @@ export class TournamentsService {
     if (!changes.length) return tournament;
 
     // Save only the tournament's own columns, not the loaded relations.
-    const { participants: _participants, community: _community, creator: _creator, ...columns } =
-      tournament;
+    const {
+      participants: _participants,
+      community: _community,
+      hostClub: _hostClub,
+      creator: _creator,
+      ...columns
+    } = tournament;
     await this.tournamentsRepository.save(columns);
 
     await this.notifyNewOfficials(tournament, newOfficials, userId);
     await this.notifyParticipants(tournament, userId, {
       title: 'Tournament updated',
       message: `"${tournament.name}" was updated by the organizer. Changed: ${changes.join(', ')}.`,
-      link: `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}`,
+      link: tournamentLink(tournament),
     });
 
     return this.findOne(tournamentId);
@@ -547,7 +620,7 @@ export class TournamentsService {
     await this.sendNotifications(recipients, {
       title: 'Tournament cancelled',
       message: `"${tournament.name}" has been deleted by the organizer and will not take place.`,
-      link: `/dashboard/efootball/community/${tournament.communityId}?tab=tournaments`,
+      link: hostTournamentsLink(tournament),
     });
 
     return { id: tournament.id };
@@ -564,22 +637,28 @@ export class TournamentsService {
   }
 
   /**
-   * Organizers: the tournament creator, the community creator, or the hosting
-   * community's President / Vice President.
+   * Organizers: the tournament creator, plus for a community tournament the
+   * community creator and its President / Vice President, or for a club
+   * tournament the club's President / General Secretary.
    */
   async assertCanManage(
     userId: string,
     tournament: Tournament,
     action: string,
   ): Promise<void> {
-    if (tournament.creatorId === userId || tournament.community?.creatorId === userId) {
+    if (tournament.creatorId === userId) return;
+    if (tournament.hostClubId) {
+      await this.assertClubLeader(userId, tournament.hostClubId, action);
+      return;
+    }
+    if (tournament.community?.creatorId === userId) {
       return;
     }
 
     const callerProfile = await this.profilesRepository.findOne({ where: { userId } });
     const membership = callerProfile
       ? await this.communityMembersRepository.findOne({
-          where: { communityId: tournament.communityId, profileId: callerProfile.id },
+          where: { communityId: tournament.communityId!, profileId: callerProfile.id },
         })
       : null;
 
@@ -697,9 +776,22 @@ export class TournamentsService {
       throw new BadRequestException('User profile not found');
     }
 
+    // Club tournaments: PvP for the hosting club's members; its President / GS run it, so they can't play.
+    if (tournament.hostClubId) {
+      if (callerProfile.clubId !== tournament.hostClubId) {
+        throw new ForbiddenException('Only members of the hosting club can join this tournament');
+      }
+      if (CLUB_LEADER_ROLES.includes(callerProfile.clubRole ?? '')) {
+        throw new ForbiddenException(
+          'The club President and General Secretary cannot join tournaments hosted by their club',
+        );
+      }
+      return this.registerPlayer(tournament, userId, callerProfile);
+    }
+
     const membership = await this.communityMembersRepository.findOne({
       where: {
-        communityId: tournament.communityId,
+        communityId: tournament.communityId!,
         profileId: callerProfile.id,
       },
     });
@@ -731,33 +823,7 @@ export class TournamentsService {
         );
       }
 
-      // Check if player is already registered
-      const existing = await this.participantsRepository.findOne({
-        where: { tournamentId, userId },
-      });
-
-      if (existing) {
-        throw new BadRequestException(
-          'You are already registered for this tournament',
-        );
-      }
-
-      const [commitment] = await this.findPlayerCommitments([callerProfile.id], tournament.id);
-      if (commitment) {
-        throw new BadRequestException(
-          `You are already registered in "${commitment.tournamentName}". A player can take part in only one active tournament at a time.`,
-        );
-      }
-
-      const participant = this.participantsRepository.create({
-        tournamentId,
-        participantType: ParticipantType.PLAYER,
-        userId,
-        registeredByUserId: userId,
-        status: ParticipantStatus.REGISTERED,
-      });
-
-      return this.participantsRepository.save(participant);
+      return this.registerPlayer(tournament, userId, callerProfile);
     }
 
     // CvC Tournament registration
@@ -783,7 +849,7 @@ export class TournamentsService {
 
     // 1. Club must be a member of the tournament's hosting community
     const isCommunityMember = club.communityIds?.includes(
-      tournament.communityId,
+      tournament.communityId!,
     );
 
     if (!isCommunityMember) {
@@ -833,6 +899,36 @@ export class TournamentsService {
     const saved = await this.participantsRepository.save(participant);
     await this.notifyLineupChanges(tournament, club.name, club.members ?? [], null, saved.lineup, userId);
     return saved;
+  }
+
+  /** Registers a player for a PvP tournament (once, and only if not busy in another active one). */
+  private async registerPlayer(
+    tournament: Tournament,
+    userId: string,
+    callerProfile: EfootballProfile,
+  ): Promise<TournamentParticipant> {
+    const existing = await this.participantsRepository.findOne({
+      where: { tournamentId: tournament.id, userId },
+    });
+    if (existing) {
+      throw new BadRequestException('You are already registered for this tournament');
+    }
+
+    const [commitment] = await this.findPlayerCommitments([callerProfile.id], tournament.id);
+    if (commitment) {
+      throw new BadRequestException(
+        `You are already registered in "${commitment.tournamentName}". A player can take part in only one active tournament at a time.`,
+      );
+    }
+
+    const participant = this.participantsRepository.create({
+      tournamentId: tournament.id,
+      participantType: ParticipantType.PLAYER,
+      userId,
+      registeredByUserId: userId,
+      status: ParticipantStatus.REGISTERED,
+    });
+    return this.participantsRepository.save(participant);
   }
 
   /**
@@ -1030,9 +1126,9 @@ export class TournamentsService {
     const beforeRoles = roleIn(before);
     const afterRoles = roleIn(after);
     const userIdByProfile = new Map(clubMembers.map((m) => [m.id, m.userId]));
-    const tournamentLink = `/dashboard/efootball/community/${tournament.communityId}/tournaments/${tournament.id}`;
+    const pageLink = tournamentLink(tournament);
     // Picked/moved players land on the lineup with their own row highlighted.
-    const lineupLink = `${tournamentLink}?tab=lineup&highlight=me`;
+    const lineupLink = tournamentLink(tournament, '?tab=lineup&highlight=me');
     const describe = (role: 'starter' | 'substitute') =>
       role === 'starter' ? 'the starting lineup' : 'the bench';
 
@@ -1058,7 +1154,7 @@ export class TournamentsService {
         messages.set(profileId, {
           title: 'Removed from tournament team',
           message: `${clubName} removed you from its team for "${tournament.name}".`,
-          link: tournamentLink,
+          link: pageLink,
         });
       }
     }

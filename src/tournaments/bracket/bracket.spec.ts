@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseFormat, drawGroups, groupCount } from './format.js';
+import { chooseFormat, drawGroups, groupCount, seedByPoints } from './format.js';
 import { crossGroupPairs, planKnockout, seedOrder, seededPairs } from './knockout.js';
 import { roundRobin } from './round-robin.js';
 import { fixtureOutcome } from './scoring.js';
@@ -28,6 +28,31 @@ describe('format', () => {
     const sizes = groups.map((g) => g.length);
     expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
     expect(groups.flat().sort()).toEqual(ids(18).sort());
+  });
+});
+
+describe('seedByPoints', () => {
+  /** Deterministic generator for repeatable tie-breaks. */
+  const seeded = (seed: number) => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+
+  it('ranks the highest points first, whatever the registration order', () => {
+    const points = new Map([['e1', 100], ['e2', 900], ['e3', 400], ['e4', 700]]);
+    expect(seedByPoints(['e1', 'e2', 'e3', 'e4'], points, seeded(7))).toEqual(['e2', 'e4', 'e3', 'e1']);
+  });
+
+  it('counts missing points as 0', () => {
+    const points = new Map([['e2', 50]]);
+    expect(seedByPoints(['e1', 'e2'], points, seeded(3))[0]).toBe('e2');
+  });
+
+  it('orders ties by the random draw, repeatably for the same generator', () => {
+    const points = new Map(ids(6).map((id) => [id, 500]));
+    const first = seedByPoints(ids(6), points, seeded(42));
+    expect(seedByPoints(ids(6), points, seeded(42))).toEqual(first);
+    expect([...first].sort()).toEqual(ids(6));
+    // Ties don't simply keep registration order across draws.
+    const orders = new Set([1, 2, 3, 4, 5].map((s) => seedByPoints(ids(6), points, seeded(s)).join()));
+    expect(orders.size).toBeGreaterThan(1);
   });
 });
 

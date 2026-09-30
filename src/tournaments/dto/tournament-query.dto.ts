@@ -19,6 +19,11 @@ export class TournamentQueryDto {
   @IsUUID()
   clubId?: string;
 
+  /** Only tournaments this club hosts. */
+  @IsOptional()
+  @IsUUID()
+  hostClubId?: string;
+
   @IsOptional()
   @IsString()
   hasPrize?: string; // 'true' or 'false'
