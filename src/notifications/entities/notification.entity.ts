@@ -10,6 +10,9 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity.js';
 
+/** Values a coded notification message is rendered from. */
+export type NotificationParams = Record<string, string | number | null>;
+
 export type NotificationType =
   | 'club_join_request'
   | 'club_member_joined'
@@ -40,6 +43,18 @@ export class Notification {
 
   @Column({ type: 'varchar', length: 512, nullable: true })
   link!: string | null;
+
+  /**
+   * What happened, as a message code (e.g. `tournament.matchScheduled`) the app
+   * renders in the viewer's language from `params`. `title` / `message` keep the
+   * English text as a fallback (and for notifications saved before codes existed).
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  code!: string | null;
+
+  /** Values the message needs: names, counts, and ISO times (keys ending in `At`). */
+  @Column({ type: 'jsonb', nullable: true })
+  params!: NotificationParams | null;
 
   @Column({ type: 'boolean', default: false })
   read!: boolean;

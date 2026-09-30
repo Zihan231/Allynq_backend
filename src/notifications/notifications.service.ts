@@ -6,9 +6,16 @@ import { CommunityMember } from '../communities/entities/community-member.entity
 import { Community } from '../communities/entities/community.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { ClubRole, CommunityRole } from '../users/enums/user-attributes.enum.js';
-import { Notification, NotificationType } from './entities/notification.entity.js';
+import { Notification, NotificationParams, NotificationType } from './entities/notification.entity.js';
 
-export interface CreateNotificationDto {
+/** A message code + params the app renders in the viewer's language (see Notification.code). */
+export interface NotificationI18n {
+  code?: string;
+  params?: NotificationParams;
+}
+
+export interface CreateNotificationDto extends NotificationI18n {
+  /** English fallback title / message. */
   title: string;
   message: string;
   type?: NotificationType;
@@ -47,6 +54,8 @@ export class NotificationsService {
       message: dto.message,
       type: dto.type ?? 'system',
       link: dto.link ?? null,
+      code: dto.code ?? null,
+      params: dto.params ?? null,
       read: false,
     });
 
@@ -84,7 +93,7 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
-    options: { type?: NotificationType; excludeUserIds?: string[] } = {},
+    options: { type?: NotificationType; excludeUserIds?: string[] } & NotificationI18n = {},
   ): Promise<Notification[]> {
     const authorityRoles: ClubRole[] = [
       ClubRole.PRESIDENT,
@@ -113,6 +122,8 @@ export class NotificationsService {
           message,
           type: options.type ?? 'club_join_request',
           link,
+          code: options.code,
+          params: options.params,
         }),
       ),
     );
@@ -129,6 +140,7 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
+    i18n: NotificationI18n = {},
   ): Promise<Notification[]> {
     const authorityRoles: CommunityRole[] = [
       CommunityRole.PRESIDENT,
@@ -163,6 +175,8 @@ export class NotificationsService {
           message,
           type: 'community_join_request',
           link,
+          code: i18n.code,
+          params: i18n.params,
         }),
       ),
     );

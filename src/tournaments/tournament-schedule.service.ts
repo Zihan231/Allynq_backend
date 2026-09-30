@@ -77,6 +77,8 @@ export class TournamentScheduleService {
       title: 'Time change requested',
       message: `${this.nameOf(game, userId)} wants to move your match in "${tournament.name}" to ${formatRange(rangeFrom(proposedStart))} (Bangladesh time). Accept or decline — if you don't answer, the current time stays.`,
       link: this.timingLink(tournament, game),
+      code: 'schedule.changeRequested',
+      params: { player: this.nameOf(game, userId), tournament: tournament.name, ...rangeParams(rangeFrom(proposedStart)) },
     });
 
     return toView(saved);
@@ -119,12 +121,24 @@ export class TournamentScheduleService {
         title: 'Match time changed',
         message: `Your match ${game.playerAName} vs ${game.playerBName} in "${tournament.name}" is now ${formatRange(range)} (Bangladesh time). Upload your evidence within 30 minutes after it ends.`,
         link,
+        code: 'schedule.changed',
+        params: {
+          fixture: `${game.playerAName} vs ${game.playerBName}`,
+          tournament: tournament.name,
+          ...rangeParams(range),
+        },
       });
     } else {
       await this.tournamentsService.sendNotifications([request.requestedByUserId], {
         title: 'Time change declined',
         message: `${this.nameOf(game, userId)} declined your new time. Your match in "${tournament.name}" stays at ${formatRange({ start: game.scheduledStart!, end: game.scheduledEnd! })} (Bangladesh time).`,
         link,
+        code: 'schedule.changeDeclined',
+        params: {
+          player: this.nameOf(game, userId),
+          tournament: tournament.name,
+          ...rangeParams({ start: game.scheduledStart!, end: game.scheduledEnd! }),
+        },
       });
     }
 
@@ -145,6 +159,8 @@ export class TournamentScheduleService {
         title: 'Time change request expired',
         message: `Your opponent didn't answer in time. Your match in "${tournament.name}" stays at ${formatRange({ start: game.scheduledStart!, end: game.scheduledEnd! })} (Bangladesh time).`,
         link: this.timingLink(tournament, game),
+        code: 'schedule.changeExpired',
+        params: { tournament: tournament.name, ...rangeParams({ start: game.scheduledStart!, end: game.scheduledEnd! }) },
       });
     }
     return stale.length;
@@ -184,6 +200,11 @@ export class TournamentScheduleService {
   private timingLink(tournament: Tournament, game: TournamentMatchGame): string {
     return tournamentLink(tournament, `?tab=bracket&match=${game.matchId}&game=${game.id}&panel=time`);
   }
+}
+
+/** A playing range as notification params (ISO times; the app formats them in Bangladesh time). */
+function rangeParams(range: { start: Date; end: Date }): { startAt: string; endAt: string } {
+  return { startAt: range.start.toISOString(), endAt: range.end.toISOString() };
 }
 
 function toView(r: TournamentGameTimeRequest): TimeRequestView {

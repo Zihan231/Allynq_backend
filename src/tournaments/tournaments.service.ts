@@ -14,7 +14,7 @@ import {
 } from '../users/enums/user-attributes.enum.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
-import { NotificationsService } from '../notifications/notifications.service.js';
+import { NotificationsService, type NotificationI18n } from '../notifications/notifications.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { CreateTournamentDto } from './dto/create-tournament.dto.js';
@@ -93,6 +93,12 @@ const hostedSql = (user: string, roles: string, clubRoles: string) =>
       SELECT cp."clubId" FROM efootball_profiles cp
        WHERE cp."userId" = ${user} AND cp."clubRole"::text = ANY(${clubRoles})
     ))`;
+
+/**
+ * A tournament notification: English `title` / `message` (the fallback) plus a
+ * message `code` and `params` the app renders in the viewer's language.
+ */
+export type TournamentNotification = { title: string; message: string; link: string } & NotificationI18n;
 
 export interface PlayerCommitment {
   profileId: string;
@@ -265,6 +271,8 @@ export class TournamentsService {
       title: 'You are a match official',
       message: `You were appointed as a match official for "${tournament.name}". You'll review the evidence players upload after each match window closes.`,
       link: tournamentLink(tournament, '?tab=bracket'),
+      code: 'tournament.officialAppointed',
+      params: { tournament: tournament.name },
     });
   }
 
@@ -601,6 +609,9 @@ export class TournamentsService {
       title: 'Tournament updated',
       message: `"${tournament.name}" was updated by the organizer. Changed: ${changes.join(', ')}.`,
       link: tournamentLink(tournament),
+      code: 'tournament.updated',
+      // English field names; the app translates each one.
+      params: { tournament: tournament.name, changes: changes.join(',') },
     });
 
     return this.findOne(tournamentId);
@@ -621,6 +632,8 @@ export class TournamentsService {
       title: 'Tournament cancelled',
       message: `"${tournament.name}" has been deleted by the organizer and will not take place.`,
       link: hostTournamentsLink(tournament),
+      code: 'tournament.cancelled',
+      params: { tournament: tournament.name },
     });
 
     return { id: tournament.id };
@@ -717,17 +730,14 @@ export class TournamentsService {
   async notifyParticipants(
     tournament: Tournament,
     actorUserId: string,
-    notification: { title: string; message: string; link: string },
+    notification: TournamentNotification,
   ): Promise<void> {
     const recipients = await this.participantRecipients(tournament, actorUserId);
     await this.sendNotifications(recipients, notification);
   }
 
   /** Notification failures are logged, never surfaced: the edit/delete already succeeded. */
-  async sendNotifications(
-    userIds: string[],
-    notification: { title: string; message: string; link: string },
-  ): Promise<void> {
+  async sendNotifications(userIds: string[], notification: TournamentNotification): Promise<void> {
     const results = await Promise.allSettled(
       userIds.map((id) =>
         this.notificationsService.createNotification(id, {
@@ -1136,7 +1146,8 @@ export class TournamentsService {
     const describe = (role: 'starter' | 'substitute') =>
       role === 'starter' ? 'the starting lineup' : 'the bench';
 
-    const messages = new Map<string, { title: string; message: string; link: string }>();
+    const messages = new Map<string, TournamentNotification>();
+    const params = { club: clubName, tournament: tournament.name };
     for (const [profileId, role] of afterRoles) {
       const previous = beforeRoles.get(profileId);
       if (!previous) {
@@ -1144,12 +1155,16 @@ export class TournamentsService {
           title: 'Picked for a tournament',
           message: `${clubName} picked you for "${tournament.name}" — you're in ${describe(role)}.`,
           link: lineupLink,
+          code: role === 'starter' ? 'tournament.pickedStarter' : 'tournament.pickedSub',
+          params,
         });
       } else if (previous !== role) {
         messages.set(profileId, {
           title: 'Tournament role changed',
           message: `${clubName} moved you to ${describe(role)} for "${tournament.name}".`,
           link: lineupLink,
+          code: role === 'starter' ? 'tournament.movedToStarter' : 'tournament.movedToSub',
+          params,
         });
       }
     }
@@ -1159,6 +1174,8 @@ export class TournamentsService {
           title: 'Removed from tournament team',
           message: `${clubName} removed you from its team for "${tournament.name}".`,
           link: pageLink,
+          code: 'tournament.removedFromTeam',
+          params,
         });
       }
     }

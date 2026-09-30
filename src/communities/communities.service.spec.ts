@@ -264,6 +264,7 @@ describe('CommunitiesService', () => {
         'Community Join Request',
         'Red Falcons requested to join Chittagong Arena',
         '/dashboard/efootball/community/comm-1/requests',
+        { code: 'community.joinRequestClub', params: { club: 'Red Falcons', community: 'Chittagong Arena' } },
       );
     });
   });

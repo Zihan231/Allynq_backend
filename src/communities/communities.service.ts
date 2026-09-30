@@ -352,6 +352,7 @@ export class CommunitiesService {
         'Community Join Request',
         `${user.name} requested to join ${community.name}`,
         `/dashboard/efootball/community/${community.id}/requests`,
+        { code: 'community.joinRequestPlayer', params: { player: user.name, community: community.name } },
       );
 
       return {
@@ -510,6 +511,7 @@ export class CommunitiesService {
         'Community Join Request',
         `${club.name} requested to join ${community.name}`,
         `/dashboard/efootball/community/${community.id}/requests`,
+        { code: 'community.joinRequestClub', params: { club: club.name, community: community.name } },
       );
 
       return {
@@ -900,6 +902,8 @@ export class CommunitiesService {
         message: `Your request to join ${community.name} has been approved!`,
         type: 'community_join_request',
         link: `/dashboard/efootball/community/${community.id}`,
+        code: 'community.joinApproved',
+        params: { community: community.name },
       });
     } else {
       const community = await this.communitiesRepository.findOne({ where: { id: communityId } });
@@ -908,6 +912,8 @@ export class CommunitiesService {
         message: `Your request to join ${community?.name ?? 'the community'} was declined.`,
         type: 'community_join_request',
         link: `/dashboard/efootball/community/${communityId}`,
+        code: 'community.joinRejected',
+        params: { community: community?.name ?? null },
       });
     }
 

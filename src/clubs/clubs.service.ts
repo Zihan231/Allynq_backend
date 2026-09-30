@@ -369,6 +369,7 @@ export class ClubsService {
           'Club Join Request',
           `${user.name} requested to join ${club.name}`,
           `/dashboard/efootball/clubs/${club.id}/requests`,
+          { code: 'club.joinRequest', params: { player: user.name, club: club.name } },
         )
         .catch((err) => {
           this.logger.error(`Failed to notify club authorities for club ${club.id}: ${err.message}`);
@@ -388,7 +389,7 @@ export class ClubsService {
     // Auto-join to all communities the club belongs to
     await this.communitiesService.onClubMemberAdded(club.id, profile.id);
 
-    this.notifyMemberJoined(club, `${user.name} joined ${club.name}`);
+    this.notifyMemberJoined(club, user.name);
 
     return {
       status: 'joined',
@@ -468,17 +469,15 @@ export class ClubsService {
       await this.communitiesService.onClubMemberAdded(club.id, profile.id);
 
       // Tell the other officials; the reviewer already knows.
-      this.notifyMemberJoined(
-        club,
-        `${request.requesterUser?.name ?? 'A new player'} joined ${club.name} (approved by ${user.name})`,
-        [user.id],
-      );
+      this.notifyMemberJoined(club, request.requesterUser?.name ?? 'A new player', user.name, [user.id]);
 
       await this.notificationsService.createNotification(request.requesterUserId, {
         title: 'Club Join Request Approved',
         message: `Your request to join ${club.name} has been approved! Welcome to the club.`,
         type: 'club_join_request',
         link: `/dashboard/efootball/clubs/${club.id}`,
+        code: 'club.joinApproved',
+        params: { club: club.name },
       });
     } else {
       await this.notificationsService.createNotification(request.requesterUserId, {
@@ -486,6 +485,8 @@ export class ClubsService {
         message: `Your request to join ${club.name} was declined.`,
         type: 'club_join_request',
         link: `/dashboard/efootball/clubs/${club.id}`,
+        code: 'club.joinRejected',
+        params: { club: club.name },
       });
     }
 
@@ -497,12 +498,22 @@ export class ClubsService {
     };
   }
 
-  /** Non-blocking "new member" notice to the club's officials. */
-  private notifyMemberJoined(club: Club, message: string, excludeUserIds: string[] = []): void {
+  /** Non-blocking "new member" notice to the club's officials (`approvedBy`: who accepted the request). */
+  private notifyMemberJoined(
+    club: Club,
+    playerName: string,
+    approvedBy: string | null = null,
+    excludeUserIds: string[] = [],
+  ): void {
+    const message = approvedBy
+      ? `${playerName} joined ${club.name} (approved by ${approvedBy})`
+      : `${playerName} joined ${club.name}`;
     void this.notificationsService
       .notifyClubAuthorities(club.id, 'New Club Member', message, `/dashboard/efootball/clubs/${club.id}`, {
         type: 'club_member_joined',
         excludeUserIds,
+        code: approvedBy ? 'club.memberJoinedApproved' : 'club.memberJoined',
+        params: { player: playerName, club: club.name, approvedBy },
       })
       .catch((err) => {
         this.logger.error(`Failed to notify club authorities for club ${club.id}: ${err.message}`);

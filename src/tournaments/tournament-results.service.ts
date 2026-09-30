@@ -155,6 +155,8 @@ export class TournamentResultsService {
         title: 'Result rejected — please resubmit',
         message: `Officials rejected the result of ${game.playerAName} vs ${game.playerBName} in "${tournament.name}"${note ? `: ${note}` : '.'} Both players must upload new evidence within 24 hours, or the game is decided automatically.`,
         link,
+        code: note ? 'result.rejectedWithNote' : 'result.rejected',
+        params: { playerA: game.playerAName, playerB: game.playerBName, tournament: tournament.name, note },
       });
       return { game: this.toReviewView(tournament, { ...game, status: 'rejected', reviewNote: note }), fixture: 'pending' };
     }
@@ -182,6 +184,14 @@ export class TournamentResultsService {
       title: 'Result confirmed',
       message: `Officials confirmed ${game.playerAName} ${goalsA}–${goalsB} ${game.playerBName} in "${tournament.name}".`,
       link,
+      code: 'result.confirmed',
+      params: {
+        playerA: game.playerAName,
+        playerB: game.playerBName,
+        goalsA: goalsA!,
+        goalsB: goalsB!,
+        tournament: tournament.name,
+      },
     });
 
     const fixture = await this.matchesService.completeFixtureIfReady(game.matchId, decision.deciderWinner ?? null);
@@ -381,6 +391,13 @@ export class TournamentResultsService {
         title: 'Your opponent uploaded evidence',
         message: `${submitter} uploaded the result of ${fixture} in "${tournament.name}". Upload your screenshots and video${deadline} (Bangladesh time) or you lose the game.`,
         link,
+        code: game.evidenceDeadline ? 'result.opponentUploaded' : 'result.opponentUploadedNoDeadline',
+        params: {
+          submitter,
+          fixture,
+          tournament: tournament.name,
+          deadlineAt: game.evidenceDeadline ? game.evidenceDeadline.toISOString() : null,
+        },
       });
     }
   }
@@ -407,6 +424,8 @@ export class TournamentResultsService {
         title: 'Result ready for review',
         message: `Both players of ${game.playerAName} vs ${game.playerBName} in "${tournament.name}" uploaded their evidence and the upload window has closed.`,
         link: tournamentLink(tournament, `?tab=bracket&match=${game.matchId}`),
+        code: 'result.readyForReview',
+        params: { fixture: `${game.playerAName} vs ${game.playerBName}`, tournament: tournament.name },
       });
     }
 
@@ -440,11 +459,15 @@ export class TournamentResultsService {
           title: 'You won by walkover',
           message: `Your opponent didn't upload evidence for ${fixture} in "${tournament.name}" in time. The game is yours.`,
           link,
+          code: 'result.wonWalkover',
+          params: { fixture, tournament: tournament.name },
         });
         await this.tournamentsService.sendNotifications([loserId].filter(Boolean) as string[], {
           title: 'Game lost — no evidence',
           message: `You didn't upload evidence for ${fixture} in "${tournament.name}" before the deadline, so your opponent wins the game.`,
           link,
+          code: 'result.lostNoEvidence',
+          params: { fixture, tournament: tournament.name },
         });
       } else {
         await this.gamesRepository.update(
@@ -457,6 +480,8 @@ export class TournamentResultsService {
             title: 'Game forfeited',
             message: `Neither player uploaded evidence for ${fixture} in "${tournament.name}" before the deadline — it counts as a loss for both.`,
             link,
+            code: 'result.doubleForfeit',
+            params: { fixture, tournament: tournament.name },
           },
         );
       }
@@ -467,6 +492,8 @@ export class TournamentResultsService {
           title: 'Knockout fixture needs a decision',
           message: `The knockout fixture with ${fixture} in "${tournament.name}" ended level. Open any game of it and approve with the decider winner.`,
           link,
+          code: 'result.needsDecider',
+          params: { fixture, tournament: tournament.name },
         });
       }
     }

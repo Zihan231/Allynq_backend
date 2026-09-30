@@ -255,6 +255,8 @@ export class TournamentMatchesService {
       title: 'Fixtures are out',
       message: `The fixtures for "${tournament.name}" have been drawn (${groupsText}). Check your first match.`,
       link: tournamentLink(tournament, `?tab=bracket`),
+      code: format === 'knockout' ? 'tournament.fixturesOutKnockout' : 'tournament.fixturesOutGroups',
+      params: { tournament: tournament.name, groups: groupCount(participants.length) },
     });
     await this.notifyScheduled(tournament, games);
 
@@ -445,6 +447,8 @@ export class TournamentMatchesService {
           ? `${entrantView(champion).name} won "${tournament.name}"! Congratulations to the champions.`
           : `"${tournament.name}" has finished without a champion — both finalists forfeited.`,
         link,
+        code: champion ? 'tournament.finished' : 'tournament.finishedNoChampion',
+        params: { tournament: tournament.name, champion: champion ? entrantView(champion).name : null },
       });
       return;
     }
@@ -500,6 +504,13 @@ export class TournamentMatchesService {
         title: `${next.roundName} is set`,
         message: `${entrants.map((p) => entrantView(p).name).join(' vs ')} — your ${next.roundName} in "${tournament.name}" is ready.`,
         link: `${link}&match=${next.id}`,
+        code: 'tournament.roundSet',
+        // `round` is the English round name ("Semi-final"); the app translates it.
+        params: {
+          round: next.roundName,
+          tournament: tournament.name,
+          entrants: entrants.map((p) => entrantView(p).name).join(' vs '),
+        },
       },
     );
   }
@@ -546,6 +557,8 @@ export class TournamentMatchesService {
       title: 'Knockout draw is out',
       message: `The group stage of "${tournament.name}" is over. ${qualified.length} teams go through to the knockout — check the bracket.`,
       link: tournamentLink(tournament, `?tab=bracket`),
+      code: 'tournament.knockoutDrawn',
+      params: { tournament: tournament.name, count: qualified.length },
     });
     await this.notifyScheduled(tournament, games);
   }
@@ -668,6 +681,14 @@ export class TournamentMatchesService {
           title: 'Match scheduled',
           message,
           link: `${base}&match=${first.game.matchId}&game=${first.game.id}&panel=time`,
+          code: sorted.length === 1 ? 'tournament.matchScheduled' : 'tournament.matchesScheduled',
+          params: {
+            tournament: tournament.name,
+            opponent: first.opponent,
+            count: sorted.length,
+            startAt: first.game.scheduledStart!.toISOString(),
+            endAt: first.game.scheduledEnd!.toISOString(),
+          },
         });
       }),
     );
