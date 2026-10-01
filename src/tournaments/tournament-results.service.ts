@@ -149,6 +149,8 @@ export class TournamentResultsService {
           reviewedByUserId: userId,
           reviewedAt: new Date(),
           evidenceDeadline: reopenedUntil,
+          // Announce the resubmitted evidence to the officials again once the new window closes.
+          reviewReadyNotifiedAt: null,
         },
       );
       await this.tournamentsService.sendNotifications(playerIds, {
@@ -380,6 +382,19 @@ export class TournamentResultsService {
     );
   }
 
+  /**
+   * Who gets the review alerts: the tournament's match officials who can still
+   * review. The host's leaders can review too but aren't alerted, so these don't
+   * bury their other notifications — unless the tournament has no eligible
+   * officials, in which case the leaders are told so reviews don't stall.
+   */
+  async reviewAlertUserIds(tournament: Tournament): Promise<string[]> {
+    const reviewers = await this.reviewerUserIds(tournament);
+    const officialIds = new Set(tournament.matchOfficialIds ?? []);
+    const officials = reviewers.filter((id) => officialIds.has(id));
+    return officials.length ? officials : reviewers;
+  }
+
   private async notifySubmission(
     tournament: Tournament,
     match: TournamentMatch,
@@ -428,7 +443,7 @@ export class TournamentResultsService {
       await this.gamesRepository.update({ id: game.id }, { reviewReadyNotifiedAt: now });
       if (!game.match || game.match.status === 'completed') continue;
       const tournament = await this.tournamentsService.findOne(game.match.tournamentId);
-      const reviewers = (await this.reviewerUserIds(tournament)).filter(
+      const reviewers = (await this.reviewAlertUserIds(tournament)).filter(
         (id) => id !== game.playerAUserId && id !== game.playerBUserId,
       );
       await this.tournamentsService.sendNotifications(reviewers, {
@@ -499,7 +514,7 @@ export class TournamentResultsService {
 
       const fixtureState = await this.matchesService.completeFixtureIfReady(game.matchId);
       if (fixtureState === 'needs_decider') {
-        await this.tournamentsService.sendNotifications(await this.reviewerUserIds(tournament), {
+        await this.tournamentsService.sendNotifications(await this.reviewAlertUserIds(tournament), {
           title: 'Knockout fixture needs a decision',
           message: `The knockout fixture with ${fixture} in "${tournament.name}" ended level. Open any game of it and approve with the decider winner.`,
           link,

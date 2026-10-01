@@ -229,7 +229,13 @@ describe('TournamentResultsService.reviewGame', () => {
 
     expect(gamesRepository.update).toHaveBeenCalledWith(
       { id: 'g1' },
-      expect.objectContaining({ status: 'rejected', reviewNote: 'Score not visible', evidenceDeadline: expect.any(Date) }),
+      // Clearing reviewReadyNotifiedAt re-alerts the officials once the resubmitted evidence is in.
+      expect.objectContaining({
+        status: 'rejected',
+        reviewNote: 'Score not visible',
+        evidenceDeadline: expect.any(Date),
+        reviewReadyNotifiedAt: null,
+      }),
     );
     const reopened = (gamesRepository.update.mock.calls[0][1] as { evidenceDeadline: Date }).evidenceDeadline;
     expect(reopened.getTime()).toBeGreaterThan(Date.now() + 23 * HOUR);
@@ -376,7 +382,7 @@ describe('TournamentResultsService.resolveExpiredGames', () => {
     );
   });
 
-  it('tells reviewers (not the players) once a both-sides game’s window has closed', async () => {
+  it('tells the match officials (not the leaders or players) once a both-sides game’s window has closed', async () => {
     const readyGame = { ...expiredGame([{ side: 'A' }, { side: 'B' }]), status: 'submitted' };
     const { service, gamesRepository, tournamentsService } = setup({ readyForReview: [readyGame] });
 
@@ -388,7 +394,30 @@ describe('TournamentResultsService.resolveExpiredGames', () => {
       expect.objectContaining({ where: expect.objectContaining({ status: 'submitted', reviewReadyNotifiedAt: expect.anything() }) }),
     );
     const call = tournamentsService.sendNotifications.mock.calls.find(([, n]) => n.title === 'Result ready for review');
-    expect(call?.[0].sort()).toEqual(['match-official', 'organizer']);
+    // 'organizer' (the President) can review but isn't alerted; 'user-a' plays in the game.
+    expect(call?.[0]).toEqual(['match-official']);
+  });
+
+  it('falls back to alerting the leaders when the tournament has no officials', async () => {
+    const readyGame = { ...expiredGame([{ side: 'A' }, { side: 'B' }]), status: 'submitted' };
+    const { service, tournamentsService } = setup({ readyForReview: [readyGame] });
+    const tournament = await tournamentsService.findOne('t1');
+    tournamentsService.findOne.mockResolvedValue({ ...tournament, matchOfficialIds: [] });
+
+    await service.resolveExpiredGames();
+
+    const call = tournamentsService.sendNotifications.mock.calls.find(([, n]) => n.title === 'Result ready for review');
+    expect(call?.[0]).toEqual(['organizer']);
+  });
+
+  it('alerts only club officials in a club tournament', async () => {
+    const readyGame = { ...expiredGame([{ side: 'A' }, { side: 'B' }]), status: 'submitted' };
+    const { service, tournamentsService } = setup({ clubHost: true, readyForReview: [readyGame] });
+
+    await service.resolveExpiredGames();
+
+    const call = tournamentsService.sendNotifications.mock.calls.find(([, n]) => n.title === 'Result ready for review');
+    expect(call?.[0]).toEqual(['captain']);
   });
 
   it('asks officials for a decider when a knockout fixture ends level', async () => {
@@ -398,7 +427,7 @@ describe('TournamentResultsService.resolveExpiredGames', () => {
     await service.resolveExpiredGames();
 
     expect(tournamentsService.sendNotifications).toHaveBeenCalledWith(
-      expect.arrayContaining(['organizer', 'match-official']),
+      ['match-official', 'user-a'],
       expect.objectContaining({ title: 'Knockout fixture needs a decision' }),
     );
   });
