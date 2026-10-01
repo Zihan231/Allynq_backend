@@ -248,6 +248,16 @@ describe('TournamentsService club-hosted tournaments', () => {
     await expect(service.create('president', { ...dto, hostClubId: undefined })).rejects.toThrow(BadRequestException);
   });
 
+  it('keeps club tournaments friendly: no entry fee or prize pool', async () => {
+    const { service, tournamentsRepository } = setup();
+    await expect(service.create('president', { ...dto, entryFeeBdt: 100 })).rejects.toThrow(BadRequestException);
+    await expect(service.create('president', { ...dto, prizePoolBdt: 500 })).rejects.toThrow(BadRequestException);
+    expect(tournamentsRepository.save).not.toHaveBeenCalled();
+
+    const created = await service.create('president', dto);
+    expect(created).toMatchObject({ entryFeeBdt: 0, prizePoolBdt: 0 });
+  });
+
   it('only accepts club staff or club nominees as match officials (the President / GS are dropped)', async () => {
     const { service } = setup();
     await expect(service.create('president', { ...dto, matchOfficialIds: ['player'] })).rejects.toThrow(

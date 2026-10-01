@@ -128,6 +128,13 @@ export class TournamentsService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  /** Club tournaments are friendlies: refuse an entry fee or prize pool. */
+  private assertFriendly(dto: { entryFeeBdt?: number; prizePoolBdt?: number }) {
+    if ((dto.entryFeeBdt ?? 0) > 0 || (dto.prizePoolBdt ?? 0) > 0) {
+      throw new BadRequestException('Club tournaments are friendlies and cannot have an entry fee or prize pool');
+    }
+  }
+
   async create(userId: string, dto: CreateTournamentDto): Promise<Tournament> {
     if (Boolean(dto.communityId) === Boolean(dto.hostClubId)) {
       throw new BadRequestException('Choose exactly one host for the tournament: a community or a club');
@@ -140,6 +147,7 @@ export class TournamentsService {
       if (dto.type !== TournamentType.PVP) {
         throw new BadRequestException('Club tournaments are Player vs Player only');
       }
+      this.assertFriendly(dto);
       host = { kind: 'club', id: dto.hostClubId };
     } else {
       await this.assertCommunityLeaderForCreate(userId, dto.communityId!);
@@ -158,7 +166,8 @@ export class TournamentsService {
 
     const { preset, startersCount, subsCount } = this.resolveRoster(dto);
 
-    const entryFeeBdt = dto.isPaid === false ? 0 : (dto.entryFeeBdt ?? 0);
+    // Club tournaments are friendlies: no entry fee or prize.
+    const entryFeeBdt = host.kind === 'club' || dto.isPaid === false ? 0 : (dto.entryFeeBdt ?? 0);
 
     const tournament = this.tournamentsRepository.create({
       name: dto.name,
@@ -170,7 +179,7 @@ export class TournamentsService {
       subsCount,
       maxParticipants: dto.maxParticipants ?? 16,
       entryFeeBdt,
-      prizePoolBdt: dto.prizePoolBdt ?? 0,
+      prizePoolBdt: host.kind === 'club' ? 0 : (dto.prizePoolBdt ?? 0),
       ...this.resolvePlayHours(dto.playHoursStart, dto.playHoursEnd),
       matchOfficialIds: await this.resolveMatchOfficials(host, dto.matchOfficialIds),
       registrationDeadline: dto.registrationDeadline
@@ -563,6 +572,8 @@ export class TournamentsService {
     if (tournament.endAt && new Date(tournament.endAt) <= new Date(tournament.startAt)) {
       throw new BadRequestException('End time must be after the start time');
     }
+
+    if (tournament.hostClubId) this.assertFriendly(dto);
 
     if (dto.entryFeeBdt !== undefined && dto.entryFeeBdt !== tournament.entryFeeBdt) {
       tournament.entryFeeBdt = dto.entryFeeBdt;
