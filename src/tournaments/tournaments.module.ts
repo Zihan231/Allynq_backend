@@ -18,6 +18,7 @@ import { TournamentScheduleService } from './tournament-schedule.service.js';
 import { TournamentDeadlinesService } from './tournament-deadlines.service.js';
 import { TournamentsController } from './tournaments.controller.js';
 import { TournamentsService } from './tournaments.service.js';
+import { MyGamesService } from './my-games.service.js';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { TournamentsService } from './tournaments.service.js';
     TournamentResultsService,
     TournamentScheduleService,
     TournamentDeadlinesService,
+    MyGamesService,
   ],
   exports: [TournamentsService],
 })

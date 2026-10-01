@@ -21,6 +21,8 @@ import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
+import { MyGamesQueryDto } from './dto/my-games-query.dto.js';
+import { MyGamesService } from './my-games.service.js';
 import { ReviewGameDto } from './dto/review-game.dto.js';
 import { RequestTimeChangeDto, RespondTimeChangeDto } from './dto/time-request.dto.js';
 import { TournamentScheduleService } from './tournament-schedule.service.js';
@@ -37,6 +39,7 @@ export class TournamentsController {
     private readonly matchesService: TournamentMatchesService,
     private readonly resultsService: TournamentResultsService,
     private readonly scheduleService: TournamentScheduleService,
+    private readonly myGamesService: MyGamesService,
   ) {}
 
   /** A player proposes a new start time (same date) for their game. */
@@ -73,6 +76,13 @@ export class TournamentsController {
   @Get()
   findAll(@Query() query: TournamentQueryDto, @CurrentUser() user: User | null) {
     return this.tournamentsService.findAll(query, user?.id ?? null);
+  }
+
+  /** The signed-in player's games across all tournaments (Matches page). Declared before `:id`. */
+  @UseGuards(JwtAuthGuard)
+  @Get('my-games')
+  getMyGames(@CurrentUser() user: User, @Query() query: MyGamesQueryDto) {
+    return this.myGamesService.getMyGames(user.id, query);
   }
 
   @Get(':id')
