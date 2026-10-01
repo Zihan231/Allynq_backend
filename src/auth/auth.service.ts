@@ -36,7 +36,8 @@ export class AuthService {
       name: dto.name,
       email: dto.email.toLowerCase().trim(),
       password: hashedPassword,
-      phoneNumber: dto.phoneNumber ?? null,
+      phoneNumber: dto.phoneNumber,
+      country: dto.country?.trim() || 'Bangladesh',
       bio: dto.bio ?? null,
     });
     const savedUser = await this.usersRepository.save(user);
