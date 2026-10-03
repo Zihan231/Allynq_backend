@@ -51,6 +51,10 @@ export interface ReviewGameView {
   goalsB: number | null;
   reviewNote: string | null;
   submissions: SubmissionView[];
+  /** Officials can see the evidence as soon as it's uploaded, but decide only once this is true. */
+  reviewOpen: boolean;
+  /** When deciding opens: the end of the evidence window (match end + 30 min). */
+  reviewOpensAt: string | null;
 }
 
 export interface ReviewDecision {
@@ -89,19 +93,25 @@ export class TournamentResultsService {
     private readonly matchesService: TournamentMatchesService,
   ) {}
 
-  /** Games with evidence waiting for an official's decision. */
+  /**
+   * Games with evidence for officials: shown as soon as either player uploads, so
+   * officials can watch it early. Games ready for a decision (window closed) come
+   * first; officials never see games they play in themselves.
+   */
   async getReviewQueue(userId: string, tournamentId: string): Promise<ReviewGameView[]> {
     const tournament = await this.tournamentsService.findOne(tournamentId);
     await this.assertCanReview(userId, tournament);
     const games = await this.gamesRepository.find({
-      where: { status: 'submitted', match: { tournamentId } },
+      where: { status: In(['awaiting_opponent', 'submitted']), match: { tournamentId } },
       relations: { match: true, submissions: true },
       order: { updatedAt: 'ASC' },
     });
-    return games.filter((game) => reviewOpen(game)).map((game) => this.toReviewView(tournament, game));
+    return games
+      .filter((game) => game.playerAUserId !== userId && game.playerBUserId !== userId)
+      .map((game) => this.toReviewView(tournament, game))
+      .sort((a, b) => Number(b.reviewOpen) - Number(a.reviewOpen));
   }
 
-  /** One game with both sides' evidence, for the review screen. */
   /**
    * The evidence the caller uploaded for their own game (screenshots, video and the
    * score they claimed), or null if they haven't uploaded yet. Only the game's two
@@ -115,11 +125,17 @@ export class TournamentResultsService {
     return mine ? toSubmissionView(mine) : null;
   }
 
+  /**
+   * One game with both sides' evidence, for the review screen. Viewable any time;
+   * approving or rejecting waits for the evidence window to close (see reviewGame).
+   */
   async getGameForReview(userId: string, tournamentId: string, gameId: string): Promise<ReviewGameView> {
     const tournament = await this.tournamentsService.findOne(tournamentId);
     await this.assertCanReview(userId, tournament);
     const game = await this.loadGame(tournamentId, gameId);
-    assertReviewOpen(game);
+    if (userId === game.playerAUserId || userId === game.playerBUserId) {
+      throw new ForbiddenException("You can't review a game you played in");
+    }
     return this.toReviewView(tournament, game);
   }
 
@@ -257,6 +273,8 @@ export class TournamentResultsService {
       goalsB: game.goalsB,
       reviewNote: game.reviewNote,
       submissions: (game.submissions ?? []).map(toSubmissionView).sort((a, b) => a.side.localeCompare(b.side)),
+      reviewOpen: reviewOpen(game),
+      reviewOpensAt: game.evidenceDeadline ? new Date(game.evidenceDeadline).toISOString() : null,
     };
   }
 

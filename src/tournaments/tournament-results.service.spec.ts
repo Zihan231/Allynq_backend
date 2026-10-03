@@ -300,26 +300,37 @@ describe('TournamentResultsService.reviewGame', () => {
 });
 
 describe('TournamentResultsService review visibility', () => {
-  it('hides games from the review queue until the evidence deadline has passed', async () => {
+  it('shows uploaded evidence in the queue right away, marked not yet decidable', async () => {
     const { service, gamesRepository } = setup({
-      gameStatus: 'submitted',
+      gameStatus: 'awaiting_opponent',
       evidenceDeadline: new Date(Date.now() + HOUR),
-      expired: [],
     });
     gamesRepository.find.mockResolvedValueOnce([await gamesRepository.findOne()]);
 
-    await expect(service.getReviewQueue('organizer', 't1')).resolves.toEqual([]);
+    const queue = await service.getReviewQueue('organizer', 't1');
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ gameId: 'g1', reviewOpen: false, reviewOpensAt: expect.any(String) });
   });
 
-  it('blocks the review detail endpoint until the evidence deadline has passed', async () => {
-    const { service } = setup({
+  it('lets officials open the evidence early but not decide until the window closes', async () => {
+    const { service, gamesRepository } = setup({
       gameStatus: 'submitted',
       evidenceDeadline: new Date(Date.now() + HOUR),
     });
 
-    await expect(service.getGameForReview('organizer', 't1', 'g1')).rejects.toThrow(BadRequestException);
+    await expect(service.getGameForReview('organizer', 't1', 'g1')).resolves.toMatchObject({ reviewOpen: false });
+    await expect(
+      service.reviewGame('organizer', 't1', 'g1', { action: 'approve', goalsA: 1, goalsB: 0 }),
+    ).rejects.toThrow(BadRequestException);
+    expect(gamesRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps an official out of a game they play in, even just to look", async () => {
+    const { service } = setup({ gameStatus: 'submitted', evidenceDeadline: new Date(Date.now() + HOUR) });
+    await expect(service.getGameForReview('user-a', 't1', 'g1')).rejects.toThrow(ForbiddenException);
   });
 });
+
 
 describe('TournamentResultsService reviewers of a club tournament', () => {
   it('are the club President and General Secretary plus officials who still hold a staff role', async () => {
