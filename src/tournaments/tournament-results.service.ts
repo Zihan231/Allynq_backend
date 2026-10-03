@@ -102,6 +102,19 @@ export class TournamentResultsService {
   }
 
   /** One game with both sides' evidence, for the review screen. */
+  /**
+   * The evidence the caller uploaded for their own game (screenshots, video and the
+   * score they claimed), or null if they haven't uploaded yet. Only the game's two
+   * players can ask, and each only sees their own side.
+   */
+  async getMyEvidence(userId: string, tournamentId: string, gameId: string): Promise<SubmissionView | null> {
+    const game = await this.loadGame(tournamentId, gameId);
+    const side = game.playerAUserId === userId ? 'A' : game.playerBUserId === userId ? 'B' : null;
+    if (!side) throw new ForbiddenException('Only the players of this game can view its evidence');
+    const mine = game.submissions?.find((s) => s.side === side);
+    return mine ? toSubmissionView(mine) : null;
+  }
+
   async getGameForReview(userId: string, tournamentId: string, gameId: string): Promise<ReviewGameView> {
     const tournament = await this.tournamentsService.findOne(tournamentId);
     await this.assertCanReview(userId, tournament);

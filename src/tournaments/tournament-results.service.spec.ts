@@ -440,3 +440,27 @@ describe('TournamentResultsService.resolveExpiredGames', () => {
     );
   });
 });
+
+describe('TournamentResultsService.getMyEvidence', () => {
+  const sub = (side: 'A' | 'B') => ({
+    id: `s-${side}`,
+    side,
+    goalsA: 2,
+    goalsB: 1,
+    screenshotPaths: [`/uploads/evidence/${side}.png`],
+    videoPath: `/uploads/evidence/${side}.mp4`,
+    createdAt: new Date(),
+  });
+
+  it("returns only the caller's own side", async () => {
+    const { service } = setup({ existing: [sub('A'), sub('B')] });
+    const mine = await service.getMyEvidence('user-b', 't1', 'g1');
+    expect(mine).toMatchObject({ side: 'B', screenshotUrls: ['/uploads/evidence/B.png'], videoUrl: '/uploads/evidence/B.mp4' });
+  });
+
+  it('is null before the player uploads, and refuses anyone who is not playing', async () => {
+    const { service } = setup({ existing: [sub('A')] });
+    await expect(service.getMyEvidence('user-b', 't1', 'g1')).resolves.toBeNull();
+    await expect(service.getMyEvidence('organizer', 't1', 'g1')).rejects.toThrow(ForbiddenException);
+  });
+});

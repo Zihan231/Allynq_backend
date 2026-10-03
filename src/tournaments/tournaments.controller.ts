@@ -182,6 +182,17 @@ export class TournamentsController {
     return this.resultsService.getReviewQueue(user.id, id);
   }
 
+  /** The caller's own uploaded evidence for one of their games (null if none yet). */
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/games/:gameId/my-evidence')
+  getMyEvidence(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('gameId', ParseUUIDPipe) gameId: string,
+  ) {
+    return this.resultsService.getMyEvidence(user.id, id, gameId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(':id/games/:gameId/review')
   getGameForReview(
