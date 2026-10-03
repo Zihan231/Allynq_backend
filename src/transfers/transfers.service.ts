@@ -217,7 +217,13 @@ export class TransfersService {
       const open = await em.getRepository(TransferOffer).findOne({
         where: { playerUserId, toClubId: club.id, status: 'pending' },
       });
-      if (open) throw new BadRequestException('There is already an open offer between this player and club');
+      if (open) {
+        throw new BadRequestException(
+          isPlayerProposal
+            ? `You already have an open deal with ${club.name}. Wait until it's accepted, declined or expires — or withdraw it — before sending another.`
+            : `There's already an open offer between ${club.name} and ${playerName}. Wait for an answer or withdraw it first.`,
+        );
+      }
 
       const contract = await this.activeContract(em, playerUserId);
       const locked = Boolean(contract && profile.clubId && isLocked(contract.lockEndsAt, now));
@@ -943,8 +949,10 @@ export class TransfersService {
     const profile = await this.dataSource.getRepository(EfootballProfile).findOne({ where: { userId: caller.id } });
     const contract = await this.dataSource.getRepository(PlayerContract).findOne({ where: { userId: caller.id, status: 'active' } });
     const settings = await this.settingsService.transfers();
-    const [offers, wallet, commitment] = await Promise.all([
+    const [offers, proposals, wallet, commitment] = await Promise.all([
       this.offerViews({ where: `o."playerUserId" = $1 AND o.status IN ('pending', 'scheduled')`, params: [caller.id] }),
+      // Every club he has proposed to recently (open and closed), newest first.
+      this.offerViews({ where: `o."playerUserId" = $1 AND o.kind = 'player_proposal'`, params: [caller.id], limit: 30 }),
       this.walletsService.view({ type: 'user', id: caller.id }),
       profile ? this.clubCommitment(this.dataSource, profile) : Promise.resolve(null),
     ]);
@@ -955,6 +963,7 @@ export class TransfersService {
       contract: contract && profile?.clubId ? await this.contractView(contract) : null,
       commitment,
       offers,
+      proposals,
       wallet,
     };
   }
