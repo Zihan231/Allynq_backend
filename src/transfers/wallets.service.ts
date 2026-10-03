@@ -64,6 +64,38 @@ export class WalletsService {
     });
   }
 
+  /**
+   * Paginated ledger for a wallet, newest first, optionally one kind only, with
+   * running totals (all time) for the summary tiles.
+   */
+  async history(owner: WalletOwner, query: { kind?: WalletTransactionKind; page?: number; limit?: number }) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    return this.dataSource.transaction(async (em) => {
+      const wallet = await this.lock(em, owner);
+      const repo = em.getRepository(WalletTransaction);
+      const where = { walletId: wallet.id, ...(query.kind ? { kind: query.kind } : {}) };
+      const [rows, total] = await repo.findAndCount({ where, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit });
+      const sums: Array<{ kind: WalletTransactionKind; total: number }> = await em.query(
+        `SELECT kind, COALESCE(sum(abs("amountTk")), 0)::int AS total FROM wallet_transactions WHERE "walletId" = $1 GROUP BY kind`,
+        [wallet.id],
+      );
+      const totals = Object.fromEntries(sums.map((r) => [r.kind, r.total])) as Partial<Record<WalletTransactionKind, number>>;
+      return {
+        balanceTk: wallet.balanceTk,
+        heldTk: wallet.heldTk,
+        totals: {
+          receivedTk: totals.received ?? 0,
+          paidTk: totals.payout_sent ?? 0,
+          refundedTk: totals.refund ?? 0,
+          topUpTk: totals.top_up ?? 0,
+        },
+        data: rows,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 },
+      };
+    });
+  }
+
   /** "Add demo funds". */
   async topUp(owner: WalletOwner): Promise<{ wallet: Wallet; amountTk: number }> {
     const { demoTopUpTk } = await this.settingsService.transfers();

@@ -10,7 +10,7 @@ import { EfootballProfile } from '../users/entities/efootball-profile.entity.js'
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { currentFee, daysLeft, decayingTk, formatContractNo, isLocked, lockEnd, paymentRef } from './contract-fee.js';
-import type { CreateOfferDto, FreeAgentsQueryDto, RespondOfferDto, TransferHistoryQueryDto } from './dto/transfer.dto.js';
+import type { CreateOfferDto, FreeAgentsQueryDto, RespondOfferDto, TransferHistoryQueryDto, WalletHistoryQueryDto } from './dto/transfer.dto.js';
 import { PlayerContract, type ContractEndReason } from './entities/player-contract.entity.js';
 import { TransferOffer, type TransferOfferKind } from './entities/transfer-offer.entity.js';
 import { WalletsService, type WalletOwner } from './wallets.service.js';
@@ -1114,6 +1114,13 @@ export class TransfersService {
       scheduled: Boolean(scheduled),
       commitment,
     };
+  }
+
+  /** My wallet's ledger, or a club wallet's (its President / GS only). */
+  async walletHistory(caller: User, query: WalletHistoryQueryDto) {
+    if (query.clubId) await this.assertClubLeader(this.dataSource.manager, query.clubId, caller.id);
+    const owner: WalletOwner = query.clubId ? this.clubWallet(query.clubId) : { type: 'user', id: caller.id };
+    return this.walletsService.history(owner, query);
   }
 
   async topUp(caller: User, clubId?: string) {

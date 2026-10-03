@@ -68,3 +68,16 @@ export class TopUpDto {
   @IsUUID()
   clubId?: string;
 }
+
+export const WALLET_TX_KINDS = ['top_up', 'hold', 'refund', 'payout_sent', 'received'] as const;
+
+export class WalletHistoryQueryDto extends PaginationQueryDto {
+  /** A club wallet you lead; omit for your own wallet. */
+  @IsOptional()
+  @IsUUID()
+  clubId?: string;
+
+  @IsOptional()
+  @IsIn(WALLET_TX_KINDS)
+  kind?: (typeof WALLET_TX_KINDS)[number];
+}

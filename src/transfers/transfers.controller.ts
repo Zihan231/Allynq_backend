@@ -3,7 +3,14 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
-import { CreateOfferDto, FreeAgentsQueryDto, RespondOfferDto, TopUpDto, TransferHistoryQueryDto } from './dto/transfer.dto.js';
+import {
+  CreateOfferDto,
+  FreeAgentsQueryDto,
+  RespondOfferDto,
+  TopUpDto,
+  TransferHistoryQueryDto,
+  WalletHistoryQueryDto,
+} from './dto/transfer.dto.js';
 import { TransfersService } from './transfers.service.js';
 
 @Controller('transfers')
@@ -63,6 +70,13 @@ export class TransfersController {
   @Get('history')
   history(@Query() query: TransferHistoryQueryDto) {
     return this.transfersService.history(query);
+  }
+
+  /** Wallet balance, totals and paginated transaction history (mine, or a club's I lead). */
+  @UseGuards(JwtAuthGuard)
+  @Get('wallets/transactions')
+  walletHistory(@CurrentUser() user: User, @Query() query: WalletHistoryQueryDto) {
+    return this.transfersService.walletHistory(user, query);
   }
 
   /** "Add demo funds" to my wallet, or to a club wallet I lead. */
