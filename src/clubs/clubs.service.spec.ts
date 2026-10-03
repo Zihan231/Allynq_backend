@@ -40,6 +40,7 @@ describe('ClubsService settings (positions and match-official nominees)', () => 
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       notificationsService as never,
     );
     return { service, profiles, clubsRepository, notificationsService };
@@ -74,28 +75,39 @@ describe('ClubsService settings (positions and match-official nominees)', () => 
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it.each([
-    ['instant', 'joined'],
-    ['approval', 'request'],
-  ])('refuses a community leader joining a club (%s join policy)', async (joinPolicy) => {
+  it('sends players to transfer offers instead of joining directly', async () => {
+    const service = new ClubsService(
+      { findOne: vi.fn().mockResolvedValue({ id: clubId, name: 'Test FC', members: [] }) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    await expect(service.join(clubId, { id: 'player', name: 'P' } as never)).rejects.toThrow(/transfer offers/);
+  });
+
+  it('keeps a player under contract from leaving until the lock ends', async () => {
     const profilesRepository = {
-      findOne: vi.fn().mockResolvedValue({ id: 'p-leader', userId: 'leader', clubId: null }),
+      findOne: vi.fn().mockResolvedValue({ id: 'p1', userId: 'u1', clubId, clubRole: ClubRole.PLAYER }),
       save: vi.fn(),
     };
-    const joinRequests = { findOne: vi.fn().mockResolvedValue(null), create: vi.fn(), save: vi.fn() };
-    const communitiesService = { isCommunityLeader: vi.fn().mockResolvedValue(true), onClubMemberAdded: vi.fn() };
+    const contractsRepository = {
+      findOne: vi.fn().mockResolvedValue({ id: 'c1', clubId, lockEndsAt: new Date(Date.now() + 86_400_000) }),
+      update: vi.fn(),
+    };
     const service = new ClubsService(
-      { findOne: vi.fn().mockResolvedValue({ id: clubId, name: 'Test FC', joinPolicy, members: [] }) } as never,
-      profilesRepository as never,
-      joinRequests as never,
-      communitiesService as never,
       {} as never,
-      { createNotification: vi.fn(), notifyClubAuthorities: vi.fn().mockResolvedValue([]) } as never,
+      profilesRepository as never,
+      {} as never,
+      contractsRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
     );
-
-    await expect(service.join(clubId, { id: 'leader', name: 'Leader' } as never)).rejects.toThrow(ForbiddenException);
+    await expect(service.leave(clubId, { id: 'u1', name: 'P' } as never)).rejects.toThrow(/under contract/);
     expect(profilesRepository.save).not.toHaveBeenCalled();
-    expect(joinRequests.save).not.toHaveBeenCalled();
   });
 
   it('saves match-official nominees, members only', async () => {

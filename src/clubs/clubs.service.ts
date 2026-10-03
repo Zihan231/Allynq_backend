@@ -19,7 +19,7 @@ import { ReviewClubJoinRequestDto } from './dto/review-club-join-request.dto.js'
 import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { Club } from './entities/club.entity.js';
 import { ClubJoinRequest } from './entities/club-join-request.entity.js';
-import { JoinPolicy } from './enums/club.enum.js';
+import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
 
 @Injectable()
 export class ClubsService {
@@ -32,6 +32,8 @@ export class ClubsService {
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
     @InjectRepository(ClubJoinRequest)
     private readonly clubJoinRequestsRepository: Repository<ClubJoinRequest>,
+    @InjectRepository(PlayerContract)
+    private readonly contractsRepository: Repository<PlayerContract>,
     private readonly communitiesService: CommunitiesService,
     private readonly fileStorageService: FileStorageService,
     private readonly notificationsService: NotificationsService,
@@ -410,90 +412,15 @@ export class ClubsService {
     }
   }
 
-  async join(clubId: string, user: User) {
-    const club = await this.findOne(clubId);
-
-    let profile = await this.efootballProfilesRepository.findOne({
-      where: { userId: user.id },
-    });
-
-    if (!profile) {
-      profile = this.efootballProfilesRepository.create({
-        userId: user.id,
-        points: 0,
-      });
-      profile = await this.efootballProfilesRepository.save(profile);
-    }
-
-    if (profile.clubId) {
-      throw new BadRequestException('You are already a member of a club. Please leave your current club first.');
-    }
-
-    // Community leaders run their community's competitions, so they stay out of clubs
-    // (the same rule as creating a club).
-    if (await this.communitiesService.isCommunityLeader(user.id)) {
-      throw new ForbiddenException(
-        'Community Presidents and Vice Presidents cannot join a club. Hand over your community role first.',
-      );
-    }
-
-    // Handle approval-based join policy
-    if (club.joinPolicy === JoinPolicy.APPROVAL) {
-      const existingReq = await this.clubJoinRequestsRepository.findOne({
-        where: {
-          clubId,
-          requesterUserId: user.id,
-          status: 'pending',
-        },
-      });
-
-      if (existingReq) {
-        throw new BadRequestException('You already have a pending join request for this club');
-      }
-
-      const req = this.clubJoinRequestsRepository.create({
-        clubId,
-        requesterUserId: user.id,
-        status: 'pending',
-      });
-      await this.clubJoinRequestsRepository.save(req);
-
-      // Real-time notification to club authorities (President, GS, Manager, Captain, Vice-Captain)
-      // Dispatched non-blocking in the background to keep the join response fast
-      void this.notificationsService
-        .notifyClubAuthorities(
-          club.id,
-          'Club Join Request',
-          `${user.name} requested to join ${club.name}`,
-          `/dashboard/efootball/clubs/${club.id}/requests`,
-          { code: 'club.joinRequest', params: { player: user.name, club: club.name } },
-        )
-        .catch((err) => {
-          this.logger.error(`Failed to notify club authorities for club ${club.id}: ${err.message}`);
-        });
-
-      return {
-        status: 'pending',
-        message: 'Join request submitted for approval by club leadership',
-        clubId: club.id,
-      };
-    }
-
-    profile.clubId = club.id;
-    profile.clubRole = ClubRole.PLAYER;
-    await this.efootballProfilesRepository.save(profile);
-
-    // Auto-join to all communities the club belongs to
-    await this.communitiesService.onClubMemberAdded(club.id, profile.id);
-
-    this.notifyMemberJoined(club, user.name);
-
-    return {
-      status: 'joined',
-      success: true,
-      message: `Successfully joined ${club.name}`,
-      clubId: club.id,
-    };
+  /**
+   * Joining a club now goes through the transfer market: the player proposes to
+   * the club (or the club makes him an offer), which creates his contract.
+   */
+  async join(clubId: string, _user: User): Promise<never> {
+    await this.findOne(clubId);
+    throw new BadRequestException(
+      'Joining a club now works through transfer offers: open the club and use "Propose to join".',
+    );
   }
 
   async getMyRequest(clubId: string, user: User) {
@@ -544,10 +471,10 @@ export class ClubsService {
       throw new BadRequestException(`Request is already ${request.status}`);
     }
 
-    // The requester may have become a community leader since asking to join.
-    if (dto.status === 'approved' && (await this.communitiesService.isCommunityLeader(request.requesterUserId))) {
+    // Joining now goes through transfer offers; old requests can only be rejected.
+    if (dto.status === 'approved') {
       throw new BadRequestException(
-        'This player is now a Community President or Vice President and cannot join a club. Reject the request instead.',
+        'Join requests are replaced by transfer offers. Reject this request; the player can propose to join instead.',
       );
     }
 
@@ -555,44 +482,14 @@ export class ClubsService {
     request.reviewedByUserId = user.id;
     await this.clubJoinRequestsRepository.save(request);
 
-    if (dto.status === 'approved') {
-      let profile = await this.efootballProfilesRepository.findOne({
-        where: { userId: request.requesterUserId },
-      });
-
-      if (!profile) {
-        profile = this.efootballProfilesRepository.create({
-          userId: request.requesterUserId,
-          points: 0,
-        });
-      }
-
-      profile.clubId = club.id;
-      profile.clubRole = ClubRole.PLAYER;
-      await this.efootballProfilesRepository.save(profile);
-      await this.communitiesService.onClubMemberAdded(club.id, profile.id);
-
-      // Tell the other officials; the reviewer already knows.
-      this.notifyMemberJoined(club, request.requesterUser?.name ?? 'A new player', user.name, [user.id]);
-
-      await this.notificationsService.createNotification(request.requesterUserId, {
-        title: 'Club Join Request Approved',
-        message: `Your request to join ${club.name} has been approved! Welcome to the club.`,
-        type: 'club_join_request',
-        link: `/dashboard/efootball/clubs/${club.id}`,
-        code: 'club.joinApproved',
-        params: { club: club.name },
-      });
-    } else {
-      await this.notificationsService.createNotification(request.requesterUserId, {
-        title: 'Club Join Request Rejected',
-        message: `Your request to join ${club.name} was declined.`,
-        type: 'club_join_request',
-        link: `/dashboard/efootball/clubs/${club.id}`,
-        code: 'club.joinRejected',
-        params: { club: club.name },
-      });
-    }
+    await this.notificationsService.createNotification(request.requesterUserId, {
+      title: 'Club Join Request Rejected',
+      message: `Your request to join ${club.name} was declined.`,
+      type: 'club_join_request',
+      link: `/dashboard/efootball/clubs/${club.id}`,
+      code: 'club.joinRejected',
+      params: { club: club.name },
+    });
 
     return {
       success: true,
@@ -735,10 +632,31 @@ export class ClubsService {
       );
     }
 
+    const contract = await this.contractsRepository.findOne({ where: { userId: user.id, status: 'active' } });
+    if (contract && contract.clubId === clubId && contract.lockEndsAt.getTime() > Date.now()) {
+      throw new BadRequestException(
+        `You're under contract until ${contract.lockEndsAt.toISOString().slice(0, 10)} and can't leave before then. Another club can buy you out in the meantime.`,
+      );
+    }
+
     profile.clubId = null;
     profile.clubRole = null;
     profile.teamId = null;
     await this.efootballProfilesRepository.save(profile);
+
+    if (contract) {
+      await this.contractsRepository.update({ id: contract.id }, { status: 'ended', endedAt: new Date(), endReason: 'left' });
+    }
+    const club = await this.clubsRepository.findOne({ where: { id: clubId } });
+    void this.notificationsService
+      .notifyClubAuthorities(
+        clubId,
+        'Player left',
+        `${user.name} left ${club?.name ?? 'the club'} after his contract lock ended.`,
+        `/dashboard/efootball/clubs/${clubId}?tab=transfers`,
+        { type: 'transfer', code: 'transfer.leftAfterLock', params: { player: user.name, club: club?.name ?? '' } },
+      )
+      .catch((err) => this.logger.error(`Failed to notify club ${clubId} of a departure: ${err.message}`));
 
     // Revoke inherited community memberships
     await this.communitiesService.onClubMemberRemoved(clubId, profile.id);

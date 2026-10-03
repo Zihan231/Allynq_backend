@@ -12,6 +12,8 @@ import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { TournamentsModule } from './tournaments/tournaments.module.js';
 import { StatsModule } from './stats/stats.module.js';
+import { SettingsModule } from './settings/settings.module.js';
+import { TransfersModule } from './transfers/transfers.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -31,6 +33,8 @@ import { UsersModule } from './users/users.module.js';
     NotificationsModule,
     TournamentsModule,
     StatsModule,
+    SettingsModule,
+    TransfersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

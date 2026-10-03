@@ -14,7 +14,7 @@ describe('RegisterDto phone number', () => {
     async (phone) => expect(await errorsFor(phone)).toHaveLength(0),
   );
 
-  it.each([
+  it.each<[string | undefined, string]>([
     [undefined, 'missing'],
     ['', 'empty'],
     ['01712345678', 'no country code'],

@@ -18,6 +18,7 @@ export type NotificationType =
   | 'club_member_joined'
   | 'community_join_request'
   | 'tournament_update'
+  | 'transfer'
   | 'system';
 
 @Entity('notifications')

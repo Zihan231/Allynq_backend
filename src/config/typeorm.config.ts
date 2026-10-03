@@ -15,6 +15,11 @@ import { TournamentParticipant } from '../tournaments/entities/tournament-partic
 import { Tournament } from '../tournaments/entities/tournament.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
+import { AppSetting } from '../settings/app-setting.entity.js';
+import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
+import { TransferOffer } from '../transfers/entities/transfer-offer.entity.js';
+import { WalletTransaction } from '../transfers/entities/wallet-transaction.entity.js';
+import { Wallet } from '../transfers/entities/wallet.entity.js';
 
 export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModuleOptions {
   return {
@@ -37,6 +42,11 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       TournamentMatchGame,
       TournamentGameSubmission,
       TournamentGameTimeRequest,
+      AppSetting,
+      TransferOffer,
+      PlayerContract,
+      Wallet,
+      WalletTransaction,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,
