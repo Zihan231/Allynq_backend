@@ -314,15 +314,20 @@ export class TournamentResultsService {
       submission.goalsB = goalsB;
       if (screenshots.length) submission.screenshotPaths = screenshots.map(evidenceUrl);
       if (video) submission.videoPath = evidenceUrl(video);
-      const saved = await this.submissionsRepository.save(submission);
-
       const otherSideIn = (game.submissions ?? []).some((sub) => sub.side !== side);
       game.status = otherSideIn ? 'submitted' : 'awaiting_opponent';
       game.reviewNote = null;
-      await this.gamesRepository.save({ id: game.id, status: game.status, reviewNote: null });
-      if (game.match.status === 'scheduled') {
-        await this.matchesRepository.update({ id: game.match.id }, { status: 'in_review' });
-      }
+
+      // All or nothing: if any write fails, the uploaded files are removed below and no
+      // submission is left pointing at them.
+      const saved = await this.gamesRepository.manager.transaction(async (em) => {
+        const result = await em.getRepository(TournamentGameSubmission).save(submission);
+        await em.getRepository(TournamentMatchGame).save({ id: game.id, status: game.status, reviewNote: null });
+        if (game.match!.status === 'scheduled') {
+          await em.getRepository(TournamentMatch).update({ id: game.match!.id }, { status: 'in_review' });
+        }
+        return result;
+      });
 
       await removeEvidence(replaced);
       await this.notifySubmission(tournament, game.match, game, side, userId, otherSideIn);

@@ -86,7 +86,7 @@ export class TournamentMatchGame {
   @Column({ type: 'int', nullable: true })
   goalsB!: number | null;
 
-  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  @Column({ type: 'varchar', length: 24, default: 'pending' })
   status!: GameStatus;
 
   @Column({ type: 'varchar', length: 24, nullable: true })

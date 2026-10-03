@@ -2,6 +2,8 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { TournamentType } from './enums/tournament.enum.js';
+import { TournamentGameSubmission } from './entities/tournament-game-submission.entity.js';
+import { TournamentMatch } from './entities/tournament-match.entity.js';
 import { TournamentResultsService } from './tournament-results.service.js';
 
 const file = (name: string, size = 1024) => ({ filename: name, size }) as Express.Multer.File;
@@ -67,6 +69,12 @@ function setup(
     delete: vi.fn().mockResolvedValue({}),
   };
   const matchesRepository = { update: vi.fn().mockResolvedValue({}) };
+  // Transactions run against the same mocks.
+  const repositoryFor = (entity: unknown) =>
+    entity === TournamentGameSubmission ? submissionsRepository : entity === TournamentMatch ? matchesRepository : gamesRepository;
+  Object.assign(gamesRepository, {
+    manager: { transaction: vi.fn(async (work: (em: unknown) => unknown) => work({ getRepository: repositoryFor })) },
+  });
   const profilesRepository = {
     findOne: vi.fn().mockResolvedValue(options.callerProfile ?? null),
     // Hosting club's leaders and staff (the query filters by club role).
