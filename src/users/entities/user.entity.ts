@@ -7,7 +7,13 @@ import {
   type Relation,
   UpdateDateColumn,
 } from 'typeorm';
-import { BloodGroup, DocumentType, VerificationLevel } from '../enums/user-attributes.enum.js';
+import {
+  BloodGroup,
+  DocumentType,
+  SystemRole,
+  VerificationLevel,
+  type VerificationStatus,
+} from '../enums/user-attributes.enum.js';
 import { EfootballProfile } from './efootball-profile.entity.js';
 
 export type LatLng = { lat: number; lng: number };
@@ -100,6 +106,49 @@ export class User {
 
   @Column({ type: 'enum', enum: VerificationLevel, default: VerificationLevel.NONE })
   verificationLevel!: VerificationLevel;
+
+  /** Review state of the uploaded ID document; the level is only granted when a moderator approves it. */
+  @Column({ type: 'varchar', length: 16, default: 'none' })
+  verificationStatus!: VerificationStatus;
+
+  @Column({ type: 'text', nullable: true })
+  verificationNote!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  verificationReviewedAt!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  verificationReviewedById!: string | null;
+
+  /** Allync staff role (moderator / admin / super admin); null for everyone else. */
+  @Column({ type: 'enum', enum: SystemRole, enumName: 'system_role_enum', nullable: true })
+  systemRole!: SystemRole | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedUntil!: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  suspendReason!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  bannedAt!: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  banReason!: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  warningsCount!: number;
+
+  /** Bumped to sign the user out everywhere: older tokens stop working. */
+  @Column({ type: 'int', default: 0 })
+  tokenVersion!: number;
+
+  /** Set while the account is in the recycle bin (hidden and unable to sign in). */
+  @Column({ type: 'timestamptz', nullable: true })
+  deletedAt!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  lastLoginAt!: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
   ownedCosmeticIds!: string[] | null;

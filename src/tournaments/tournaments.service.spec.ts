@@ -341,6 +341,7 @@ describe('TournamentsService.update / remove', () => {
     const notificationsService = {
       createNotification: vi.fn().mockResolvedValue({}),
     };
+    const recycleBin = { moveToBin: vi.fn().mockResolvedValue({}) };
 
     const service = new TournamentsService(
       tournamentsRepository as never,
@@ -350,12 +351,13 @@ describe('TournamentsService.update / remove', () => {
       {} as never,
       profilesRepository as never,
       notificationsService as never,
+      recycleBin as never,
     );
 
     const notifiedUserIds = () =>
       notificationsService.createNotification.mock.calls.map(([userId]) => userId).sort();
 
-    return { service, tournamentsRepository, notificationsService, notifiedUserIds };
+    return { service, tournamentsRepository, notificationsService, notifiedUserIds, recycleBin };
   }
 
   it('saves edits and notifies enrolled players, registrars and club presidents', async () => {
@@ -404,12 +406,12 @@ describe('TournamentsService.update / remove', () => {
     expect(tournamentsRepository.save).toHaveBeenCalled();
   });
 
-  it('deletes the tournament and notifies the same recipients', async () => {
-    const { service, tournamentsRepository, notificationsService, notifiedUserIds } = setup();
+  it('moves the tournament to the recycle bin and notifies the same recipients', async () => {
+    const { service, notificationsService, notifiedUserIds, recycleBin } = setup();
 
     await service.remove(organizerId, tournamentId);
 
-    expect(tournamentsRepository.delete).toHaveBeenCalledWith({ id: tournamentId });
+    expect(recycleBin.moveToBin).toHaveBeenCalledWith('tournament', tournamentId, organizerId, 'Deleted by the organizer');
     expect(notifiedUserIds()).toEqual(['player-1', 'president-1', 'registrar-1']);
     expect(notificationsService.createNotification).toHaveBeenCalledWith(
       'president-1',

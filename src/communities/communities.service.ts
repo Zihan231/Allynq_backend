@@ -27,6 +27,7 @@ import { CommunityQueryDto } from './dto/community-query.dto.js';
 import { CommunityMembersQueryDto } from './dto/community-members-query.dto.js';
 import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { FileStorageService } from '../common/services/file-storage.service.js';
+import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 
 @Injectable()
@@ -44,6 +45,7 @@ export class CommunitiesService {
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
     private readonly fileStorageService: FileStorageService,
     private readonly notificationsService: NotificationsService,
+    private readonly recycleBin: RecycleBinService,
   ) {}
 
   private getInitials(name: string): string {
@@ -266,22 +268,8 @@ export class CommunitiesService {
       throw new NotFoundException(`Community ${id} not found`);
     }
 
-    if (community.dpUrl) {
-      await this.fileStorageService.deleteFile(community.dpUrl);
-    }
-    if (community.coverUrl) {
-      await this.fileStorageService.deleteFile(community.coverUrl);
-    }
-
-    // Reset community on any profile whose current community is this one
-    await this.efootballProfilesRepository
-      .createQueryBuilder()
-      .update(EfootballProfile)
-      .set({ communityId: null, communityRole: null })
-      .where('communityId = :id', { id })
-      .execute();
-
-    await this.communitiesRepository.delete(id);
+    // To the recycle bin: members are released (and remembered for a restore).
+    await this.recycleBin.moveToBin('community', id, user.id, 'Deleted by the community President');
   }
 
   async joinIndividual(communityId: string, user: User): Promise<any> {

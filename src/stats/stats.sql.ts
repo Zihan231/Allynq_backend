@@ -55,7 +55,7 @@ export const PLAYER_GAMES_SQL = `
              sd."userId", sd."opponentUserId", sd."opponentName", sd."myGoals", sd."oppGoals", sd."clubId"
         FROM tournament_match_games g
         JOIN tournament_matches m ON m.id = g."matchId"
-        JOIN tournaments t ON t.id = m."tournamentId" AND t.status <> 'cancelled'
+        JOIN tournaments t ON t.id = m."tournamentId" AND t.status <> 'cancelled' AND t."deletedAt" IS NULL
         LEFT JOIN tournament_participants pa ON pa.id = m."participantAId"
         LEFT JOIN tournament_participants pb ON pb.id = m."participantBId"
         CROSS JOIN LATERAL (
@@ -109,7 +109,7 @@ export const CLUB_FIXTURES_SQL = `
       SELECT m.id AS "matchId", COALESCE(m."completedAt", m."updatedAt") AS "playedAt",
              sd."clubId", sd."opponentClubId", sd."GF", sd."GA", sd.result
         FROM tournament_matches m
-        JOIN tournaments t ON t.id = m."tournamentId" AND t.type = 'cvc' AND t.status <> 'cancelled'
+        JOIN tournaments t ON t.id = m."tournamentId" AND t.type = 'cvc' AND t.status <> 'cancelled' AND t."deletedAt" IS NULL
         JOIN tournament_participants pa ON pa.id = m."participantAId"
         JOIN tournament_participants pb ON pb.id = m."participantBId"
         CROSS JOIN LATERAL (

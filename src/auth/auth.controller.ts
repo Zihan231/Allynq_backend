@@ -23,6 +23,10 @@ function cookieOptions(req: Request) {
   };
 }
 
+function clientInfo(req: Request) {
+  return { ip: req.ip ?? null, userAgent: req.headers['user-agent']?.slice(0, 500) ?? null };
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -33,7 +37,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.register(dto);
+    const result = await this.authService.register(dto, clientInfo(req));
     res.cookie(JWT_COOKIE_NAME, result.accessToken, {
       ...cookieOptions(req),
       maxAge: COOKIE_MAX_AGE_MS,
@@ -48,7 +52,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.login(dto);
+    const result = await this.authService.login(dto, clientInfo(req));
     res.cookie(JWT_COOKIE_NAME, result.accessToken, {
       ...cookieOptions(req),
       maxAge: COOKIE_MAX_AGE_MS,

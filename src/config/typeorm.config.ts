@@ -1,5 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { ActivityEvent } from '../activity/entities/activity-event.entity.js';
+import { LoginEvent } from '../activity/entities/login-event.entity.js';
+import { AdminAuditLog } from '../admin/entities/admin-audit-log.entity.js';
 import { ClubJoinRequest } from '../clubs/entities/club-join-request.entity.js';
 import { Club } from '../clubs/entities/club.entity.js';
 import { Team } from '../clubs/entities/team.entity.js';
@@ -15,6 +18,7 @@ import { TournamentParticipant } from '../tournaments/entities/tournament-partic
 import { Tournament } from '../tournaments/entities/tournament.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
+import { RecycleBinItem } from '../recycle-bin/recycle-bin-item.entity.js';
 import { AppSetting } from '../settings/app-setting.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
 import { TransferOffer } from '../transfers/entities/transfer-offer.entity.js';
@@ -47,6 +51,10 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       PlayerContract,
       Wallet,
       WalletTransaction,
+      ActivityEvent,
+      LoginEvent,
+      AdminAuditLog,
+      RecycleBinItem,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

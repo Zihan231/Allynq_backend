@@ -30,7 +30,8 @@
     "seed:community-directory": "node dist/seeds/seed-community-directory.js",
     "seed:tournament-club-lineups": "node dist/seeds/seed-tournament-club-lineups.js",
     "seed:full-demo": "node dist/seeds/seed-full-demo.js",
-    "seed:club-members": "node dist/seeds/seed-club-members.js"
+    "seed:club-members": "node dist/seeds/seed-club-members.js",
+    "admin:grant": "node dist/seeds/grant-admin.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

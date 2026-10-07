@@ -10,6 +10,7 @@ import { UserQueryDto } from './dto/user-query.dto.js';
 import { EfootballProfile } from './entities/efootball-profile.entity.js';
 import { User } from './entities/user.entity.js';
 import { FileStorageService } from '../common/services/file-storage.service.js';
+import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 
 @Injectable()
 export class UsersService {
@@ -19,9 +20,12 @@ export class UsersService {
     @InjectRepository(EfootballProfile)
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
     private readonly fileStorageService: FileStorageService,
+    private readonly recycleBin: RecycleBinService,
   ) {}
 
   async create(dto: CreateUserDto): Promise<User> {
+    // Verification is granted by staff after reviewing the document, never self-assigned.
+    delete dto.verificationLevel;
     if (dto.dpUrl) {
       dto.dpUrl = await this.fileStorageService.saveBase64Image(dto.dpUrl, 'users', 'dp');
     }
@@ -59,6 +63,8 @@ export class UsersService {
           'teamId', 'lineupStatus', 'clubRole', 'communityId', 'communityRole',
         ].map((column) => `efootballProfile.${column}`),
       )
+      // Accounts in the recycle bin are hidden from the directory.
+      .where('user.deletedAt IS NULL')
       .orderBy('user.createdAt', 'DESC');
 
     if (query?.search) {
@@ -149,6 +155,19 @@ export class UsersService {
       delete dto.password;
     }
 
+    // Verification is granted by staff after reviewing the document, never self-assigned.
+    // A new or changed document goes back into the review queue; removing it clears the level.
+    delete dto.verificationLevel;
+    const documentChanged =
+      (dto.documentDataUrl !== undefined && dto.documentDataUrl !== user.documentDataUrl) ||
+      (dto.documentType !== undefined && dto.documentType !== user.documentType);
+    if (documentChanged) {
+      const hasDocument = Boolean(dto.documentDataUrl ?? user.documentDataUrl) && Boolean(dto.documentType ?? user.documentType);
+      user.verificationStatus = hasDocument ? 'pending' : 'none';
+      user.verificationNote = null;
+      if (!hasDocument) user.verificationLevel = 0;
+    }
+
     Object.assign(user, dto);
     await this.usersRepository.save(user);
 
@@ -161,23 +180,9 @@ export class UsersService {
     return this.findOne(id);
   }
 
+  /** Deleting your account moves it to the recycle bin; it is deleted for good after the retention period. */
   async remove(id: string): Promise<void> {
-    const user = await this.usersRepository.findOne({ where: { id } });
-    if (!user) {
-      throw new NotFoundException(`User ${id} not found`);
-    }
-
-    if (user.dpUrl) {
-      await this.fileStorageService.deleteFile(user.dpUrl);
-    }
-    if (user.coverUrl) {
-      await this.fileStorageService.deleteFile(user.coverUrl);
-    }
-
-    const result = await this.usersRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`User ${id} not found`);
-    }
+    await this.recycleBin.moveToBin('user', id, id, 'Deleted by the user');
   }
 
   async getEfootballProfile(userId: string): Promise<EfootballProfile> {

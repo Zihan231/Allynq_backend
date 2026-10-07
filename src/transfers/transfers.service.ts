@@ -1029,6 +1029,7 @@ export class TransfersService {
       LEFT JOIN clubs cl ON cl.id = ep."clubId"
       LEFT JOIN player_contracts c ON c."userId" = ep."userId" AND c.status = 'active'
      WHERE COALESCE(ep."clubRole"::text, 'Player') NOT IN ('President', 'General Secretary')
+       AND u."deletedAt" IS NULL AND u."bannedAt" IS NULL
        AND (ep."clubId" IS NULL OR c.id IS NULL OR c."lockEndsAt" <= now())
        AND NOT EXISTS (SELECT 1 FROM communities co WHERE co."creatorId" = ep."userId")
        AND NOT EXISTS (SELECT 1 FROM community_members cm WHERE cm."profileId" = ep.id AND cm.role IN ('President', 'Vice President'))

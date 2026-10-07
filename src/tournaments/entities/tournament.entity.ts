@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -140,6 +141,10 @@ export class Tournament {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
+  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  deletedAt!: Date | null;
 }
 
 export type TournamentHost = { kind: 'community'; id: string } | { kind: 'club'; id: string };

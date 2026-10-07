@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ActivityModule } from './activity/activity.module.js';
+import { AdminModule } from './admin/admin.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -10,6 +12,7 @@ import { FileStorageModule } from './common/file-storage.module.js';
 import { CommunitiesModule } from './communities/communities.module.js';
 import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { RecycleBinModule } from './recycle-bin/recycle-bin.module.js';
 import { TournamentsModule } from './tournaments/tournaments.module.js';
 import { StatsModule } from './stats/stats.module.js';
 import { SettingsModule } from './settings/settings.module.js';
@@ -26,6 +29,8 @@ import { UsersModule } from './users/users.module.js';
       useFactory: buildTypeOrmOptions,
     }),
     FileStorageModule,
+    ActivityModule,
+    RecycleBinModule,
     AuthModule,
     UsersModule,
     ClubsModule,
@@ -35,6 +40,7 @@ import { UsersModule } from './users/users.module.js';
     StatsModule,
     SettingsModule,
     TransfersModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   ManyToMany,
   OneToMany,
@@ -84,4 +85,8 @@ export class Club {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
+  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  deletedAt!: Date | null;
 }

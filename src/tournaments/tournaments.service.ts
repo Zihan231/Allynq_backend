@@ -15,6 +15,7 @@ import {
 import { Community } from '../communities/entities/community.entity.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { NotificationsService, type NotificationI18n } from '../notifications/notifications.service.js';
+import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { CreateTournamentDto } from './dto/create-tournament.dto.js';
@@ -126,6 +127,7 @@ export class TournamentsService {
     @InjectRepository(EfootballProfile)
     private readonly profilesRepository: Repository<EfootballProfile>,
     private readonly notificationsService: NotificationsService,
+    private readonly recycleBin: RecycleBinService,
   ) {}
 
   /** Club tournaments are friendlies: refuse an entry fee or prize pool. */
@@ -642,9 +644,9 @@ export class TournamentsService {
       throw new BadRequestException('Live or finished tournaments can no longer be deleted');
     }
 
-    // Resolve recipients before the participants are cascade-deleted.
+    // Resolve recipients before it is hidden.
     const recipients = await this.participantRecipients(tournament, userId);
-    await this.tournamentsRepository.delete({ id: tournament.id });
+    await this.recycleBin.moveToBin('tournament', tournament.id, userId, 'Deleted by the organizer');
 
     await this.sendNotifications(recipients, {
       title: 'Tournament cancelled',

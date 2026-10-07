@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CommunitiesService } from '../communities/communities.service.js';
 import { FileStorageService } from '../common/services/file-storage.service.js';
+import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
@@ -37,6 +38,7 @@ export class ClubsService {
     private readonly communitiesService: CommunitiesService,
     private readonly fileStorageService: FileStorageService,
     private readonly notificationsService: NotificationsService,
+    private readonly recycleBin: RecycleBinService,
   ) {}
 
   async create(user: User, dto: CreateClubDto): Promise<Club> {
@@ -155,23 +157,16 @@ export class ClubsService {
     return this.clubsRepository.save(club);
   }
 
-  async remove(id: string): Promise<void> {
+  /**
+   * Moves the club to the recycle bin: members are released (and remembered for a restore),
+   * active contracts end. It is deleted for good after the retention period.
+   */
+  async remove(id: string, actorId: string | null = null): Promise<void> {
     const club = await this.clubsRepository.findOne({ where: { id } });
     if (!club) {
       throw new NotFoundException(`Club ${id} not found`);
     }
-
-    if (club.dpUrl) {
-      await this.fileStorageService.deleteFile(club.dpUrl);
-    }
-    if (club.coverUrl) {
-      await this.fileStorageService.deleteFile(club.coverUrl);
-    }
-
-    const result = await this.clubsRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Club ${id} not found`);
-    }
+    await this.recycleBin.moveToBin('club', id, actorId, 'Deleted by the club President');
   }
 
   async getMembers(id: string, query?: ClubMembersQueryDto): Promise<any> {

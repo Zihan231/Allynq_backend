@@ -129,7 +129,8 @@ export class StatsService {
                JOIN efootball_profiles ep ON ep.id = cm."profileId"
               WHERE cm."communityId" = ${param(query.communityId)}`
           : `SELECT "userId" FROM ranked`;
-      const filter = search ? `WHERE u.name ILIKE ${param(likePattern(search))}` : '';
+      // Accounts in the recycle bin or banned are left out of the rankings.
+      const filter = `WHERE u."deletedAt" IS NULL AND u."bannedAt" IS NULL${search ? ` AND u.name ILIKE ${param(likePattern(search))}` : ''}`;
       return `
         WITH ${this.rankedPlayersSql(period)},
         pool AS (${pool})
@@ -156,7 +157,7 @@ export class StatsService {
   }
 
   async playerProfile(userId: string): Promise<PlayerProfileStats> {
-    const [user] = await this.run((param) => `SELECT id FROM users WHERE id = ${param(userId)}`);
+    const [user] = await this.run((param) => `SELECT id FROM users WHERE id = ${param(userId)} AND "deletedAt" IS NULL`);
     if (!user) throw new NotFoundException('Player not found');
 
     const games = (
@@ -248,7 +249,8 @@ export class StatsService {
       const pool = query.communityId
         ? `SELECT "clubId" FROM community_clubs WHERE "communityId" = ${param(query.communityId)}`
         : `SELECT "clubId" FROM ranked`;
-      const filter = search ? `WHERE c.name ILIKE ${param(likePattern(search))}` : '';
+      // Clubs in the recycle bin are left out.
+      const filter = `WHERE c."deletedAt" IS NULL${search ? ` AND c.name ILIKE ${param(likePattern(search))}` : ''}`;
       return `
         WITH ${this.rankedClubsSql(period)},
         pool AS (${pool})
@@ -274,7 +276,7 @@ export class StatsService {
 
   /** A club's line (with rank) for every period. */
   async clubProfile(clubId: string): Promise<{ clubId: string; periods: Record<StatsPeriod, ClubRankingRow> }> {
-    const [club] = await this.run((param) => `SELECT id FROM clubs WHERE id = ${param(clubId)}`);
+    const [club] = await this.run((param) => `SELECT id FROM clubs WHERE id = ${param(clubId)} AND "deletedAt" IS NULL`);
     if (!club) throw new NotFoundException('Club not found');
 
     const lines = await Promise.all(

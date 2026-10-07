@@ -26,6 +26,19 @@ export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
   demoTopUpTk: 1000,
 };
 
+/** Admin and moderation settings (`app_settings` key "admin"). */
+export interface AdminSettings {
+  /** Days an item stays in the recycle bin before it is deleted for good. */
+  binRetentionDays: number;
+  /** Longest suspension a moderator may give; admins have no limit. */
+  moderatorMaxSuspendDays: number;
+}
+
+export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
+  binRetentionDays: 30,
+  moderatorMaxSuspendDays: 7,
+};
+
 const CACHE_MS = 30_000;
 
 @Injectable()
@@ -45,6 +58,11 @@ export class SettingsService {
     await this.settingsRepository.save({ key: 'transfers', value: next as unknown as Record<string, unknown> });
     this.cache.delete('transfers');
     return next;
+  }
+
+  /** Admin settings, with defaults for anything missing. */
+  async admin(): Promise<AdminSettings> {
+    return { ...DEFAULT_ADMIN_SETTINGS, ...(await this.read<Partial<AdminSettings>>('admin')) };
   }
 
   private async read<T>(key: string): Promise<T | null> {

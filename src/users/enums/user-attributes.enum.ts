@@ -55,3 +55,19 @@ export enum LineupStatus {
   SUB = 'Sub',
   NONE = 'None',
 }
+
+/** System-wide staff roles, above any club or community role. */
+export enum SystemRole {
+  MODERATOR = 'moderator',
+  ADMIN = 'admin',
+  SUPER_ADMIN = 'super_admin',
+}
+
+/** Rank of each system role: a staff member can only act on users ranked below them. */
+export const SYSTEM_ROLE_RANK: Record<SystemRole, number> = {
+  [SystemRole.MODERATOR]: 1,
+  [SystemRole.ADMIN]: 2,
+  [SystemRole.SUPER_ADMIN]: 3,
+};
+
+export type VerificationStatus = 'none' | 'pending' | 'approved' | 'rejected';
