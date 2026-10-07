@@ -61,6 +61,9 @@ export class ReportsService {
 
   async create(user: User, dto: CreateReportDto, attachments: string[]): Promise<Report> {
     try {
+      if (!(await this.settings.features()).reportsOpen) {
+        throw new ForbiddenException('Reporting is paused for now. Please try again later.');
+      }
       const { reportDailyLimit, reportStrikeLimit } = await this.settings.admin();
       if ((user.reportStrikes ?? 0) >= reportStrikeLimit) {
         throw new ForbiddenException('You can no longer send reports because several of your reports were found to be false.');

@@ -12,7 +12,7 @@ import { User } from '../../users/entities/user.entity.js';
 export type TransferOfferKind = 'player_proposal' | 'club_offer' | 'renewal' | 'buyout';
 
 /** pending → accepted → (scheduled, while the player finishes a tournament) → completed; or declined / cancelled / expired. */
-export type TransferOfferStatus = 'pending' | 'scheduled' | 'completed' | 'declined' | 'cancelled' | 'expired';
+export type TransferOfferStatus = 'pending' | 'scheduled' | 'completed' | 'declined' | 'cancelled' | 'expired' | 'reversed';
 
 export type PaymentMethod = 'bkash' | 'nagad' | 'card';
 

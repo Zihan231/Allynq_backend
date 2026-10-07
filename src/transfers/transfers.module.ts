@@ -19,6 +19,6 @@ import { WalletsService } from './wallets.service.js';
   ],
   controllers: [TransfersController],
   providers: [TransfersService, WalletsService, TransfersJobsService],
-  exports: [TransfersService],
+  exports: [TransfersService, WalletsService],
 })
 export class TransfersModule {}

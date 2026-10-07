@@ -5,9 +5,11 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
  * - hold: money taken for an offer (balance → held);
  * - refund: a hold returned (held → balance);
  * - payout_sent: a hold paid out (leaves held);
- * - received: money credited for a completed transfer.
+ * - received: money credited for a completed transfer;
+ * - adjustment: a correction made by ALLYNQ staff (either sign);
+ * - reversal: money moved back when staff reversed a completed transfer (either sign).
  */
-export type WalletTransactionKind = 'top_up' | 'hold' | 'refund' | 'payout_sent' | 'received';
+export type WalletTransactionKind = 'top_up' | 'hold' | 'refund' | 'payout_sent' | 'received' | 'adjustment' | 'reversal';
 
 @Entity('wallet_transactions')
 export class WalletTransaction {

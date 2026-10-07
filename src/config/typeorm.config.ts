@@ -26,6 +26,7 @@ import { PlayerContract } from '../transfers/entities/player-contract.entity.js'
 import { TransferOffer } from '../transfers/entities/transfer-offer.entity.js';
 import { WalletTransaction } from '../transfers/entities/wallet-transaction.entity.js';
 import { Wallet } from '../transfers/entities/wallet.entity.js';
+import { Announcement } from '../admin/entities/announcement.entity.js';
 
 export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModuleOptions {
   return {
@@ -59,6 +60,7 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       RecycleBinItem,
       Report,
       ReportMessage,
+      Announcement,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

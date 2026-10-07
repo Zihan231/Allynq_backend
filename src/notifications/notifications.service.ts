@@ -72,6 +72,31 @@ export class NotificationsService {
   }
 
   /**
+   * The same notification for many users at once (announcements): inserted in batches,
+   * then pushed to anyone connected. Returns how many were created.
+   */
+  async createMany(userIds: string[], dto: CreateNotificationDto): Promise<number> {
+    const unique = [...new Set(userIds)];
+    for (let i = 0; i < unique.length; i += 500) {
+      const rows = unique.slice(i, i + 500).map((userId) =>
+        this.notificationsRepository.create({
+          userId,
+          title: dto.title,
+          message: dto.message,
+          type: dto.type ?? 'system',
+          link: dto.link ?? null,
+          code: dto.code ?? null,
+          params: dto.params ?? null,
+          read: false,
+        }),
+      );
+      const saved = await this.notificationsRepository.save(rows, { chunk: 100 });
+      for (const notification of saved) this.notificationSubject$.next({ userId: notification.userId, notification });
+    }
+    return unique.length;
+  }
+
+  /**
    * Observable stream of notifications for a specific user (Server-Sent Events).
    * A named `ping` event every 20s keeps idle proxies (e.g. the Next.js rewrite proxy, which drops
    * connections after 30s of silence) from closing the stream; EventSource.onmessage ignores it.

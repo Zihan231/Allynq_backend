@@ -173,6 +173,27 @@ export class WalletsService {
     });
   }
 
+  /**
+   * A staff correction or a reversal: adds (positive) or removes (negative) spendable money.
+   * Never takes the balance below zero.
+   */
+  async adjust(
+    em: EntityManager,
+    owner: WalletOwner,
+    amountTk: number,
+    kind: 'adjustment' | 'reversal',
+    ref: { offerId?: string | null; counterparty: string },
+  ): Promise<Wallet> {
+    const w = await this.lock(em, owner);
+    if (w.balanceTk + amountTk < 0) {
+      throw new BadRequestException(`The wallet only has ${w.balanceTk} tk available, so ${-amountTk} tk can't be taken.`);
+    }
+    w.balanceTk += amountTk;
+    await em.save(w);
+    await this.record(em, w, kind, amountTk, { offerId: ref.offerId ?? null, counterparty: ref.counterparty });
+    return w;
+  }
+
   private async record(
     em: EntityManager,
     wallet: Wallet,

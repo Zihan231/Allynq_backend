@@ -19,6 +19,7 @@ import { StatsModule } from './stats/stats.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { TransfersModule } from './transfers/transfers.module.js';
 import { UsersModule } from './users/users.module.js';
+import { HealthModule } from './health/health.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { UsersModule } from './users/users.module.js';
     }),
     FileStorageModule,
     ActivityModule,
+    HealthModule,
     RecycleBinModule,
     AuthModule,
     UsersModule,

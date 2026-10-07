@@ -14,6 +14,7 @@ import { User } from '../users/entities/user.entity.js';
 import { serializeUser } from '../users/serializers/user.serializer.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+import { SettingsService } from '../settings/settings.service.js';
 
 /** Where a sign-in came from, for the login history. */
 export interface ClientInfo {
@@ -30,6 +31,7 @@ export class AuthService {
     private readonly efootballProfilesRepository: Repository<EfootballProfile>,
     private readonly jwtService: JwtService,
     private readonly activity: ActivityService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Why this account may not sign in right now, or null. Also used to reject live sessions. */
@@ -51,6 +53,9 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, client: ClientInfo = {}) {
+    if (!(await this.settings.features()).signupsOpen) {
+      throw new ForbiddenException('New sign-ups are closed for now. Please try again later.');
+    }
     const existing = await this.usersRepository.findOne({
       where: { email: dto.email.toLowerCase().trim() },
     });

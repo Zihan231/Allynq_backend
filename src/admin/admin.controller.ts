@@ -58,6 +58,19 @@ import {
   VerificationReviewDto,
 } from './dto/admin.dto.js';
 import { RequireSystemRole, SystemRoleGuard } from './system-role.guard.js';
+import { AdminPlatformService } from './admin-platform.service.js';
+import {
+  AdminOffersQueryDto,
+  AdminSettingsDto,
+  AnnouncementsQueryDto,
+  CreateAnnouncementDto,
+  EndLockDto,
+  FeaturesDto,
+  LedgerQueryDto,
+  MaintenanceDto,
+  TransferSettingsDto,
+  WalletAdjustDto,
+} from './dto/platform.dto.js';
 
 const ctx = (req: Request) => ({ ip: req.ip ?? null });
 const CONTENT_TYPES = ['club', 'community', 'tournament'] as const;
@@ -92,7 +105,119 @@ export class AdminController {
     private readonly activity: AdminActivityService,
     private readonly disputes: AdminDisputesService,
     private readonly manage: AdminManageService,
+    private readonly platform: AdminPlatformService,
   ) {}
+
+  // ------------------------------------------------ transfers and wallets
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('transfers/offers')
+  transferOffers(@Query() query: AdminOffersQueryDto) {
+    return this.platform.offers(query);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('transfers/offers/:id/cancel')
+  cancelTransfer(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @Req() req: Request) {
+    return this.platform.cancelOffer(actor, id, dto.reason, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Post('transfers/offers/:id/reverse')
+  reverseTransfer(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto, @Req() req: Request) {
+    return this.platform.reverseOffer(actor, id, dto.reason, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('transfers/end-lock')
+  endLock(@CurrentUser() actor: User, @Body() dto: EndLockDto, @Req() req: Request) {
+    return this.platform.endLock(actor, dto.userId, dto.reason, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('wallets/ledger')
+  ledger(@Query() query: LedgerQueryDto) {
+    return this.platform.ledger(query);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('wallets/:ownerType/:ownerId')
+  wallet(@Param('ownerType') ownerType: string, @Param('ownerId', ParseUUIDPipe) ownerId: string) {
+    if (ownerType !== 'user' && ownerType !== 'club') throw new BadRequestException('Unknown wallet type');
+    return this.platform.walletOf(ownerType, ownerId);
+  }
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Post('wallets/adjust')
+  adjustWallet(@CurrentUser() actor: User, @Body() dto: WalletAdjustDto, @Req() req: Request) {
+    return this.platform.adjustWallet(actor, dto, ctx(req));
+  }
+
+  // -------------------------------------------------------------- settings
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Get('settings')
+  settings() {
+    return this.platform.allSettings();
+  }
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Patch('settings/transfers')
+  transferSettings(@CurrentUser() actor: User, @Body() dto: TransferSettingsDto, @Req() req: Request) {
+    return this.platform.updateSettings(actor, 'transfers', { ...dto }, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Patch('settings/admin')
+  adminSettings(@CurrentUser() actor: User, @Body() dto: AdminSettingsDto, @Req() req: Request) {
+    return this.platform.updateSettings(actor, 'admin', { ...dto }, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Patch('settings/features')
+  featureSettings(@CurrentUser() actor: User, @Body() dto: FeaturesDto, @Req() req: Request) {
+    return this.platform.updateSettings(actor, 'features', { ...dto }, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.SUPER_ADMIN)
+  @Patch('settings/maintenance')
+  maintenanceSettings(@CurrentUser() actor: User, @Body() dto: MaintenanceDto, @Req() req: Request) {
+    return this.platform.updateSettings(actor, 'maintenance', { ...dto }, ctx(req));
+  }
+
+  // --------------------------------------------------------- announcements
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('announcements')
+  announcements(@Query() query: AnnouncementsQueryDto) {
+    return this.platform.listAnnouncements(query);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('announcements/preview')
+  previewAnnouncement(@Body() dto: CreateAnnouncementDto) {
+    return this.platform.audienceSize(dto);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('announcements')
+  createAnnouncement(@CurrentUser() actor: User, @Body() dto: CreateAnnouncementDto, @Req() req: Request) {
+    return this.platform.createAnnouncement(actor, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('announcements/:id/cancel')
+  cancelAnnouncement(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    return this.platform.cancelAnnouncement(actor, id, ctx(req));
+  }
+
+  // ---------------------------------------------------------------- health
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('health')
+  health() {
+    return this.platform.health();
+  }
 
   // ---------------------------------------------------------- dispute centre
 

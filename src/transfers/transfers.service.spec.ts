@@ -195,7 +195,8 @@ function setup() {
     status: 'active',
   });
 
-  const settings = { transfers: vi.fn().mockResolvedValue(DEFAULT_TRANSFER_SETTINGS) };
+  const features = { signupsOpen: true, transfersOpen: true, reportsOpen: true };
+  const settings = { transfers: vi.fn().mockResolvedValue(DEFAULT_TRANSFER_SETTINGS), features: vi.fn(async () => features) };
   const wallets = new WalletsService(db.dataSource as never, settings as never);
   const communities = {
     isCommunityLeader: vi.fn(async (userId: string) => userId === users.commLeader.id),
@@ -219,7 +220,7 @@ function setup() {
   const activeContract = (u: User) => db.table(PlayerContract).find((c) => c.userId === u.id && c.status === 'active');
   const codesTo = (u: User) =>
     notifications.createNotification.mock.calls.filter(([to]) => to === u.id).map(([, n]) => (n as { code: string }).code);
-  return { db, service, users, communities, offer, wallet, profile, activeContract, codesTo };
+  return { db, service, users, communities, offer, wallet, profile, activeContract, codesTo, features };
 }
 
 // ------------------------------------------------------------------- tests
@@ -276,6 +277,54 @@ describe('TransfersService', () => {
       service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'card' }),
     ).rejects.toThrow('frozen by ALLYNQ staff: Investigation');
     await expect(service.respond(users.padmaPres, proposal.id, { accept: true, paymentMethod: 'card' })).rejects.toThrow('frozen');
+  });
+
+  it('staff can cancel an open offer, refunding the club', async () => {
+    const { service, users, offer, wallet, codesTo } = t;
+    const o = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 400, paymentMethod: 'card' });
+    await service.staffCancel(o.id, 'Suspicious deal');
+    expect(offer(o.id).status).toBe('cancelled');
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
+    expect(codesTo(users.free)).toContain('transfer.cancelledByStaff');
+    await expect(service.staffCancel(o.id, 'again')).rejects.toThrow('cancelled');
+  });
+
+  it('staff can reverse a completed buyout: money back, player back, old contract restored', async () => {
+    const { service, users, offer, wallet, profile, activeContract, codesTo } = t;
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 1, paymentMethod: 'nagad' });
+    await service.respond(users.locked, b.id, { accept: true });
+    expect(profile(users.locked).clubId).toBe(PADMA);
+
+    await service.staffReverse(b.id, 'Fraudulent buyout');
+    expect(offer(b.id).status).toBe('reversed');
+    expect(wallet('club', T4)).toMatchObject({ balanceTk: 5000 });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
+    expect(profile(users.locked).clubId).toBe(T4);
+    expect(activeContract(users.locked)).toMatchObject({ id: 'contract-locked', clubId: T4 });
+    expect(codesTo(users.t4Pres)).toContain('transfer.reversedByStaff');
+    await expect(service.staffReverse(b.id, 'twice')).rejects.toThrow('Only completed');
+  });
+
+  it("won't reverse once the selling club has spent the money", async () => {
+    const { service, users, db } = t;
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 1, paymentMethod: 'nagad' });
+    await service.respond(users.locked, b.id, { accept: true });
+    Object.assign(db.table(Wallet).find((w) => w.ownerType === 'club' && w.ownerId === T4)!, { balanceTk: 50 });
+    await expect(service.staffReverse(b.id, 'Fraud')).rejects.toThrow("can't be taken");
+  });
+
+  it('staff can end a lock early, making the player a free agent', async () => {
+    const { service, users, activeContract, codesTo } = t;
+    await service.staffEndLock(users.locked.id, 'Club stopped playing');
+    expect(new Date(activeContract(users.locked)!.lockEndsAt).getTime()).toBeLessThanOrEqual(Date.now());
+    expect(codesTo(users.locked)).toContain('transfer.lockEndedByStaff');
+    await expect(service.staffEndLock(users.locked.id, 'again')).rejects.toThrow('already ended');
+  });
+
+  it('a closed transfer market refuses new deals', async () => {
+    const { service, users, features } = t;
+    features.transfersOpen = false;
+    await expect(service.createOffer(users.free, { clubId: PADMA, amountTk: 0 })).rejects.toThrow('transfer market is closed');
   });
 
   it('withdrawing a club offer refunds the hold; only the sender side may withdraw', async () => {

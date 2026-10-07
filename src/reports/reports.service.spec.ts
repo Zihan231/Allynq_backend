@@ -7,7 +7,7 @@ vi.mock('./report-upload.js', () => ({ removeReportFiles: vi.fn(async () => unde
 
 type Row = Record<string, unknown> & { id: string };
 
-function setup(options: { reportsToday?: number; target?: Record<string, unknown> | null } = {}) {
+function setup(options: { reportsToday?: number; target?: Record<string, unknown> | null; reportsOpen?: boolean } = {}) {
   const rows: Row[] = [];
   let seq = 0;
   const matches = (row: Row, where: Record<string, unknown>) =>
@@ -37,7 +37,10 @@ function setup(options: { reportsToday?: number; target?: Record<string, unknown
       return [{}];
     }),
   };
-  const settings = { admin: vi.fn(async () => ({ reportDailyLimit: 10, reportStrikeLimit: 3 })) };
+  const settings = {
+    admin: vi.fn(async () => ({ reportDailyLimit: 10, reportStrikeLimit: 3 })),
+    features: vi.fn(async () => ({ reportsOpen: options.reportsOpen ?? true })),
+  };
   const notifications = { createNotification: vi.fn(async () => ({})) };
   const audit = { record: vi.fn(async () => undefined) };
   const adminUsers = { warn: vi.fn(async () => ({})), suspend: vi.fn(async () => ({})), ban: vi.fn(async () => ({})), moveToBin: vi.fn(async () => ({})) };
@@ -79,6 +82,10 @@ describe('ReportsService.create', () => {
     const { service } = setup();
     await service.create(player(), base, []);
     await expect(service.create(player(), base, [])).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('refuses new reports while staff have paused reporting', async () => {
+    await expect(setup({ reportsOpen: false }).service.create(player(), base, [])).rejects.toThrow('Reporting is paused');
   });
 
   it('blocks reporters with too many false-report strikes', async () => {

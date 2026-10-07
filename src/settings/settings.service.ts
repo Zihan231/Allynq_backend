@@ -45,6 +45,31 @@ export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   reportStrikeLimit: 3,
 };
 
+/** Platform switches (`app_settings` key "features"). */
+export interface FeatureFlags {
+  signupsOpen: boolean;
+  transfersOpen: boolean;
+  reportsOpen: boolean;
+}
+
+export const DEFAULT_FEATURES: FeatureFlags = { signupsOpen: true, transfersOpen: true, reportsOpen: true };
+
+/** Maintenance mode (`app_settings` key "maintenance"): players can read but not change anything. */
+export interface MaintenanceSettings {
+  enabled: boolean;
+  message: string;
+}
+
+export const DEFAULT_MAINTENANCE: MaintenanceSettings = { enabled: false, message: '' };
+
+export type SettingsSection = 'transfers' | 'admin' | 'features' | 'maintenance';
+const DEFAULTS: Record<SettingsSection, object> = {
+  transfers: DEFAULT_TRANSFER_SETTINGS,
+  admin: DEFAULT_ADMIN_SETTINGS,
+  features: DEFAULT_FEATURES,
+  maintenance: DEFAULT_MAINTENANCE,
+};
+
 const CACHE_MS = 30_000;
 
 @Injectable()
@@ -69,6 +94,27 @@ export class SettingsService {
   /** Admin settings, with defaults for anything missing. */
   async admin(): Promise<AdminSettings> {
     return { ...DEFAULT_ADMIN_SETTINGS, ...(await this.read<Partial<AdminSettings>>('admin')) };
+  }
+
+  async features(): Promise<FeatureFlags> {
+    return { ...DEFAULT_FEATURES, ...(await this.read<Partial<FeatureFlags>>('features')) };
+  }
+
+  async maintenance(): Promise<MaintenanceSettings> {
+    return { ...DEFAULT_MAINTENANCE, ...(await this.read<Partial<MaintenanceSettings>>('maintenance')) };
+  }
+
+  /** Any section with its defaults filled in. */
+  async section<T extends object>(key: SettingsSection): Promise<T> {
+    return { ...(DEFAULTS[key] as T), ...(await this.read<Partial<T>>(key)) };
+  }
+
+  /** Overwrites some fields of a section; returns the whole updated section. */
+  async updateSection<T extends object>(key: SettingsSection, patch: Partial<T>): Promise<T> {
+    const next = { ...(await this.section<T>(key)), ...patch };
+    await this.settingsRepository.save({ key, value: next as unknown as Record<string, unknown> });
+    this.cache.delete(key);
+    return next;
   }
 
   private async read<T>(key: string): Promise<T | null> {

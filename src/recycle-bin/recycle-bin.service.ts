@@ -7,6 +7,7 @@ import { SettingsService } from '../settings/settings.service.js';
 import { formatContractNo, lockEnd } from '../transfers/contract-fee.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { type BinEntityType, type BinMember, type BinSnapshot, RecycleBinItem } from './recycle-bin-item.entity.js';
+import { JobMonitorService } from '../health/job-monitor.service.js';
 
 const TABLE: Record<BinEntityType, string> = {
   user: 'users',
@@ -38,6 +39,7 @@ export class RecycleBinService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly settings: SettingsService,
     private readonly fileStorage: FileStorageService,
+    private readonly monitor: JobMonitorService,
   ) {}
 
   async moveToBin(type: BinEntityType, id: string, actorId: string | null, reason?: string | null): Promise<RecycleBinItem> {
@@ -167,6 +169,10 @@ export class RecycleBinService {
   /** Hourly: deletes for good what has been in the bin longer than the retention period. */
   @Cron(CronExpression.EVERY_HOUR)
   async purgeExpired(): Promise<number> {
+    return this.monitor.run('recycleBin.purge', () => this.purgeDue(), (n) => `${n} deleted for good`);
+  }
+
+  private async purgeDue(): Promise<number> {
     const due = await this.dataSource
       .getRepository(RecycleBinItem)
       .createQueryBuilder('b')

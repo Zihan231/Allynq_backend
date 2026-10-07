@@ -3,7 +3,7 @@ import type { Relation } from 'typeorm';
 import { Club } from '../../clubs/entities/club.entity.js';
 import { User } from '../../users/entities/user.entity.js';
 
-export type ContractEndReason = 'transfer' | 'renewal' | 'left' | 'club_deleted';
+export type ContractEndReason = 'transfer' | 'renewal' | 'left' | 'club_deleted' | 'reversed';
 
 /**
  * A player's contract with a club. Transfer fee right now =

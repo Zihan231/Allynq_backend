@@ -195,6 +195,7 @@ export class TransfersService {
     const settings = await this.settingsService.transfers();
     const now = new Date();
 
+    await this.assertMarketOpen();
     const offerId = await this.dataSource.transaction(async (em) => {
       await assertNotFrozen(em, 'club', dto.clubId);
       const club = await this.clubOf(em, dto.clubId);
@@ -361,6 +362,7 @@ export class TransfersService {
 
     await this.dataSource.transaction(async (em) => {
       const offer = await this.lockOffer(em, offerId);
+      if (dto.accept) await this.assertMarketOpen();
       if (dto.accept) await assertNotFrozen(em, 'club', offer.toClubId);
       if (offer.status !== 'pending') throw new BadRequestException(`This offer is already ${offer.status}`);
       if (offer.expiresAt <= new Date()) throw new BadRequestException('This offer has expired');
@@ -1145,6 +1147,156 @@ export class TransfersService {
   }
 
   // ----------------------------------------------------------- notifications
+
+  // ------------------------------------------------------------ staff tools
+
+  /** Throws when staff have closed the transfer market. */
+  private async assertMarketOpen(): Promise<void> {
+    if (!(await this.settingsService.features()).transfersOpen) {
+      throw new ForbiddenException('The transfer market is closed for now. Please try again later.');
+    }
+  }
+
+  /** Staff cancel an open or scheduled deal; any money the club paid goes back to it. */
+  async staffCancel(offerId: string, reason: string): Promise<OfferView> {
+    let offer!: TransferOffer;
+    let names = { player: 'Player', club: 'Club' };
+    await this.dataSource.transaction(async (em) => {
+      offer = await this.lockOffer(em, offerId);
+      if (offer.status !== 'pending' && offer.status !== 'scheduled') {
+        throw new BadRequestException(`This deal is ${offer.status}, so it can't be cancelled`);
+      }
+      const club = await this.clubOf(em, offer.toClubId);
+      const profile = await this.profileOf(em, offer.playerUserId);
+      names = { player: profile.user?.name ?? 'Player', club: club.name };
+      // Club money was paid when the offer was sent, or when a proposal was accepted (scheduled deals).
+      if (offer.paidAt && offer.amountTk > 0) {
+        await this.walletsService.refund(em, this.clubWallet(offer.toClubId), offer.amountTk, { offerId: offer.id, counterparty: names.player });
+      }
+      offer.status = 'cancelled';
+      offer.scheduledTournamentId = null;
+      await em.save(offer);
+    });
+    const notice: Notice = {
+      code: 'transfer.cancelledByStaff',
+      title: 'Deal cancelled by ALLYNQ staff',
+      message: `The deal between ${names.player} and ${names.club} was cancelled by ALLYNQ staff: ${reason}`,
+      link: PLAYER_LINK,
+      params: { player: names.player, club: names.club, reason },
+    };
+    await this.dispatch(offer, [
+      { to: 'player', notice },
+      { to: 'clubLeaders', notice: { ...notice, link: clubLink(offer.toClubId) } },
+      ...(offer.fromClubId && offer.fromClubId !== offer.toClubId
+        ? [{ to: 'fromClubLeaders' as const, notice: { ...notice, link: clubLink(offer.fromClubId) } }]
+        : []),
+    ]);
+    return this.offerView(offerId);
+  }
+
+  /**
+   * Staff undo a completed transfer: the money goes back to the buying club, the player
+   * returns to where he was (or becomes clubless), and his previous contract is restored.
+   * Only while the contract from this transfer is still his current one.
+   */
+  async staffReverse(offerId: string, reason: string): Promise<OfferView> {
+    let offer!: TransferOffer;
+    let moved = false;
+    let names = { player: 'Player', club: 'Club', fromClub: null as string | null };
+    let profileId = '';
+    await this.dataSource.transaction(async (em) => {
+      offer = await this.lockOffer(em, offerId);
+      if (offer.status !== 'completed') throw new BadRequestException('Only completed transfers can be reversed');
+      const current = await this.activeContract(em, offer.playerUserId);
+      if (!current || current.offerId !== offer.id) {
+        throw new BadRequestException('The player has moved or renewed since, so this transfer can no longer be reversed');
+      }
+      const club = await this.clubOf(em, offer.toClubId);
+      const profile = await this.profileOf(em, offer.playerUserId);
+      profileId = profile.id;
+      const fromClub = offer.fromClubId
+        ? await em.getRepository(Club).findOne({ where: { id: offer.fromClubId } })
+        : null;
+      names = { player: profile.user?.name ?? 'Player', club: club.name, fromClub: fromClub?.name ?? null };
+      moved = offer.fromClubId !== offer.toClubId;
+
+      if (offer.amountTk > 0) {
+        await this.walletsService.adjust(em, this.payee(offer), -offer.amountTk, 'reversal', { offerId: offer.id, counterparty: club.name });
+        await this.walletsService.adjust(em, this.clubWallet(club.id), offer.amountTk, 'reversal', {
+          offerId: offer.id,
+          counterparty: offer.payeeType === 'club' ? (fromClub?.name ?? 'Club') : names.player,
+        });
+      }
+
+      current.status = 'ended';
+      current.endedAt = new Date();
+      current.endReason = 'reversed';
+      await em.save(current);
+
+      // The contract this transfer ended (same moment it completed) comes back as it was.
+      const ended = await em.getRepository(PlayerContract).find({ where: { userId: offer.playerUserId, status: 'ended' } });
+      const completedAt = offer.completedAt ? new Date(offer.completedAt).getTime() : NaN;
+      const previous = ended.find((c) => c.id !== current.id && c.endedAt && new Date(c.endedAt).getTime() === completedAt) ?? null;
+      const backToClub = fromClub && !fromClub.deletedAt ? fromClub : null;
+      if (previous && (previous.clubId === backToClub?.id || !moved)) {
+        previous.status = 'active';
+        previous.endedAt = null;
+        previous.endReason = null;
+        await em.save(previous);
+      }
+      if (moved) {
+        await em
+          .getRepository(EfootballProfile)
+          .update({ id: profile.id }, backToClub ? { clubId: backToClub.id, clubRole: ClubRole.PLAYER, teamId: null } : { clubId: null, clubRole: null, teamId: null });
+      }
+      offer.status = 'reversed';
+      await em.save(offer);
+    });
+
+    if (moved) {
+      try {
+        await this.communitiesService.onClubMemberRemoved(offer.toClubId, profileId);
+        if (offer.fromClubId) await this.communitiesService.onClubMemberAdded(offer.fromClubId, profileId);
+      } catch (err) {
+        this.logger.error(`Community membership update after reversing ${offer.id} failed: ${(err as Error).message}`);
+      }
+    }
+    const notice: Notice = {
+      code: 'transfer.reversedByStaff',
+      title: 'Transfer reversed by ALLYNQ staff',
+      message: `${names.player}'s move to ${names.club} was reversed by ALLYNQ staff: ${reason}`,
+      link: PLAYER_LINK,
+      params: { player: names.player, club: names.club, amount: offer.amountTk, reason },
+    };
+    await this.dispatch(offer, [
+      { to: 'player', notice },
+      { to: 'clubLeaders', notice: { ...notice, link: clubLink(offer.toClubId) } },
+      ...(offer.fromClubId && moved ? [{ to: 'fromClubLeaders' as const, notice: { ...notice, link: clubLink(offer.fromClubId) } }] : []),
+    ]);
+    return this.offerView(offerId);
+  }
+
+  /** Staff end a player's lock now: he becomes a free agent at his club. */
+  async staffEndLock(userId: string, reason: string): Promise<ContractView> {
+    const contract = await this.dataSource.getRepository(PlayerContract).findOne({ where: { userId, status: 'active' } });
+    if (!contract) throw new BadRequestException('This player has no active contract');
+    if (!isLocked(contract.lockEndsAt)) throw new BadRequestException('The lock has already ended');
+    contract.lockEndsAt = new Date();
+    contract.notifiedFreeAt = new Date();
+    await this.dataSource.getRepository(PlayerContract).save(contract);
+    const club = await this.dataSource.getRepository(Club).findOne({ where: { id: contract.clubId } });
+    const player = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+    const notice: Notice = {
+      code: 'transfer.lockEndedByStaff',
+      title: 'Lock ended by ALLYNQ staff',
+      message: `${player?.name ?? 'The player'}'s lock at ${club?.name ?? 'the club'} was ended early by ALLYNQ staff: ${reason}. He is now a free agent.`,
+      link: PLAYER_LINK,
+      params: { player: player?.name ?? '', club: club?.name ?? '', reason },
+    };
+    await this.notifyUsers([userId], notice);
+    await this.notifyUsers(await this.clubLeaderIds(contract.clubId), { ...notice, link: clubLink(contract.clubId) });
+    return this.contractView(contract, club?.name);
+  }
 
   private async clubLeaderIds(clubId: string): Promise<string[]> {
     const rows = await this.dataSource.getRepository(EfootballProfile).find({

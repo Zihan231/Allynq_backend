@@ -14,11 +14,14 @@ import { AdminController } from './admin.controller.js';
 import { AuditService } from './audit.service.js';
 import { AdminAuditLog } from './entities/admin-audit-log.entity.js';
 import { SystemRoleGuard } from './system-role.guard.js';
+import { TransfersModule } from '../transfers/transfers.module.js';
+import { AdminPlatformService } from './admin-platform.service.js';
+import { Announcement } from './entities/announcement.entity.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, AdminAuditLog]), NotificationsModule, TournamentsModule, CommunitiesModule],
+  imports: [TypeOrmModule.forFeature([User, AdminAuditLog, Announcement]), NotificationsModule, TournamentsModule, CommunitiesModule, TransfersModule],
   controllers: [AdminController],
-  providers: [AdminActivityService, AdminDashboardService, AdminDisputesService, AdminManageService, AdminUsersService, AdminContentService, AuditService, SystemRoleGuard],
+  providers: [AdminActivityService, AdminDashboardService, AdminDisputesService, AdminManageService, AdminPlatformService, AdminUsersService, AdminContentService, AuditService, SystemRoleGuard],
   exports: [AuditService, AdminUsersService, AdminContentService],
 })
 export class AdminModule {}
