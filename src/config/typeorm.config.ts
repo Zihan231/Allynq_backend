@@ -18,6 +18,8 @@ import { TournamentParticipant } from '../tournaments/entities/tournament-partic
 import { Tournament } from '../tournaments/entities/tournament.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
+import { ReportMessage } from '../reports/entities/report-message.entity.js';
+import { Report } from '../reports/entities/report.entity.js';
 import { RecycleBinItem } from '../recycle-bin/recycle-bin-item.entity.js';
 import { AppSetting } from '../settings/app-setting.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
@@ -55,6 +57,8 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       LoginEvent,
       AdminAuditLog,
       RecycleBinItem,
+      Report,
+      ReportMessage,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

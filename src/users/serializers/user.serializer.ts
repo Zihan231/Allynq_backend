@@ -5,6 +5,7 @@ type PrivateModerationFields =
   | 'suspendReason'
   | 'banReason'
   | 'warningsCount'
+  | 'reportStrikes'
   | 'verificationNote'
   | 'verificationReviewedById'
   | 'verificationReviewedAt'
@@ -36,6 +37,7 @@ export function serializeUser(user: User, isSelf = false): PublicUser | User {
     suspendReason: _suspendReason,
     banReason: _banReason,
     warningsCount: _warningsCount,
+    reportStrikes: _reportStrikes,
     verificationNote: _verificationNote,
     verificationReviewedById: _verificationReviewedById,
     verificationReviewedAt: _verificationReviewedAt,

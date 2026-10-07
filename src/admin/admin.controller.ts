@@ -18,6 +18,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { BIN_ENTITY_TYPES, type BinEntityType } from '../recycle-bin/recycle-bin-item.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { SystemRole } from '../users/enums/user-attributes.enum.js';
+import { ActivityFeedQueryDto, LoginFeedQueryDto } from '../reports/dto/report.dto.js';
+import { AdminActivityService } from './admin-activity.service.js';
 import { AdminContentService } from './admin-content.service.js';
 import { AdminDashboardService } from './admin-dashboard.service.js';
 import { AdminUsersService } from './admin-users.service.js';
@@ -67,7 +69,20 @@ export class AdminController {
     private readonly users: AdminUsersService,
     private readonly content: AdminContentService,
     private readonly audit: AuditService,
+    private readonly activity: AdminActivityService,
   ) {}
+
+  // ------------------------------------------------- activity and sign-ins
+
+  @Get('activity')
+  activityFeed(@Query() query: ActivityFeedQueryDto) {
+    return this.activity.feed(query);
+  }
+
+  @Get('logins')
+  loginFeed(@Query() query: LoginFeedQueryDto) {
+    return this.activity.logins(query);
+  }
 
   @Get('dashboard')
   overview(@Query() query: DashboardQueryDto) {

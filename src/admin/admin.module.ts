@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { User } from '../users/entities/user.entity.js';
+import { AdminActivityService } from './admin-activity.service.js';
 import { AdminContentService } from './admin-content.service.js';
 import { AdminDashboardService } from './admin-dashboard.service.js';
 import { AdminUsersService } from './admin-users.service.js';
@@ -13,7 +14,7 @@ import { SystemRoleGuard } from './system-role.guard.js';
 @Module({
   imports: [TypeOrmModule.forFeature([User, AdminAuditLog]), NotificationsModule],
   controllers: [AdminController],
-  providers: [AdminDashboardService, AdminUsersService, AdminContentService, AuditService, SystemRoleGuard],
-  exports: [AuditService],
+  providers: [AdminActivityService, AdminDashboardService, AdminUsersService, AdminContentService, AuditService, SystemRoleGuard],
+  exports: [AuditService, AdminUsersService, AdminContentService],
 })
 export class AdminModule {}

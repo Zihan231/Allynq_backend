@@ -38,6 +38,22 @@ export interface ActionContext {
   ip?: string | null;
 }
 
+/** How a staff action reads on the user's own activity timeline. */
+const ACTION_VERBS: Record<string, string> = {
+  'user.warn': 'Warned',
+  'user.suspend': 'Suspended',
+  'user.unsuspend': 'Suspension lifted',
+  'user.ban': 'Banned',
+  'user.unban': 'Unbanned',
+  'user.force_logout': 'Signed out everywhere',
+  'user.reset_password': 'Password reset',
+  'user.edit': 'Details edited',
+  'user.role': 'Staff role changed',
+  'bin.delete': 'Moved to the recycle bin',
+  'verification.approve': 'ID approved',
+  'verification.reject': 'ID rejected',
+};
+
 const rankOf = (user: Pick<User, 'systemRole'>) => (user.systemRole ? SYSTEM_ROLE_RANK[user.systemRole] : 0);
 
 /** Snapshot of the moderation fields, for the audit log's before / after. */
@@ -515,7 +531,7 @@ export class AdminUsersService {
     await this.audit.record(actor, { action, targetType: 'user', targetId: user.id, targetName: user.name, before, after, reason, ip: ctx.ip });
     await this.activity.log(user.id, {
       type: `moderation.${action.split('.').pop()}`,
-      summary: `${action.replace('.', ': ')} by ${actor.name}${reason ? ` (${reason})` : ''}`,
+      summary: `${ACTION_VERBS[action] ?? action} by ${actor.name}${reason ? ` — ${reason}` : ''}`,
       targetType: 'user',
       targetId: user.id,
     });

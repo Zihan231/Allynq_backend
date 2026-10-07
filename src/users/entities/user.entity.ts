@@ -139,6 +139,10 @@ export class User {
   @Column({ type: 'int', default: 0 })
   warningsCount!: number;
 
+  /** False reports this user filed; at the limit they can no longer report. */
+  @Column({ type: 'int', default: 0 })
+  reportStrikes!: number;
+
   /** Bumped to sign the user out everywhere: older tokens stop working. */
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;

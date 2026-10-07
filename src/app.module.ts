@@ -13,6 +13,7 @@ import { CommunitiesModule } from './communities/communities.module.js';
 import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { RecycleBinModule } from './recycle-bin/recycle-bin.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 import { TournamentsModule } from './tournaments/tournaments.module.js';
 import { StatsModule } from './stats/stats.module.js';
 import { SettingsModule } from './settings/settings.module.js';
@@ -41,6 +42,7 @@ import { UsersModule } from './users/users.module.js';
     SettingsModule,
     TransfersModule,
     AdminModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

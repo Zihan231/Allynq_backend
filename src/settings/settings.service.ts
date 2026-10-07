@@ -32,11 +32,17 @@ export interface AdminSettings {
   binRetentionDays: number;
   /** Longest suspension a moderator may give; admins have no limit. */
   moderatorMaxSuspendDays: number;
+  /** Reports one player may file in 24 hours. */
+  reportDailyLimit: number;
+  /** False-report strikes after which a player can no longer report. */
+  reportStrikeLimit: number;
 }
 
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   binRetentionDays: 30,
   moderatorMaxSuspendDays: 7,
+  reportDailyLimit: 10,
+  reportStrikeLimit: 3,
 };
 
 const CACHE_MS = 30_000;

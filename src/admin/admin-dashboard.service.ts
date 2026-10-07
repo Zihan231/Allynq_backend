@@ -291,6 +291,9 @@ export class AdminDashboardService {
          (SELECT count(*)::int FROM tournament_matches m JOIN tournaments t ON t.id = m."tournamentId"
            WHERE t."deletedAt" IS NULL AND m.status = 'in_review' AND m."updatedAt" < now() - interval '48 hours') AS "staleDisputes",
          (SELECT count(*)::int FROM recycle_bin WHERE "purgeAfter" < now() + interval '3 days') AS "binExpiringSoon",
+         (SELECT count(*)::int FROM reports WHERE status IN ('open', 'in_review')) AS "openReports",
+         (SELECT count(*)::int FROM reports WHERE status = 'open' AND "assigneeId" IS NULL) AS "unassignedReports",
+         (SELECT count(*)::int FROM reports WHERE status IN ('open', 'in_review') AND "reportedAs" <> 'self') AS "leaderReports",
          (SELECT count(*)::int FROM users WHERE "suspendedUntil" BETWEEN now() AND now() + interval '24 hours') AS "suspensionsEndingToday",
          (SELECT count(*)::int FROM (
             SELECT l.ip FROM login_events l WHERE NOT l.success AND l."createdAt" > now() - interval '24 hours' AND l.ip IS NOT NULL
