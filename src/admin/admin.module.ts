@@ -26,10 +26,13 @@ import { NotificationTemplate } from '../notifications/entities/notification-tem
 import { AdminPhaseSixService } from './admin-phase-six.service.js';
 import { AdminBackupsService } from './admin-backups.service.js';
 import { PlatformPublicController } from './platform-public.controller.js';
+import { SeasonStanding } from './entities/season-standing.entity.js';
+import { StatsModule } from '../stats/stats.module.js';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      SeasonStanding,
       User,
       AdminAuditLog,
       Announcement,
@@ -44,6 +47,7 @@ import { PlatformPublicController } from './platform-public.controller.js';
     TournamentsModule,
     CommunitiesModule,
     TransfersModule,
+    StatsModule,
   ],
   controllers: [AdminController, PlatformPublicController],
   providers: [

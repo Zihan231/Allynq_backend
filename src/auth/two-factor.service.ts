@@ -1,5 +1,7 @@
 import {
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -26,6 +28,9 @@ interface ChallengePayload {
 }
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+/** Wrong codes allowed before two-step sign-in locks, and for how long. */
+export const MAX_FAILED_CODES = 5;
+export const LOCK_MINUTES = 15;
 
 function base32Encode(input: Buffer): string {
   let bits = '';
@@ -121,6 +126,9 @@ export class TwoFactorService {
         'Set up an authenticator before verifying the code',
       );
     }
+    if (user.twoFactorLockedUntil && new Date(user.twoFactorLockedUntil).getTime() > Date.now()) {
+      throw this.lockedError(new Date(user.twoFactorLockedUntil));
+    }
     const secret = this.decrypt(user.twoFactorSecretEncrypted);
     const currentCounter = Math.floor(Date.now() / 30_000);
     const acceptedWindow = [-1, 0, 1].find((window) => {
@@ -130,10 +138,7 @@ export class TwoFactorService {
         expected.length === actual.length && timingSafeEqual(expected, actual)
       );
     });
-    if (acceptedWindow === undefined)
-      throw new UnauthorizedException(
-        'That authentication code is invalid or expired',
-      );
+    if (acceptedWindow === undefined) return this.recordWrongCode(user);
     const counter = currentCounter + acceptedWindow;
     if (
       user.twoFactorLastCounter !== null &&
@@ -148,7 +153,12 @@ export class TwoFactorService {
     const updated = await this.users
       .createQueryBuilder()
       .update(User)
-      .set({ twoFactorEnabledAt: enabledAt, twoFactorLastCounter: counter })
+      .set({
+        twoFactorEnabledAt: enabledAt,
+        twoFactorLastCounter: counter,
+        twoFactorFailedAttempts: 0,
+        twoFactorLockedUntil: null,
+      })
       .where('id = :id', { id: user.id })
       .andWhere(
         '("twoFactorLastCounter" IS NULL OR "twoFactorLastCounter" < :counter)',
@@ -163,6 +173,36 @@ export class TwoFactorService {
     user.twoFactorEnabledAt = enabledAt;
     user.twoFactorLastCounter = counter;
     return user;
+  }
+
+  /**
+   * Counts a wrong code. At the limit the account's two-step sign-in locks for a while,
+   * so a known password can't be paired with guessing codes. Always throws.
+   */
+  private async recordWrongCode(user: User): Promise<never> {
+    // Incremented in SQL so parallel guesses can't each see the old count.
+    // (For UPDATE … RETURNING the Postgres driver returns [rows, affectedCount].)
+    const [rows] = (await this.users.query(
+      `UPDATE users SET "twoFactorFailedAttempts" = "twoFactorFailedAttempts" + 1 WHERE id = $1 RETURNING "twoFactorFailedAttempts"`,
+      [user.id],
+    )) as [Array<{ twoFactorFailedAttempts: number }>, number];
+    const attempts = rows[0]?.twoFactorFailedAttempts ?? MAX_FAILED_CODES;
+    if (attempts >= MAX_FAILED_CODES) {
+      const until = new Date(Date.now() + LOCK_MINUTES * 60_000);
+      await this.users.update(user.id, { twoFactorFailedAttempts: 0, twoFactorLockedUntil: until });
+      throw this.lockedError(until);
+    }
+    throw new UnauthorizedException(
+      `That authentication code is invalid or expired. ${MAX_FAILED_CODES - attempts} tries left.`,
+    );
+  }
+
+  private lockedError(until: Date): HttpException {
+    const minutes = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000));
+    return new HttpException(
+      `Too many wrong codes. Two-step sign-in is locked for ${minutes} more minute${minutes === 1 ? '' : 's'}.`,
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   }
 
   private async challenge(

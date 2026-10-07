@@ -140,7 +140,6 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, client: ClientInfo = {}) {
-    await this.security.assertAllowed(client);
     const loginClient = {
       userAgent: client.userAgent,
       ...this.security.describe(client),
@@ -155,6 +154,8 @@ export class AuthService {
       .getOne();
 
     const email = dto.email.trim();
+    // Banned networks / devices can't even try a password; staff accounts are exempt.
+    await this.security.assertAllowed(client, { staff: Boolean(user?.systemRole) });
     if (!user || !user.password) {
       await this.activity.logLogin({
         userId: user?.id ?? null,
@@ -205,7 +206,7 @@ export class AuthService {
     code: string,
     client: ClientInfo = {},
   ) {
-    await this.security.assertAllowed(client);
+    // Only staff reach this step, and staff are never network/device banned.
     const user = await this.twoFactor.verify(token, code);
     const blocked = AuthService.blockedReason(user);
     if (blocked) throw new ForbiddenException(blocked.message);

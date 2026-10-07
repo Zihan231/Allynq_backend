@@ -16,24 +16,9 @@ import {
   StaffTwoFactorTokenDto,
   VerifyStaffTwoFactorDto,
 } from './dto/two-factor.dto.js';
+import { cookieOptions, STAFF_COOKIE_NAME } from './auth-cookies.js';
 
 const COOKIE_MAX_AGE_MS = 60 * 60 * 1000; // 1h, matches the JWT expiry
-
-// Deciding secure/sameSite from NODE_ENV is unreliable — Render doesn't set
-// it by default, and a wrong guess makes the browser silently drop the
-// cookie. `req.secure` reflects the real protocol (via the trust-proxy
-// setting in main.ts), so a cross-site HTTPS deployment always gets the
-// sameSite=none/secure pairing it needs, and plain-HTTP localhost gets
-// sameSite=lax/secure=false, regardless of how NODE_ENV is configured.
-function cookieOptions(req: Request) {
-  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  return {
-    httpOnly: true,
-    secure: isHttps,
-    sameSite: (isHttps ? 'none' : 'lax') as 'none' | 'lax',
-    path: '/',
-  };
-}
 
 function clientInfo(req: Request) {
   const deviceHeader = req.headers['x-device-id'];
@@ -56,6 +41,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.register(dto, clientInfo(req));
+    res.clearCookie(STAFF_COOKIE_NAME, cookieOptions(req));
     res.cookie(JWT_COOKIE_NAME, result.accessToken, {
       ...cookieOptions(req),
       maxAge: COOKIE_MAX_AGE_MS,
@@ -72,6 +58,7 @@ export class AuthController {
   ) {
     const result = await this.authService.login(dto, clientInfo(req));
     if ('accessToken' in result) {
+      res.clearCookie(STAFF_COOKIE_NAME, cookieOptions(req));
       res.cookie(JWT_COOKIE_NAME, result.accessToken, {
         ...cookieOptions(req),
         maxAge: COOKIE_MAX_AGE_MS,
@@ -100,6 +87,7 @@ export class AuthController {
       dto.code,
       clientInfo(req),
     );
+    res.clearCookie(STAFF_COOKIE_NAME, cookieOptions(req));
     res.cookie(JWT_COOKIE_NAME, result.accessToken, {
       ...cookieOptions(req),
       maxAge: COOKIE_MAX_AGE_MS,
@@ -107,10 +95,31 @@ export class AuthController {
     return result;
   }
 
+  /**
+   * Leaves a view-as-user session: the staff member's own session comes back. Works even
+   * after the short view-as token has expired.
+   */
+  @Post('view-as/exit')
+  @HttpCode(HttpStatus.OK)
+  exitViewAs(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const staffToken: string | undefined = req.cookies?.[STAFF_COOKIE_NAME];
+    res.clearCookie(STAFF_COOKIE_NAME, cookieOptions(req));
+    if (!staffToken) {
+      res.clearCookie(JWT_COOKIE_NAME, cookieOptions(req));
+      return { restored: false };
+    }
+    res.cookie(JWT_COOKIE_NAME, staffToken, {
+      ...cookieOptions(req),
+      maxAge: COOKIE_MAX_AGE_MS,
+    });
+    return { restored: true };
+  }
+
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     res.clearCookie(JWT_COOKIE_NAME, cookieOptions(req));
+    res.clearCookie(STAFF_COOKIE_NAME, cookieOptions(req));
     return { success: true };
   }
 }

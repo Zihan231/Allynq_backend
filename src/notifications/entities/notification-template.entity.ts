@@ -1,6 +1,9 @@
 import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
-/** Staff override for a coded notification's English fallback text. */
+/**
+ * Staff wording for a coded notification, in English and (optionally) Bangla. Placeholders
+ * use the app's `{name}` style. The app shows it instead of its built-in wording.
+ */
 @Entity('notification_templates')
 export class NotificationTemplate {
   @PrimaryColumn({ type: 'varchar', length: 64 })
@@ -11,6 +14,12 @@ export class NotificationTemplate {
 
   @Column({ type: 'text' })
   messageTemplate!: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  titleTemplateBn!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  messageTemplateBn!: string | null;
 
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;

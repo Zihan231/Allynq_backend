@@ -52,15 +52,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (payload.purpose && payload.purpose !== 'access') {
       throw new UnauthorizedException('This token cannot be used as a session');
     }
-    const deviceHeader = req.headers['x-device-id'];
-    await this.security.assertAllowed({
-      ip: req.ip ?? null,
-      deviceId:
-        (Array.isArray(deviceHeader) ? deviceHeader[0] : deviceHeader)?.slice(
-          0,
-          255,
-        ) ?? null,
-    });
     const user = await this.usersRepository.findOne({
       where: { id: payload.sub },
       relations: {
@@ -84,6 +75,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (blocked) {
       throw new UnauthorizedException(blocked.message);
     }
+    // Network / device bans; staff (and staff viewing as a user) are exempt.
+    const deviceHeader = req.headers['x-device-id'];
+    await this.security.assertAllowed(
+      {
+        ip: req.ip ?? null,
+        deviceId: (Array.isArray(deviceHeader) ? deviceHeader[0] : deviceHeader)?.slice(0, 255) ?? null,
+      },
+      { staff: Boolean(user.systemRole || payload.viewOnly) },
+    );
 
     if (payload.viewOnly) {
       if (!payload.act)

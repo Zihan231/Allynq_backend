@@ -34,6 +34,7 @@ import { Season } from '../admin/entities/season.entity.js';
 import { StoreItem } from '../admin/entities/store-item.entity.js';
 import { NotificationTemplate } from '../notifications/entities/notification-template.entity.js';
 import { SecurityBan } from '../security/security-ban.entity.js';
+import { SeasonStanding } from '../admin/entities/season-standing.entity.js';
 
 export function buildTypeOrmOptions(
   configService: ConfigService,
@@ -70,6 +71,7 @@ export function buildTypeOrmOptions(
       Report,
       ReportMessage,
       Announcement,
+      SeasonStanding,
       AccountLabel,
       AccountStaffNote,
       NotificationTemplate,

@@ -40,6 +40,13 @@ export class NotificationsController {
     });
   }
 
+  /** Staff-edited wording for notification types; the app prefers it over its built-in text. */
+  @UseGuards(JwtAuthGuard)
+  @Get('templates')
+  templates() {
+    return this.notificationsService.activeTemplates();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('unread-count')
   async getUnreadCount(@CurrentUser() user: User) {

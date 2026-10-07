@@ -73,12 +73,15 @@ async function bootstrap() {
       if (isAllowed) {
         callback(null, true);
       } else {
-        callback(new Error(`CORS policy error: Origin ${origin} is not allowed`));
+        callback(
+          new Error(`CORS policy error: Origin ${origin} is not allowed`),
+        );
       }
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
-    allowedHeaders: 'Content-Type,Accept,Authorization,X-Requested-With',
+    allowedHeaders:
+      'Content-Type,Accept,Authorization,X-Requested-With,X-Device-Id',
   });
 
   const port = process.env.PORT ?? 3001;

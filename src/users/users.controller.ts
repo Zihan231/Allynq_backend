@@ -37,8 +37,14 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  getMyProfile(@CurrentUser() user: User) {
-    return serializeUser(user, true);
+  async getMyProfile(@CurrentUser() user: User) {
+    const me = serializeUser(user, true);
+    // Staff viewing as this user: the app shows a read-only banner with an Exit button.
+    if (user.authContext?.viewOnly && user.authContext.actorId) {
+      const actor = await this.usersService.findOne(user.authContext.actorId).catch(() => null);
+      return { ...me, viewAs: { actorId: user.authContext.actorId, actorName: actor?.name ?? null } };
+    }
+    return me;
   }
 
   @UseGuards(JwtAuthGuard)

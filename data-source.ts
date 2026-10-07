@@ -23,6 +23,7 @@ import { AdminAuditLog } from './src/admin/entities/admin-audit-log.entity.js';
 import { Announcement } from './src/admin/entities/announcement.entity.js';
 import { PlatformBackup } from './src/admin/entities/platform-backup.entity.js';
 import { Season } from './src/admin/entities/season.entity.js';
+import { SeasonStanding } from './src/admin/entities/season-standing.entity.js';
 import { StoreItem } from './src/admin/entities/store-item.entity.js';
 import { NotificationTemplate } from './src/notifications/entities/notification-template.entity.js';
 import { RecycleBinItem } from './src/recycle-bin/recycle-bin-item.entity.js';
@@ -64,6 +65,7 @@ export default new DataSource({
     NotificationTemplate,
     PlatformBackup,
     Season,
+    SeasonStanding,
     StoreItem,
     SecurityBan,
     RecycleBinItem,

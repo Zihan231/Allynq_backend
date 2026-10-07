@@ -28,9 +28,11 @@ import { AccountLabel } from './entities/account-label.entity.js';
 import { AccountStaffNote } from './entities/account-staff-note.entity.js';
 import { Season } from './entities/season.entity.js';
 import { StoreItem } from './entities/store-item.entity.js';
+import { SeasonStanding } from './entities/season-standing.entity.js';
+import { StatsService } from '../stats/stats.service.js';
 
 type Actor = Pick<User, 'id' | 'name' | 'systemRole'>;
-type ActionContext = { ip?: string | null };
+type ActionContext = { ip?: string | null; deviceId?: string | null };
 
 @Injectable()
 export class AdminPhaseSixService {
@@ -45,11 +47,14 @@ export class AdminPhaseSixService {
     @InjectRepository(Season) private readonly seasons: Repository<Season>,
     @InjectRepository(StoreItem)
     private readonly storeItems: Repository<StoreItem>,
+    @InjectRepository(SeasonStanding)
+    private readonly standings: Repository<SeasonStanding>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly notifications: NotificationsService,
     private readonly security: SecurityService,
     private readonly audit: AuditService,
     private readonly jwt: JwtService,
+    private readonly stats: StatsService,
   ) {}
 
   // ----------------------------------------------------- network and devices
@@ -66,6 +71,7 @@ export class AdminPhaseSixService {
     const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now())
       throw new BadRequestException('Expiry must be in the future');
+    this.assertNotOwnClient(dto.kind, this.security.hash(dto.kind, dto.value), context);
     const ban = await this.security.create({
       ...dto,
       expiresAt,
@@ -92,6 +98,12 @@ export class AdminPhaseSixService {
     const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now())
       throw new BadRequestException('Expiry must be in the future');
+    const login = await this.dataSource.query(`SELECT ip, "deviceHash" FROM login_events WHERE id = $1`, [loginId]);
+    const own = login[0];
+    if (own) {
+      const hash = dto.kind === 'ip' ? (own.ip ? this.security.hash('ip', own.ip) : null) : own.deviceHash;
+      if (hash) this.assertNotOwnClient(dto.kind, hash, context);
+    }
     const ban = await this.security.createFromLogin(
       loginId,
       dto.kind,
@@ -286,6 +298,8 @@ export class AdminPhaseSixService {
       code,
       titleTemplate: dto.titleTemplate.trim(),
       messageTemplate: dto.messageTemplate.trim(),
+      titleTemplateBn: dto.titleTemplateBn?.trim() || null,
+      messageTemplateBn: dto.messageTemplateBn?.trim() || null,
       enabled: dto.enabled ?? true,
       updatedById: actor.id,
     });
@@ -415,6 +429,9 @@ export class AdminPhaseSixService {
   }
 
   async activateSeason(actor: Actor, id: string, context: ActionContext) {
+    // The season being replaced keeps its final standings.
+    const current = await this.seasons.findOne({ where: { status: 'active' } });
+    if (current && current.id !== id) await this.archiveStandings(current);
     const row = await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(Season);
       const target = await repo.findOne({
@@ -452,6 +469,9 @@ export class AdminPhaseSixService {
   ) {
     const row = await this.requireSeason(id);
     const before = row.status;
+    if (before === 'closed') throw new ConflictException('This season is already closed');
+    // Final standings are taken while it is still active (the "this season" rankings).
+    const archived = before === 'active' ? await this.archiveStandings(row) : { players: 0, clubs: 0 };
     row.status = 'closed';
     await this.seasons.save(row);
     await this.audit.record(actor, {
@@ -460,7 +480,7 @@ export class AdminPhaseSixService {
       targetId: row.id,
       targetName: row.name,
       before: { status: before },
-      after: { status: row.status },
+      after: { status: row.status, archivedPlayers: archived.players, archivedClubs: archived.clubs },
       reason,
       ip: context.ip,
     });
@@ -563,9 +583,12 @@ export class AdminPhaseSixService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!target) throw new NotFoundException('User not found');
+      // Owned items are stored by their code (the same ids the store and profiles use).
       const owned = new Set(target.ownedCosmeticIds ?? []);
-      if (remove) owned.delete(item.id);
-      else owned.add(item.id);
+      if (remove) {
+        owned.delete(item.sku);
+        owned.delete(item.id);
+      } else owned.add(item.sku);
       target.ownedCosmeticIds = [...owned];
       return repo.save(target);
     });
@@ -690,6 +713,45 @@ export class AdminPhaseSixService {
       viewOnly: true,
       user: serializeUser(user, false),
     };
+  }
+
+  /** A season's archived final standings (top 100 players and clubs). */
+  seasonStandings(seasonId: string, kind: 'player' | 'club') {
+    return this.standings.find({ where: { seasonId, kind }, order: { rank: 'ASC' } });
+  }
+
+  /** Saves the top 100 players and clubs of the active season's rankings. */
+  private async archiveStandings(season: Season): Promise<{ players: number; clubs: number }> {
+    const [players, clubs] = await Promise.all([
+      this.stats.playerRankings({ period: 'this-season', page: 1, limit: 100 }),
+      this.stats.clubRankings({ period: 'this-season', page: 1, limit: 100 }),
+    ]);
+    const rows = [
+      ...players.data.filter((r) => r.rank != null).map((r) => ({ kind: 'player' as const, r })),
+      ...clubs.data.filter((r) => r.rank != null).map((r) => ({ kind: 'club' as const, r })),
+    ].map(({ kind, r }) =>
+      this.standings.create({
+        seasonId: season.id,
+        kind,
+        rank: Number(r.rank),
+        entityId: r.id,
+        name: String((r as { name?: string }).name ?? ''),
+        line: r as unknown as Record<string, unknown>,
+      }),
+    );
+    await this.standings.delete({ seasonId: season.id });
+    if (rows.length) await this.standings.save(rows, { chunk: 100 });
+    return { players: rows.filter((r) => r.kind === 'player').length, clubs: rows.filter((r) => r.kind === 'club').length };
+  }
+
+  private assertNotOwnClient(kind: 'ip' | 'device', hash: string, context: ActionContext) {
+    if (this.security.matchesClient(kind, hash, { ip: context.ip, deviceId: context.deviceId })) {
+      throw new BadRequestException(
+        kind === 'ip'
+          ? "That's the network you're using right now. Banning it could lock out you and other staff on it."
+          : "That's the device you're using right now.",
+      );
+    }
   }
 
   private async requireUser(id: string): Promise<User> {

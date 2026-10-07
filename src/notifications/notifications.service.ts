@@ -124,6 +124,19 @@ export class NotificationsService {
     return unique.length;
   }
 
+  /** Staff wording that replaces the app's built-in text for some notification codes. */
+  async activeTemplates() {
+    const rows = await this.templatesRepository.find({ where: { enabled: true } });
+    return rows.map((r) => ({
+      code: r.code,
+      title: r.titleTemplate,
+      message: r.messageTemplate,
+      titleBn: r.titleTemplateBn,
+      messageBn: r.messageTemplateBn,
+      updatedAt: r.updatedAt,
+    }));
+  }
+
   clearTemplateCache(code?: string): void {
     if (code) this.templateCache.delete(code);
     else this.templateCache.clear();
@@ -143,9 +156,10 @@ export class NotificationsService {
       this.templateCache.set(dto.code, { row, at: Date.now() });
     }
     if (!row?.enabled) return { title: dto.title, message: dto.message };
+    // Accepts the app's {name} placeholders (and {{name}}).
     const render = (template: string) =>
       template.replace(
-        /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/gu,
+        /\{\{?\s*([a-zA-Z0-9_]+)\s*\}\}?/gu,
         (_match, key: string) => {
           const value = dto.params?.[key];
           return value === null || value === undefined ? '' : String(value);

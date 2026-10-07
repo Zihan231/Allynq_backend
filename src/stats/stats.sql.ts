@@ -7,6 +7,10 @@
 export const STATS_PERIODS = ['all-time', 'this-week', 'last-week', 'this-month', 'last-month'] as const;
 export type StatsPeriod = (typeof STATS_PERIODS)[number];
 
+/** Rankings can also be limited to the active season (staff set its dates); empty when none is active. */
+export const RANKING_PERIODS = [...STATS_PERIODS, 'this-season'] as const;
+export type RankingPeriod = (typeof RANKING_PERIODS)[number];
+
 /** Games / fixtures whose result is final: reviewed by officials, or decided by the system. */
 export const CONFIRMED_GAME_STATUSES = `('approved', 'walkover', 'forfeited')`;
 
@@ -15,13 +19,15 @@ const TZ = `'Asia/Dhaka'`;
 const LOCAL_NOW = `(now() AT TIME ZONE ${TZ})`;
 
 /** SQL condition keeping rows of `column` (a timestamptz) inside the period. */
-export function periodCondition(period: StatsPeriod, column = '"playedAt"'): string {
+export function periodCondition(period: RankingPeriod, column = '"playedAt"'): string {
   const local = `(${column} AT TIME ZONE ${TZ})`;
   const unit = period.endsWith('week') ? 'week' : 'month';
   const start = `date_trunc('${unit}', ${LOCAL_NOW})`;
   switch (period) {
     case 'all-time':
       return 'TRUE';
+    case 'this-season':
+      return `EXISTS (SELECT 1 FROM seasons s WHERE s.status = 'active' AND ${column} >= s."startsAt" AND ${column} < s."endsAt")`;
     case 'this-week':
     case 'this-month':
       return `${local} >= ${start}`;

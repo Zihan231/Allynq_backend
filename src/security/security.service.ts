@@ -18,9 +18,13 @@ export interface SecurityClient {
   deviceId?: string | null;
 }
 
+const CACHE_MS = 30_000;
+
 @Injectable()
 export class SecurityService {
   private readonly hashKey: string;
+  /** Active bans by "kind:hash" → expiry (null = permanent), refreshed every 30 s and on every change. */
+  private cache: { at: number; bans: Map<string, number | null> } | null = null;
 
   constructor(
     @InjectRepository(SecurityBan)
@@ -51,40 +55,46 @@ export class SecurityService {
     };
   }
 
-  async assertAllowed(client: SecurityClient): Promise<void> {
-    const checks: Array<{ kind: SecurityBanKind; hash: string }> = [];
-    if (client.ip?.trim())
-      checks.push({ kind: 'ip', hash: this.hash('ip', client.ip) });
-    if (client.deviceId?.trim())
-      checks.push({
-        kind: 'device',
-        hash: this.hash('device', client.deviceId),
-      });
+  /**
+   * Refuses a banned IP or device. Staff accounts are never checked, so a ban can't lock
+   * the people who manage bans out of ALLYNQ. Uses a short in-memory cache, not a query
+   * per request.
+   */
+  async assertAllowed(client: SecurityClient, options: { staff?: boolean } = {}): Promise<void> {
+    if (options.staff) return;
+    const checks: string[] = [];
+    if (client.ip?.trim()) checks.push(`ip:${this.hash('ip', client.ip)}`);
+    if (client.deviceId?.trim()) checks.push(`device:${this.hash('device', client.deviceId)}`);
     if (!checks.length) return;
-
-    const now = new Date();
-    for (const check of checks) {
-      const ban = await this.bans.findOne({
-        where: [
-          {
-            kind: check.kind,
-            valueHash: check.hash,
-            revokedAt: IsNull(),
-            expiresAt: IsNull(),
-          },
-          {
-            kind: check.kind,
-            valueHash: check.hash,
-            revokedAt: IsNull(),
-            expiresAt: MoreThan(now),
-          },
-        ],
-      });
-      if (ban)
-        throw new ForbiddenException(
-          'This network or device is not allowed to use Allync.',
-        );
+    const active = await this.activeBans();
+    const now = Date.now();
+    for (const key of checks) {
+      if (!active.has(key)) continue;
+      const expires = active.get(key);
+      if (expires == null || expires > now) {
+        throw new ForbiddenException('This network or device is not allowed to use ALLYNQ.');
+      }
     }
+  }
+
+  /** Whether a ban value (or an existing hash) is the given client's own IP or device. */
+  matchesClient(kind: SecurityBanKind, hash: string, client: SecurityClient): boolean {
+    if (kind === 'ip') return Boolean(client.ip?.trim()) && this.hash('ip', client.ip!) === hash;
+    return Boolean(client.deviceId?.trim()) && this.hash('device', client.deviceId!) === hash;
+  }
+
+  private async activeBans(): Promise<Map<string, number | null>> {
+    if (this.cache && Date.now() - this.cache.at < CACHE_MS) return this.cache.bans;
+    const rows = await this.bans.find({
+      where: [
+        { revokedAt: IsNull(), expiresAt: IsNull() },
+        { revokedAt: IsNull(), expiresAt: MoreThan(new Date()) },
+      ],
+      select: { kind: true, valueHash: true, expiresAt: true },
+    });
+    const bans = new Map<string, number | null>(rows.map((b) => [`${b.kind}:${b.valueHash}`, b.expiresAt ? new Date(b.expiresAt).getTime() : null]));
+    this.cache = { at: Date.now(), bans };
+    return bans;
   }
 
   async list(page = 1, limit = 50) {
@@ -160,6 +170,7 @@ export class SecurityService {
       ban.revokedAt = new Date();
       ban.revokedById = actorId;
       await this.bans.save(ban);
+      this.cache = null;
     }
     return ban;
   }
@@ -195,7 +206,9 @@ export class SecurityService {
       revokedAt: null,
       revokedById: null,
     });
-    return this.bans.save(row);
+    const saved = await this.bans.save(row);
+    this.cache = null;
+    return saved;
   }
 
   private normalize(kind: SecurityBanKind, value: string): string {

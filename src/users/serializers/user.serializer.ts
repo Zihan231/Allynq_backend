@@ -26,6 +26,8 @@ export type PublicUser = Omit<
   | 'twoFactorSecretEncrypted'
   | 'twoFactorEnabledAt'
   | 'twoFactorLastCounter'
+  | 'twoFactorFailedAttempts'
+  | 'twoFactorLockedUntil'
   | 'authContext'
   | PrivateModerationFields
 >;
@@ -37,6 +39,8 @@ export function serializeUser(user: User, isSelf = false): PublicUser | User {
     tokenVersion: _tokenVersion,
     twoFactorSecretEncrypted: _twoFactorSecretEncrypted,
     twoFactorLastCounter: _twoFactorLastCounter,
+    twoFactorFailedAttempts: _twoFactorFailedAttempts,
+    twoFactorLockedUntil: _twoFactorLockedUntil,
     authContext: _authContext,
     ...safeUser
   } = user as any;

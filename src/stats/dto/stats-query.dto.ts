@@ -1,11 +1,11 @@
 import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
-import { STATS_PERIODS, type StatsPeriod } from '../stats.sql.js';
+import { RANKING_PERIODS, type RankingPeriod } from '../stats.sql.js';
 
 class StatsQueryDto extends PaginationQueryDto {
   @IsOptional()
-  @IsIn(STATS_PERIODS)
-  period?: StatsPeriod;
+  @IsIn(RANKING_PERIODS)
+  period?: RankingPeriod;
 
   @IsOptional()
   @IsString()

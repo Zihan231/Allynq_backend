@@ -82,6 +82,16 @@ export class NotificationTemplateDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  titleTemplateBn?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  messageTemplateBn?: string;
 }
 
 export class CreateSeasonDto {

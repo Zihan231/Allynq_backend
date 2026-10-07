@@ -170,6 +170,13 @@ export class User {
   @Column({ type: 'int', nullable: true })
   twoFactorLastCounter!: number | null;
 
+  /** Wrong authenticator codes in a row; at the limit, two-step sign-in locks for a while. */
+  @Column({ type: 'int', default: 0 })
+  twoFactorFailedAttempts!: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  twoFactorLockedUntil!: Date | null;
+
   /** Set while the account is in the recycle bin (hidden and unable to sign in). */
   @Column({ type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;

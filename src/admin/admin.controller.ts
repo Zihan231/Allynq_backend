@@ -80,6 +80,8 @@ import {
   TransferSettingsDto,
   WalletAdjustDto,
 } from './dto/platform.dto.js';
+import { cookieOptions, STAFF_COOKIE_NAME } from '../auth/auth-cookies.js';
+import { JWT_COOKIE_NAME } from '../auth/auth.constants.js';
 import {
   AccountLabelDto,
   BanLoginDeviceDto,
@@ -97,7 +99,14 @@ import {
 import { AdminPhaseSixService } from './admin-phase-six.service.js';
 import { AdminBackupsService } from './admin-backups.service.js';
 
-const ctx = (req: Request) => ({ ip: req.ip ?? null });
+const ctx = (req: Request) => {
+  const device = req.headers['x-device-id'];
+  return {
+    ip: req.ip ?? null,
+    deviceId:
+      (Array.isArray(device) ? device[0] : device)?.slice(0, 255) ?? null,
+  };
+};
 const CONTENT_TYPES = ['club', 'community', 'tournament'] as const;
 type ContentType = (typeof CONTENT_TYPES)[number];
 
@@ -759,13 +768,32 @@ export class AdminController {
 
   @RequireSystemRole(SystemRole.ADMIN)
   @Post('users/:id/view-as')
-  viewAsUser(
+  async viewAsUser(
     @CurrentUser() actor: User,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ViewAsUserDto,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.phaseSix.viewAsUser(actor, id, dto, ctx(req));
+    const result = await this.phaseSix.viewAsUser(actor, id, dto, ctx(req));
+    // The staff session is kept aside and comes back with POST /auth/view-as/exit.
+    const authorization = req.headers.authorization;
+    const bearer = authorization?.startsWith('Bearer ')
+      ? authorization.slice(7).trim()
+      : undefined;
+    const staffToken: string | undefined =
+      req.cookies?.[JWT_COOKIE_NAME] ?? bearer;
+    if (staffToken)
+      res.cookie(STAFF_COOKIE_NAME, staffToken, {
+        ...cookieOptions(req),
+        maxAge: 60 * 60 * 1000,
+      });
+    res.cookie(JWT_COOKIE_NAME, result.accessToken, {
+      ...cookieOptions(req),
+      maxAge: new Date(result.expiresAt).getTime() - Date.now(),
+    });
+    // The token itself stays server-side (in the cookie).
+    return { viewOnly: true, expiresAt: result.expiresAt, user: result.user };
   }
 
   // ----------------------------------------------- Phase 6: IP/device bans

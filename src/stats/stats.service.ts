@@ -23,6 +23,7 @@ import {
   periodCondition,
   playerTotalsSql,
   STATS_PERIODS,
+  type RankingPeriod,
   type StatsPeriod,
 } from './stats.sql.js';
 
@@ -91,7 +92,7 @@ export class StatsService {
   // ---------------------------------------------------------------- players
 
   /** CTEs: the period's games, per-player totals with the current win streak, and the global ranking. */
-  private rankedPlayersSql(period: StatsPeriod): string {
+  private rankedPlayersSql(period: RankingPeriod): string {
     return `
       games AS (SELECT * FROM (${PLAYER_GAMES_SQL}) pg WHERE ${periodCondition(period)}),
       totals AS (${playerTotalsSql('games')}),
@@ -232,7 +233,7 @@ export class StatsService {
 
   // ------------------------------------------------------------------ clubs
 
-  private rankedClubsSql(period: StatsPeriod): string {
+  private rankedClubsSql(period: RankingPeriod): string {
     return `
       fixtures AS (SELECT * FROM (${CLUB_FIXTURES_SQL}) cf WHERE ${periodCondition(period)}),
       totals AS (${clubTotalsSql('fixtures')}),
