@@ -959,6 +959,9 @@ export class TransfersService {
     return {
       settings: { baseFeeTk: settings.baseFeeTk, lockDays: settings.lockDays, offerExpiryDays: settings.offerExpiryDays },
       clubId: profile?.clubId ?? null,
+      clubName: profile?.clubId
+        ? ((await this.dataSource.getRepository(Club).findOne({ where: { id: profile.clubId } }))?.name ?? null)
+        : null,
       clubRole: profile?.clubRole ?? null,
       contract: contract && profile?.clubId ? await this.contractView(contract) : null,
       commitment,
