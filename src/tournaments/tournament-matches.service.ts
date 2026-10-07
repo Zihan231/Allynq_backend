@@ -13,7 +13,11 @@ import {
   seedByPoints,
   type TournamentFormat,
 } from './bracket/format.js';
-import { crossGroupPairs, planKnockout, seededPairs } from './bracket/knockout.js';
+import {
+  crossGroupPairs,
+  planKnockout,
+  seededPairs,
+} from './bracket/knockout.js';
 import { roundRobin } from './bracket/round-robin.js';
 import {
   assignRange,
@@ -25,7 +29,11 @@ import {
   type PlayHours,
 } from './bracket/schedule.js';
 import { fixtureOutcome } from './bracket/scoring.js';
-import { computeStandings, type CompletedFixture, type StandingRow } from './bracket/standings.js';
+import {
+  computeStandings,
+  type CompletedFixture,
+  type StandingRow,
+} from './bracket/standings.js';
 import { TournamentGameTimeRequest } from './entities/tournament-game-time-request.entity.js';
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
@@ -43,7 +51,11 @@ interface ScheduleSlot {
 }
 
 /** Game statuses that count as a final result for the fixture. */
-const FINISHED_GAME_STATUSES: TournamentMatchGame['status'][] = ['approved', 'walkover', 'forfeited'];
+const FINISHED_GAME_STATUSES: TournamentMatchGame['status'][] = [
+  'approved',
+  'walkover',
+  'forfeited',
+];
 
 /** A player who takes part in a fixture's 1v1 games. */
 interface FixturePlayer {
@@ -65,8 +77,18 @@ export interface MatchGameView {
   id: string;
   slot: number;
   isDecider: boolean;
-  playerA: { profileId: string | null; userId: string | null; name: string; dpUrl: string | null };
-  playerB: { profileId: string | null; userId: string | null; name: string; dpUrl: string | null };
+  playerA: {
+    profileId: string | null;
+    userId: string | null;
+    name: string;
+    dpUrl: string | null;
+  };
+  playerB: {
+    profileId: string | null;
+    userId: string | null;
+    name: string;
+    dpUrl: string | null;
+  };
   goalsA: number | null;
   goalsB: number | null;
   status: TournamentMatchGame['status'];
@@ -78,7 +100,11 @@ export interface MatchGameView {
   scheduledEnd: Date | null;
   systemScheduledStart: Date | null;
   evidenceDeadline: Date | null;
-  pendingTimeRequest: { id: string; requestedByUserId: string; proposedStart: Date } | null;
+  pendingTimeRequest: {
+    id: string;
+    requestedByUserId: string;
+    proposedStart: Date;
+  } | null;
 }
 
 export interface MatchView {
@@ -106,7 +132,9 @@ export interface TournamentStructure {
   isCvC: boolean;
   groups: Array<{
     label: string;
-    standings: Array<StandingRow & { entrant: EntrantView | null; qualifies: boolean }>;
+    standings: Array<
+      StandingRow & { entrant: EntrantView | null; qualifies: boolean }
+    >;
     matches: MatchView[];
   }>;
   knockout: {
@@ -147,8 +175,13 @@ export class TournamentMatchesService {
   ): Promise<TournamentStructure> {
     const tournament = await this.tournamentsService.findOne(tournamentId);
     if (userId) {
-      await this.tournamentsService.assertCanManage(userId, tournament, 'generate fixtures');
-      const autoAt = new Date(tournament.startAt).getTime() - AUTO_GENERATE_BEFORE_START_MS;
+      await this.tournamentsService.assertCanManage(
+        userId,
+        tournament,
+        'generate fixtures',
+      );
+      const autoAt =
+        new Date(tournament.startAt).getTime() - AUTO_GENERATE_BEFORE_START_MS;
       const filled = tournament.participants?.length ?? 0;
       if (Date.now() < autoAt && filled < tournament.maxParticipants) {
         throw new BadRequestException(
@@ -158,11 +191,14 @@ export class TournamentMatchesService {
     }
 
     if (await this.matchesRepository.count({ where: { tournamentId } })) {
-      throw new BadRequestException('Fixtures have already been generated for this tournament');
+      throw new BadRequestException(
+        'Fixtures have already been generated for this tournament',
+      );
     }
 
     const participants = [...(tournament.participants ?? [])].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
     if (participants.length < MIN_ENTRANTS) {
       throw new BadRequestException(
@@ -196,7 +232,11 @@ export class TournamentMatchesService {
       matches.push(...this.buildKnockout(tournament.id, seededPairs(seeds)));
     } else {
       let matchNumber = 0;
-      const groups = drawGroups(participants.map((p) => p.id), groupCount(participants.length), rng);
+      const groups = drawGroups(
+        participants.map((p) => p.id),
+        groupCount(participants.length),
+        rng,
+      );
       groups.forEach((groupIds, index) => {
         roundRobin(groupIds).forEach((matchday, dayIndex) => {
           for (const [a, b] of matchday) {
@@ -221,14 +261,18 @@ export class TournamentMatchesService {
 
     const schedule = this.scheduleContext(tournament);
     const games = matches
-      .filter((m) => m.status === 'scheduled' && m.participantAId && m.participantBId)
+      .filter(
+        (m) => m.status === 'scheduled' && m.participantAId && m.participantBId,
+      )
       .flatMap((m) =>
         this.buildGames(
           m.id,
           playersByParticipant.get(m.participantAId!) ?? [],
           playersByParticipant.get(m.participantBId!) ?? [],
           {
-            dayStart: schedule.firstDay + (m.stage === 'group' ? (m.round - 1) * DAY_MS : 0),
+            dayStart:
+              schedule.firstDay +
+              (m.stage === 'group' ? (m.round - 1) * DAY_MS : 0),
             hours: schedule.hours,
             notBefore: schedule.earliest,
             rng,
@@ -246,17 +290,31 @@ export class TournamentMatchesService {
       await manager.update(
         Tournament,
         { id: tournament.id },
-        { format, status: started ? TournamentStatus.ONGOING : TournamentStatus.SUBMISSION_PHASE },
+        {
+          format,
+          status: started
+            ? TournamentStatus.ONGOING
+            : TournamentStatus.SUBMISSION_PHASE,
+        },
       );
     });
 
-    const groupsText = format === 'knockout' ? 'a straight knockout' : `${groupCount(participants.length)} groups`;
+    const groupsText =
+      format === 'knockout'
+        ? 'a straight knockout'
+        : `${groupCount(participants.length)} groups`;
     await this.tournamentsService.notifyParticipants(tournament, userId ?? '', {
       title: 'Fixtures are out',
       message: `The fixtures for "${tournament.name}" have been drawn (${groupsText}). Check your first match.`,
       link: tournamentLink(tournament, `?tab=bracket`),
-      code: format === 'knockout' ? 'tournament.fixturesOutKnockout' : 'tournament.fixturesOutGroups',
-      params: { tournament: tournament.name, groups: groupCount(participants.length) },
+      code:
+        format === 'knockout'
+          ? 'tournament.fixturesOutKnockout'
+          : 'tournament.fixturesOutGroups',
+      params: {
+        tournament: tournament.name,
+        groups: groupCount(participants.length),
+      },
     });
     await this.notifyScheduled(tournament, games);
 
@@ -286,6 +344,7 @@ export class TournamentMatchesService {
       `SELECT t.id FROM tournaments t
         WHERE t.format IS NULL
           AND t.status = $1
+          AND t."deletedAt" IS NULL
           AND t."startAt" <= $2
           AND t."startAt" > $3
           AND (SELECT COUNT(*) FROM tournament_participants p WHERE p."tournamentId" = t.id) >= $4`,
@@ -302,7 +361,9 @@ export class TournamentMatchesService {
         await this.generateStructure(null, id);
         generated++;
       } catch (err) {
-        this.logger.warn(`Auto-generating fixtures for ${id} failed: ${err instanceof Error ? err.message : err}`);
+        this.logger.warn(
+          `Auto-generating fixtures for ${id} failed: ${err instanceof Error ? err.message : err}`,
+        );
       }
     }
     return generated;
@@ -316,7 +377,9 @@ export class TournamentMatchesService {
       order: { round: 'ASC', matchNumber: 'ASC', games: { slot: 'ASC' } },
     });
 
-    const entrants = new Map((tournament.participants ?? []).map((p) => [p.id, entrantView(p)]));
+    const entrants = new Map(
+      (tournament.participants ?? []).map((p) => [p.id, entrantView(p)]),
+    );
     const gameIds = matches.flatMap((m) => (m.games ?? []).map((g) => g.id));
     const pendingRequests = gameIds.length
       ? await this.dataSource
@@ -332,35 +395,52 @@ export class TournamentMatchesService {
       roundName: m.roundName,
       matchNumber: m.matchNumber,
       status: m.status,
-      participantA: m.participantAId ? entrants.get(m.participantAId) ?? null : null,
-      participantB: m.participantBId ? entrants.get(m.participantBId) ?? null : null,
+      participantA: m.participantAId
+        ? (entrants.get(m.participantAId) ?? null)
+        : null,
+      participantB: m.participantBId
+        ? (entrants.get(m.participantBId) ?? null)
+        : null,
       scoreA: m.scoreA,
       scoreB: m.scoreB,
       goalsA: m.goalsA,
       goalsB: m.goalsB,
       winnerParticipantId: m.winnerParticipantId,
       doubleForfeit: m.doubleForfeit,
-      games: (m.games ?? []).map((g) => gameView(g, requestByGame.get(g.id) ?? null)),
+      games: (m.games ?? []).map((g) =>
+        gameView(g, requestByGame.get(g.id) ?? null),
+      ),
     });
 
     const groupMatches = matches.filter((m) => m.stage === 'group');
     const labels = [...new Set(groupMatches.map((m) => m.groupLabel!))].sort();
     const groups = labels.map((label) => {
       const own = groupMatches.filter((m) => m.groupLabel === label);
-      const ids = [...new Set(own.flatMap((m) => [m.participantAId, m.participantBId]))].filter(
-        (id): id is string => Boolean(id),
-      );
-      const standings = computeStandings(ids, own.filter(isCompletedFixture).map(toCompletedFixture)).map(
-        (row) => ({ ...row, entrant: entrants.get(row.entrantId) ?? null, qualifies: row.rank <= QUALIFIERS_PER_GROUP }),
-      );
+      const ids = [
+        ...new Set(own.flatMap((m) => [m.participantAId, m.participantBId])),
+      ].filter((id): id is string => Boolean(id));
+      const standings = computeStandings(
+        ids,
+        own.filter(isCompletedFixture).map(toCompletedFixture),
+      ).map((row) => ({
+        ...row,
+        entrant: entrants.get(row.entrantId) ?? null,
+        qualifies: row.rank <= QUALIFIERS_PER_GROUP,
+      }));
       return { label, standings, matches: own.map(toView) };
     });
 
     const knockoutMatches = matches.filter((m) => m.stage === 'knockout');
-    const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b).map((round) => {
-      const inRound = knockoutMatches.filter((m) => m.round === round);
-      return { round, name: inRound[0].roundName, matches: inRound.map(toView) };
-    });
+    const rounds = [...new Set(knockoutMatches.map((m) => m.round))]
+      .sort((a, b) => a - b)
+      .map((round) => {
+        const inRound = knockoutMatches.filter((m) => m.round === round);
+        return {
+          round,
+          name: inRound[0].roundName,
+          matches: inRound.map(toView),
+        };
+      });
 
     return {
       tournamentId,
@@ -368,8 +448,13 @@ export class TournamentMatchesService {
       isCvC: tournament.type === TournamentType.CVC,
       groups,
       knockout: {
-        pending: tournament.format === 'groups_knockout' && knockoutMatches.length === 0,
-        size: tournament.format === 'groups_knockout' ? labels.length * QUALIFIERS_PER_GROUP : rounds[0]?.matches.length * 2 || 0,
+        pending:
+          tournament.format === 'groups_knockout' &&
+          knockoutMatches.length === 0,
+        size:
+          tournament.format === 'groups_knockout'
+            ? labels.length * QUALIFIERS_PER_GROUP
+            : rounds[0]?.matches.length * 2 || 0,
         rounds,
       },
     };
@@ -386,19 +471,39 @@ export class TournamentMatchesService {
     matchId: string,
     deciderWinner?: 'A' | 'B' | null,
   ): Promise<'pending' | 'needs_decider' | 'completed'> {
-    const match = await this.matchesRepository.findOne({ where: { id: matchId }, relations: { games: true } });
-    if (!match || match.status === 'completed' || match.status === 'bye') return 'completed';
+    const match = await this.matchesRepository.findOne({
+      where: { id: matchId },
+      relations: { games: true },
+    });
+    if (!match || match.status === 'completed' || match.status === 'bye')
+      return 'completed';
     const games = match.games ?? [];
-    if (!games.length || games.some((g) => !FINISHED_GAME_STATUSES.includes(g.status))) return 'pending';
+    if (
+      !games.length ||
+      games.some((g) => !FINISHED_GAME_STATUSES.includes(g.status))
+    )
+      return 'pending';
 
-    const tournament = await this.tournamentsService.findOne(match.tournamentId);
+    const tournament = await this.tournamentsService.findOne(
+      match.tournamentId,
+    );
 
     if (games.every((g) => g.status === 'forfeited')) {
       await this.matchesRepository.update(
         { id: match.id },
-        { status: 'completed', doubleForfeit: true, scoreA: 0, scoreB: 0, goalsA: 0, goalsB: 0, winnerParticipantId: null, completedAt: new Date() },
+        {
+          status: 'completed',
+          doubleForfeit: true,
+          scoreA: 0,
+          scoreB: 0,
+          goalsA: 0,
+          goalsB: 0,
+          winnerParticipantId: null,
+          completedAt: new Date(),
+        },
       );
-      if (match.stage === 'knockout') await this.advanceWinner(tournament, match, null);
+      if (match.stage === 'knockout')
+        await this.advanceWinner(tournament, match, null);
       else await this.drawKnockoutIfGroupsDone(tournament);
       return 'completed';
     }
@@ -410,7 +515,11 @@ export class TournamentMatchesService {
     if (match.stage === 'knockout' && !outcome.winner) return 'needs_decider';
 
     const winnerId =
-      outcome.winner === 'A' ? match.participantAId : outcome.winner === 'B' ? match.participantBId : null;
+      outcome.winner === 'A'
+        ? match.participantAId
+        : outcome.winner === 'B'
+          ? match.participantBId
+          : null;
     await this.matchesRepository.update(
       { id: match.id },
       {
@@ -424,7 +533,8 @@ export class TournamentMatchesService {
       },
     );
 
-    if (match.stage === 'knockout') await this.advanceWinner(tournament, match, winnerId);
+    if (match.stage === 'knockout')
+      await this.advanceWinner(tournament, match, winnerId);
     else await this.drawKnockoutIfGroupsDone(tournament);
     return 'completed';
   }
@@ -435,11 +545,17 @@ export class TournamentMatchesService {
    * forfeited) → double forfeit that keeps propagating. The final ends the
    * tournament (possibly without a champion).
    */
-  private async advanceWinner(tournament: Tournament, match: TournamentMatch, winnerId: string | null): Promise<void> {
+  private async advanceWinner(
+    tournament: Tournament,
+    match: TournamentMatch,
+    winnerId: string | null,
+  ): Promise<void> {
     const link = tournamentLink(tournament, `?tab=bracket`);
 
     if (!match.nextMatchId) {
-      await this.dataSource.getRepository(Tournament).update({ id: tournament.id }, { status: TournamentStatus.COMPLETED });
+      await this.dataSource
+        .getRepository(Tournament)
+        .update({ id: tournament.id }, { status: TournamentStatus.COMPLETED });
       const champion = tournament.participants?.find((p) => p.id === winnerId);
       await this.tournamentsService.notifyParticipants(tournament, '', {
         title: 'Tournament finished',
@@ -447,31 +563,53 @@ export class TournamentMatchesService {
           ? `${entrantView(champion).name} won "${tournament.name}"! Congratulations to the champions.`
           : `"${tournament.name}" has finished without a champion — both finalists forfeited.`,
         link,
-        code: champion ? 'tournament.finished' : 'tournament.finishedNoChampion',
-        params: { tournament: tournament.name, champion: champion ? entrantView(champion).name : null },
+        code: champion
+          ? 'tournament.finished'
+          : 'tournament.finishedNoChampion',
+        params: {
+          tournament: tournament.name,
+          champion: champion ? entrantView(champion).name : null,
+        },
       });
       return;
     }
 
-    const next = await this.matchesRepository.findOne({ where: { id: match.nextMatchId }, relations: { games: true } });
+    const next = await this.matchesRepository.findOne({
+      where: { id: match.nextMatchId },
+      relations: { games: true },
+    });
     if (!next) return;
     if (match.nextSlot === 'A') next.participantAId = winnerId;
     else next.participantBId = winnerId;
     await this.matchesRepository.update(
       { id: next.id },
-      { participantAId: next.participantAId, participantBId: next.participantBId },
+      {
+        participantAId: next.participantAId,
+        participantBId: next.participantBId,
+      },
     );
 
-    const feeders = await this.matchesRepository.find({ where: { nextMatchId: next.id } });
-    const feedersDone = feeders.every((f) => f.id === match.id || f.status === 'completed' || f.status === 'bye');
+    const feeders = await this.matchesRepository.find({
+      where: { nextMatchId: next.id },
+    });
+    const feedersDone = feeders.every(
+      (f) =>
+        f.id === match.id || f.status === 'completed' || f.status === 'bye',
+    );
     if (!feedersDone) return;
 
-    const present = [next.participantAId, next.participantBId].filter((id): id is string => Boolean(id));
+    const present = [next.participantAId, next.participantBId].filter(
+      (id): id is string => Boolean(id),
+    );
 
     if (present.length === 1) {
       await this.matchesRepository.update(
         { id: next.id },
-        { status: 'bye', winnerParticipantId: present[0], completedAt: new Date() },
+        {
+          status: 'bye',
+          winnerParticipantId: present[0],
+          completedAt: new Date(),
+        },
       );
       await this.advanceWinner(tournament, next, present[0]);
       return;
@@ -479,21 +617,36 @@ export class TournamentMatchesService {
     if (present.length === 0) {
       await this.matchesRepository.update(
         { id: next.id },
-        { status: 'completed', doubleForfeit: true, winnerParticipantId: null, completedAt: new Date() },
+        {
+          status: 'completed',
+          doubleForfeit: true,
+          winnerParticipantId: null,
+          completedAt: new Date(),
+        },
       );
       await this.advanceWinner(tournament, next, null);
       return;
     }
     if ((next.games ?? []).length) return;
 
-    const entrants = (tournament.participants ?? []).filter((p) => present.includes(p.id));
-    const players = await this.fixturePlayers(entrants, tournament.type === TournamentType.CVC);
+    const entrants = (tournament.participants ?? []).filter((p) =>
+      present.includes(p.id),
+    );
+    const players = await this.fixturePlayers(
+      entrants,
+      tournament.type === TournamentType.CVC,
+    );
     const schedule = this.scheduleContext(tournament);
     const newGames = this.buildGames(
       next.id,
       players.get(next.participantAId!) ?? [],
       players.get(next.participantBId!) ?? [],
-      { dayStart: schedule.firstDay, hours: schedule.hours, notBefore: schedule.earliest, rng: Math.random },
+      {
+        dayStart: schedule.firstDay,
+        hours: schedule.hours,
+        notBefore: schedule.earliest,
+        rng: Math.random,
+      },
     );
     await this.dataSource.getRepository(TournamentMatchGame).save(newGames);
     await this.notifyScheduled(tournament, newGames);
@@ -516,40 +669,65 @@ export class TournamentMatchesService {
   }
 
   /** When every group fixture is complete, the top 2 of each group are drawn into the knockout. */
-  private async drawKnockoutIfGroupsDone(tournament: Tournament): Promise<void> {
-    const all = await this.matchesRepository.find({ where: { tournamentId: tournament.id } });
+  private async drawKnockoutIfGroupsDone(
+    tournament: Tournament,
+  ): Promise<void> {
+    const all = await this.matchesRepository.find({
+      where: { tournamentId: tournament.id },
+    });
     const groupMatches = all.filter((m) => m.stage === 'group');
-    if (all.some((m) => m.stage === 'knockout') || groupMatches.some((m) => m.status !== 'completed')) return;
+    if (
+      all.some((m) => m.stage === 'knockout') ||
+      groupMatches.some((m) => m.status !== 'completed')
+    )
+      return;
 
     const labels = [...new Set(groupMatches.map((m) => m.groupLabel!))].sort();
     const qualifiers = labels.map((label) => {
       const own = groupMatches.filter((m) => m.groupLabel === label);
-      const ids = [...new Set(own.flatMap((m) => [m.participantAId, m.participantBId]))].filter(
-        (id): id is string => Boolean(id),
+      const ids = [
+        ...new Set(own.flatMap((m) => [m.participantAId, m.participantBId])),
+      ].filter((id): id is string => Boolean(id));
+      const table = computeStandings(
+        ids,
+        own.filter(isCompletedFixture).map(toCompletedFixture),
       );
-      const table = computeStandings(ids, own.filter(isCompletedFixture).map(toCompletedFixture));
       return { winner: table[0].entrantId, runnerUp: table[1].entrantId };
     });
 
-    const matches = this.buildKnockout(tournament.id, crossGroupPairs(qualifiers));
+    const matches = this.buildKnockout(
+      tournament.id,
+      crossGroupPairs(qualifiers),
+    );
     const qualified = (tournament.participants ?? []).filter((p) =>
       qualifiers.some((q) => q.winner === p.id || q.runnerUp === p.id),
     );
-    const players = await this.fixturePlayers(qualified, tournament.type === TournamentType.CVC);
+    const players = await this.fixturePlayers(
+      qualified,
+      tournament.type === TournamentType.CVC,
+    );
     const schedule = this.scheduleContext(tournament);
     const games = matches
       .filter((m) => m.participantAId && m.participantBId)
       .flatMap((m) =>
-        this.buildGames(m.id, players.get(m.participantAId!) ?? [], players.get(m.participantBId!) ?? [], {
-          dayStart: schedule.firstDay,
-          hours: schedule.hours,
-          notBefore: schedule.earliest,
-          rng: Math.random,
-        }),
+        this.buildGames(
+          m.id,
+          players.get(m.participantAId!) ?? [],
+          players.get(m.participantBId!) ?? [],
+          {
+            dayStart: schedule.firstDay,
+            hours: schedule.hours,
+            notBefore: schedule.earliest,
+            rng: Math.random,
+          },
+        ),
       );
 
     await this.dataSource.transaction(async (manager) => {
-      await manager.save(TournamentMatch, [...matches].sort((a, b) => b.round - a.round));
+      await manager.save(
+        TournamentMatch,
+        [...matches].sort((a, b) => b.round - a.round),
+      );
       if (games.length) await manager.save(TournamentMatchGame, games);
     });
 
@@ -617,7 +795,9 @@ export class TournamentMatchesService {
     return Array.from({ length: count }, (_, index) => {
       const a = playersA[index];
       const b = playersB[index];
-      const range = slot ? assignRange(slot.dayStart, slot.hours, slot.rng, slot.notBefore) : null;
+      const range = slot
+        ? assignRange(slot.dayStart, slot.hours, slot.rng, slot.notBefore)
+        : null;
       return Object.assign(new TournamentMatchGame(), {
         id: randomUUID(),
         scheduledStart: range?.start ?? null,
@@ -644,17 +824,32 @@ export class TournamentMatchesService {
    * Scheduling bounds for new games: the organizer's play hours and the first
    * playable day at least 3h after the later of tournament start and now.
    */
-  private scheduleContext(tournament: Tournament): { hours: PlayHours; earliest: Date; firstDay: number } {
-    const hours = normalizePlayHours(tournament.playHoursStart, tournament.playHoursEnd);
+  private scheduleContext(tournament: Tournament): {
+    hours: PlayHours;
+    earliest: Date;
+    firstDay: number;
+  } {
+    const hours = normalizePlayHours(
+      tournament.playHoursStart,
+      tournament.playHoursEnd,
+    );
     const startMs = new Date(tournament.startAt).getTime();
-    const base = Number.isNaN(startMs) ? Date.now() : Math.max(startMs, Date.now());
+    const base = Number.isNaN(startMs)
+      ? Date.now()
+      : Math.max(startMs, Date.now());
     const earliest = new Date(base + FIRST_GAME_DELAY_MS);
     return { hours, earliest, firstDay: firstPlayableDay(earliest, hours) };
   }
 
   /** One notification per player with their game time(s), linking to the timing panel. */
-  private async notifyScheduled(tournament: Tournament, games: TournamentMatchGame[]): Promise<void> {
-    const byPlayer = new Map<string, Array<{ game: TournamentMatchGame; opponent: string }>>();
+  private async notifyScheduled(
+    tournament: Tournament,
+    games: TournamentMatchGame[],
+  ): Promise<void> {
+    const byPlayer = new Map<
+      string,
+      Array<{ game: TournamentMatchGame; opponent: string }>
+    >();
     for (const game of games) {
       if (!game.scheduledStart || !game.scheduledEnd) continue;
       const pairs: Array<[string | null, string]> = [
@@ -663,16 +858,25 @@ export class TournamentMatchesService {
       ];
       for (const [userId, opponent] of pairs) {
         if (!userId) continue;
-        byPlayer.set(userId, [...(byPlayer.get(userId) ?? []), { game, opponent }]);
+        byPlayer.set(userId, [
+          ...(byPlayer.get(userId) ?? []),
+          { game, opponent },
+        ]);
       }
     }
 
     const base = tournamentLink(tournament, `?tab=bracket`);
     await Promise.all(
       [...byPlayer].map(([userId, entries]) => {
-        const sorted = entries.sort((x, y) => x.game.scheduledStart!.getTime() - y.game.scheduledStart!.getTime());
+        const sorted = entries.sort(
+          (x, y) =>
+            x.game.scheduledStart!.getTime() - y.game.scheduledStart!.getTime(),
+        );
         const first = sorted[0];
-        const when = formatRange({ start: first.game.scheduledStart!, end: first.game.scheduledEnd! });
+        const when = formatRange({
+          start: first.game.scheduledStart!,
+          end: first.game.scheduledEnd!,
+        });
         const message =
           sorted.length === 1
             ? `Your match vs ${first.opponent} in "${tournament.name}" is scheduled for ${when} (Bangladesh time). Upload your evidence within 30 minutes after it ends.`
@@ -681,7 +885,10 @@ export class TournamentMatchesService {
           title: 'Match scheduled',
           message,
           link: `${base}&match=${first.game.matchId}&game=${first.game.id}&panel=time`,
-          code: sorted.length === 1 ? 'tournament.matchScheduled' : 'tournament.matchesScheduled',
+          code:
+            sorted.length === 1
+              ? 'tournament.matchScheduled'
+              : 'tournament.matchesScheduled',
           params: {
             tournament: tournament.name,
             opponent: first.opponent,
@@ -702,12 +909,24 @@ export class TournamentMatchesService {
     if (isCvC) {
       return new Map(participants.map((p) => [p.id, p.club?.points ?? 0]));
     }
-    const userIds = participants.map((p) => p.userId).filter((id): id is string => Boolean(id));
+    const userIds = participants
+      .map((p) => p.userId)
+      .filter((id): id is string => Boolean(id));
     const profiles = userIds.length
-      ? await this.profilesRepository.find({ where: { userId: In(userIds) }, select: { userId: true, points: true } })
+      ? await this.profilesRepository.find({
+          where: { userId: In(userIds) },
+          select: { userId: true, points: true },
+        })
       : [];
-    const pointsByUser = new Map(profiles.map((profile) => [profile.userId, profile.points ?? 0]));
-    return new Map(participants.map((p) => [p.id, (p.userId && pointsByUser.get(p.userId)) || 0]));
+    const pointsByUser = new Map(
+      profiles.map((profile) => [profile.userId, profile.points ?? 0]),
+    );
+    return new Map(
+      participants.map((p) => [
+        p.id,
+        (p.userId && pointsByUser.get(p.userId)) || 0,
+      ]),
+    );
   }
 
   /** Who plays for each entrant: the club's starters in lineup order, or the player. */
@@ -719,16 +938,30 @@ export class TournamentMatchesService {
       return new Map(
         participants.map((p) => [
           p.id,
-          [{ profileId: null, userId: p.userId, name: p.user?.name ?? 'Player', dpUrl: p.user?.dpUrl ?? null }],
+          [
+            {
+              profileId: null,
+              userId: p.userId,
+              name: p.user?.name ?? 'Player',
+              dpUrl: p.user?.dpUrl ?? null,
+            },
+          ],
         ]),
       );
     }
 
-    const profileIds = participants.flatMap((p) => p.lineup?.starters.map((s) => s.profileId) ?? []);
+    const profileIds = participants.flatMap(
+      (p) => p.lineup?.starters.map((s) => s.profileId) ?? [],
+    );
     const profiles = profileIds.length
-      ? await this.profilesRepository.find({ where: { id: In(profileIds) }, relations: { user: true } })
+      ? await this.profilesRepository.find({
+          where: { id: In(profileIds) },
+          relations: { user: true },
+        })
       : [];
-    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+    const profileById = new Map(
+      profiles.map((profile) => [profile.id, profile]),
+    );
 
     return new Map(
       participants.map((p) => [
@@ -757,13 +990,26 @@ function entrantView(p: TournamentParticipant): EntrantView {
   };
 }
 
-function gameView(g: TournamentMatchGame, pendingRequest: TournamentGameTimeRequest | null): MatchGameView {
+function gameView(
+  g: TournamentMatchGame,
+  pendingRequest: TournamentGameTimeRequest | null,
+): MatchGameView {
   return {
     id: g.id,
     slot: g.slot,
     isDecider: g.isDecider,
-    playerA: { profileId: g.playerAProfileId, userId: g.playerAUserId, name: g.playerAName, dpUrl: g.playerADpUrl },
-    playerB: { profileId: g.playerBProfileId, userId: g.playerBUserId, name: g.playerBName, dpUrl: g.playerBDpUrl },
+    playerA: {
+      profileId: g.playerAProfileId,
+      userId: g.playerAUserId,
+      name: g.playerAName,
+      dpUrl: g.playerADpUrl,
+    },
+    playerB: {
+      profileId: g.playerBProfileId,
+      userId: g.playerBUserId,
+      name: g.playerBName,
+      dpUrl: g.playerBDpUrl,
+    },
     goalsA: g.goalsA,
     goalsB: g.goalsB,
     status: g.status,
@@ -775,18 +1021,28 @@ function gameView(g: TournamentMatchGame, pendingRequest: TournamentGameTimeRequ
     systemScheduledStart: g.systemScheduledStart,
     evidenceDeadline: g.evidenceDeadline,
     pendingTimeRequest: pendingRequest
-      ? { id: pendingRequest.id, requestedByUserId: pendingRequest.requestedByUserId, proposedStart: pendingRequest.proposedStart }
+      ? {
+          id: pendingRequest.id,
+          requestedByUserId: pendingRequest.requestedByUserId,
+          proposedStart: pendingRequest.proposedStart,
+        }
       : null,
   };
 }
 
 function isCompletedFixture(m: TournamentMatch): boolean {
-  return m.status === 'completed' && Boolean(m.participantAId && m.participantBId);
+  return (
+    m.status === 'completed' && Boolean(m.participantAId && m.participantBId)
+  );
 }
 
 function toCompletedFixture(m: TournamentMatch): CompletedFixture {
   const winner =
-    m.winnerParticipantId === m.participantAId ? 'A' : m.winnerParticipantId === m.participantBId ? 'B' : null;
+    m.winnerParticipantId === m.participantAId
+      ? 'A'
+      : m.winnerParticipantId === m.participantBId
+        ? 'B'
+        : null;
   return {
     entrantA: m.participantAId!,
     entrantB: m.participantBId!,
