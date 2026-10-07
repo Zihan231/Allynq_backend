@@ -1,9 +1,21 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JWT_COOKIE_NAME } from './auth.constants.js';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+import {
+  StaffTwoFactorTokenDto,
+  VerifyStaffTwoFactorDto,
+} from './dto/two-factor.dto.js';
 
 const COOKIE_MAX_AGE_MS = 60 * 60 * 1000; // 1h, matches the JWT expiry
 
@@ -24,7 +36,13 @@ function cookieOptions(req: Request) {
 }
 
 function clientInfo(req: Request) {
-  return { ip: req.ip ?? null, userAgent: req.headers['user-agent']?.slice(0, 500) ?? null };
+  const deviceHeader = req.headers['x-device-id'];
+  const deviceId = Array.isArray(deviceHeader) ? deviceHeader[0] : deviceHeader;
+  return {
+    ip: req.ip ?? null,
+    userAgent: req.headers['user-agent']?.slice(0, 500) ?? null,
+    deviceId: deviceId?.slice(0, 255) ?? null,
+  };
 }
 
 @Controller('auth')
@@ -53,6 +71,35 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.login(dto, clientInfo(req));
+    if ('accessToken' in result) {
+      res.cookie(JWT_COOKIE_NAME, result.accessToken, {
+        ...cookieOptions(req),
+        maxAge: COOKIE_MAX_AGE_MS,
+      });
+    }
+    return result;
+  }
+
+  /** Returns an authenticator-app secret for a staff member's first secure sign-in. */
+  @Post('staff-2fa/setup')
+  @HttpCode(HttpStatus.OK)
+  staffTwoFactorSetup(@Body() dto: StaffTwoFactorTokenDto) {
+    return this.authService.staffTwoFactorSetup(dto.token);
+  }
+
+  /** Completes staff sign-in after a valid authenticator code. */
+  @Post('staff-2fa/verify')
+  @HttpCode(HttpStatus.OK)
+  async staffTwoFactorVerify(
+    @Body() dto: VerifyStaffTwoFactorDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.completeStaffTwoFactor(
+      dto.token,
+      dto.code,
+      clientInfo(req),
+    );
     res.cookie(JWT_COOKIE_NAME, result.accessToken, {
       ...cookieOptions(req),
       maxAge: COOKIE_MAX_AGE_MS,

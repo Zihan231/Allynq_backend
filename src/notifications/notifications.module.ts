@@ -7,6 +7,7 @@ import { User } from '../users/entities/user.entity.js';
 import { Notification } from './entities/notification.entity.js';
 import { NotificationsController } from './notifications.controller.js';
 import { NotificationsService } from './notifications.service.js';
+import { NotificationTemplate } from './entities/notification-template.entity.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { NotificationsService } from './notifications.service.js';
       CommunityMember,
       Community,
       User,
+      NotificationTemplate,
     ]),
   ],
   controllers: [NotificationsController],

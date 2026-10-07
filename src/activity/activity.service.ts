@@ -20,6 +20,8 @@ export interface LoginInput {
   failureReason?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  deviceHash?: string | null;
+  deviceHint?: string | null;
 }
 
 /**
@@ -66,6 +68,8 @@ export class ActivityService {
         failureReason: input.failureReason ?? null,
         ip: input.ip?.slice(0, 64) ?? null,
         userAgent: input.userAgent ?? null,
+        deviceHash: input.deviceHash ?? null,
+        deviceHint: input.deviceHint?.slice(0, 128) ?? null,
       });
     } catch (error) {
       this.logger.warn(`Login not logged: ${(error as Error).message}`);

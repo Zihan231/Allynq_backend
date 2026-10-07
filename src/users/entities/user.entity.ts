@@ -26,6 +26,9 @@ export type EducationEntry = {
 
 @Entity('users')
 export class User {
+  /** Request-only JWT context; not persisted. */
+  authContext?: { viewOnly: boolean; actorId: string | null };
+
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -104,7 +107,11 @@ export class User {
   @Column({ type: 'text', nullable: true })
   documentDataUrl!: string | null;
 
-  @Column({ type: 'enum', enum: VerificationLevel, default: VerificationLevel.NONE })
+  @Column({
+    type: 'enum',
+    enum: VerificationLevel,
+    default: VerificationLevel.NONE,
+  })
   verificationLevel!: VerificationLevel;
 
   /** Review state of the uploaded ID document; the level is only granted when a moderator approves it. */
@@ -121,7 +128,12 @@ export class User {
   verificationReviewedById!: string | null;
 
   /** Allync staff role (moderator / admin / super admin); null for everyone else. */
-  @Column({ type: 'enum', enum: SystemRole, enumName: 'system_role_enum', nullable: true })
+  @Column({
+    type: 'enum',
+    enum: SystemRole,
+    enumName: 'system_role_enum',
+    nullable: true,
+  })
   systemRole!: SystemRole | null;
 
   @Column({ type: 'timestamptz', nullable: true })
@@ -146,6 +158,17 @@ export class User {
   /** Bumped to sign the user out everywhere: older tokens stop working. */
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
+
+  /** AES-GCM encrypted TOTP secret. Never selected in normal user queries. */
+  @Column({ type: 'text', nullable: true, select: false })
+  twoFactorSecretEncrypted!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  twoFactorEnabledAt!: Date | null;
+
+  /** Rejects reuse of a code from an already accepted 30-second window. */
+  @Column({ type: 'int', nullable: true })
+  twoFactorLastCounter!: number | null;
 
   /** Set while the account is in the recycle bin (hidden and unable to sign in). */
   @Column({ type: 'timestamptz', nullable: true })

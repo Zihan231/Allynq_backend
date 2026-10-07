@@ -27,8 +27,17 @@ import { TransferOffer } from '../transfers/entities/transfer-offer.entity.js';
 import { WalletTransaction } from '../transfers/entities/wallet-transaction.entity.js';
 import { Wallet } from '../transfers/entities/wallet.entity.js';
 import { Announcement } from '../admin/entities/announcement.entity.js';
+import { AccountLabel } from '../admin/entities/account-label.entity.js';
+import { AccountStaffNote } from '../admin/entities/account-staff-note.entity.js';
+import { PlatformBackup } from '../admin/entities/platform-backup.entity.js';
+import { Season } from '../admin/entities/season.entity.js';
+import { StoreItem } from '../admin/entities/store-item.entity.js';
+import { NotificationTemplate } from '../notifications/entities/notification-template.entity.js';
+import { SecurityBan } from '../security/security-ban.entity.js';
 
-export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModuleOptions {
+export function buildTypeOrmOptions(
+  configService: ConfigService,
+): TypeOrmModuleOptions {
   return {
     type: 'postgres',
     url: configService.getOrThrow<string>('DATABASE_URL'),
@@ -61,6 +70,13 @@ export function buildTypeOrmOptions(configService: ConfigService): TypeOrmModule
       Report,
       ReportMessage,
       Announcement,
+      AccountLabel,
+      AccountStaffNote,
+      NotificationTemplate,
+      PlatformBackup,
+      Season,
+      StoreItem,
+      SecurityBan,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

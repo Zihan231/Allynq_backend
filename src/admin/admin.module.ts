@@ -17,11 +17,48 @@ import { SystemRoleGuard } from './system-role.guard.js';
 import { TransfersModule } from '../transfers/transfers.module.js';
 import { AdminPlatformService } from './admin-platform.service.js';
 import { Announcement } from './entities/announcement.entity.js';
+import { AccountLabel } from './entities/account-label.entity.js';
+import { AccountStaffNote } from './entities/account-staff-note.entity.js';
+import { PlatformBackup } from './entities/platform-backup.entity.js';
+import { Season } from './entities/season.entity.js';
+import { StoreItem } from './entities/store-item.entity.js';
+import { NotificationTemplate } from '../notifications/entities/notification-template.entity.js';
+import { AdminPhaseSixService } from './admin-phase-six.service.js';
+import { AdminBackupsService } from './admin-backups.service.js';
+import { PlatformPublicController } from './platform-public.controller.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, AdminAuditLog, Announcement]), NotificationsModule, TournamentsModule, CommunitiesModule, TransfersModule],
-  controllers: [AdminController],
-  providers: [AdminActivityService, AdminDashboardService, AdminDisputesService, AdminManageService, AdminPlatformService, AdminUsersService, AdminContentService, AuditService, SystemRoleGuard],
+  imports: [
+    TypeOrmModule.forFeature([
+      User,
+      AdminAuditLog,
+      Announcement,
+      AccountLabel,
+      AccountStaffNote,
+      NotificationTemplate,
+      PlatformBackup,
+      Season,
+      StoreItem,
+    ]),
+    NotificationsModule,
+    TournamentsModule,
+    CommunitiesModule,
+    TransfersModule,
+  ],
+  controllers: [AdminController, PlatformPublicController],
+  providers: [
+    AdminActivityService,
+    AdminDashboardService,
+    AdminDisputesService,
+    AdminManageService,
+    AdminPlatformService,
+    AdminPhaseSixService,
+    AdminBackupsService,
+    AdminUsersService,
+    AdminContentService,
+    AuditService,
+    SystemRoleGuard,
+  ],
   exports: [AuditService, AdminUsersService, AdminContentService],
 })
 export class AdminModule {}

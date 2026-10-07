@@ -20,6 +20,7 @@ import { SettingsModule } from './settings/settings.module.js';
 import { TransfersModule } from './transfers/transfers.module.js';
 import { UsersModule } from './users/users.module.js';
 import { HealthModule } from './health/health.module.js';
+import { SecurityModule } from './security/security.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { HealthModule } from './health/health.module.js';
       useFactory: buildTypeOrmOptions,
     }),
     FileStorageModule,
+    SecurityModule,
     ActivityModule,
     HealthModule,
     RecycleBinModule,

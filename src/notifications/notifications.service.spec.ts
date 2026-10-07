@@ -1,23 +1,33 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { firstValueFrom, take, toArray } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
-import { User } from '../users/entities/user.entity.js';
-import { ClubRole, CommunityRole } from '../users/enums/user-attributes.enum.js';
+import {
+  ClubRole,
+  CommunityRole,
+} from '../users/enums/user-attributes.enum.js';
 import { Notification } from './entities/notification.entity.js';
 import { NotificationsService } from './notifications.service.js';
+import { NotificationTemplate } from './entities/notification-template.entity.js';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
 
   const mockNotificationRepo = {
-    create: vi.fn().mockImplementation((dto) => ({ id: 'notif-1', ...dto, createdAt: new Date(), updatedAt: new Date() })),
+    create: vi.fn().mockImplementation((dto) => ({
+      id: 'notif-1',
+      ...dto,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
     save: vi.fn().mockImplementation((n) => Promise.resolve(n)),
     find: vi.fn().mockResolvedValue([]),
     count: vi.fn().mockResolvedValue(2),
-    findOne: vi.fn().mockResolvedValue({ id: 'notif-1', userId: 'user-1', read: false }),
+    findOne: vi
+      .fn()
+      .mockResolvedValue({ id: 'notif-1', userId: 'user-1', read: false }),
     update: vi.fn().mockResolvedValue({ affected: 1 }),
   };
 
@@ -37,7 +47,13 @@ describe('NotificationsService', () => {
   };
 
   const mockCommunityRepo = {
-    findOne: vi.fn().mockResolvedValue({ id: 'comm-1', creatorId: 'comm-creator-1' }),
+    findOne: vi
+      .fn()
+      .mockResolvedValue({ id: 'comm-1', creatorId: 'comm-creator-1' }),
+  };
+
+  const mockTemplateRepo = {
+    findOne: vi.fn().mockResolvedValue(null),
   };
 
   beforeEach(async () => {
@@ -46,10 +62,23 @@ describe('NotificationsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
-        { provide: getRepositoryToken(Notification), useValue: mockNotificationRepo },
-        { provide: getRepositoryToken(EfootballProfile), useValue: mockProfileRepo },
-        { provide: getRepositoryToken(CommunityMember), useValue: mockCommunityMemberRepo },
+        {
+          provide: getRepositoryToken(Notification),
+          useValue: mockNotificationRepo,
+        },
+        {
+          provide: getRepositoryToken(EfootballProfile),
+          useValue: mockProfileRepo,
+        },
+        {
+          provide: getRepositoryToken(CommunityMember),
+          useValue: mockCommunityMemberRepo,
+        },
         { provide: getRepositoryToken(Community), useValue: mockCommunityRepo },
+        {
+          provide: getRepositoryToken(NotificationTemplate),
+          useValue: mockTemplateRepo,
+        },
       ],
     }).compile();
 
@@ -73,6 +102,25 @@ describe('NotificationsService', () => {
     expect(emitted).toEqual({ data: created });
     expect(created.userId).toBe('user-1');
     expect(created.title).toBe('Test Notification');
+  });
+
+  it('renders a staff-edited coded notification template', async () => {
+    mockTemplateRepo.findOne.mockResolvedValueOnce({
+      code: 'club.joinApproved',
+      titleTemplate: 'Welcome to {{club}}',
+      messageTemplate: '{{player}}, you are now in {{club}}.',
+      enabled: true,
+    });
+
+    const created = await service.createNotification('user-1', {
+      title: 'Fallback',
+      message: 'Fallback message',
+      code: 'club.joinApproved',
+      params: { player: 'Asha', club: 'Red Falcons' },
+    });
+
+    expect(created.title).toBe('Welcome to Red Falcons');
+    expect(created.message).toBe('Asha, you are now in Red Falcons.');
   });
 
   it('should notify club authorities (President, GS, Manager, Captain, Vice-Captain)', async () => {
@@ -99,7 +147,10 @@ describe('NotificationsService', () => {
       { type: 'club_member_joined', excludeUserIds: ['president-1'] },
     );
 
-    expect(sent.map((s) => s.userId).sort()).toEqual(['captain-1', 'manager-1']);
+    expect(sent.map((s) => s.userId).sort()).toEqual([
+      'captain-1',
+      'manager-1',
+    ]);
     expect(sent.every((s) => s.type === 'club_member_joined')).toBe(true);
   });
 
@@ -124,12 +175,22 @@ describe('NotificationsService', () => {
       const events: Array<{ type?: string; data: unknown }> = [];
       const sub = service.getStream('user-1').subscribe((e) => events.push(e));
 
-      await service.createNotification('user-2', { title: 'Other', message: 'not mine' });
-      await service.createNotification('user-1', { title: 'Mine', message: 'hello' });
+      await service.createNotification('user-2', {
+        title: 'Other',
+        message: 'not mine',
+      });
+      await service.createNotification('user-1', {
+        title: 'Mine',
+        message: 'hello',
+      });
       vi.advanceTimersByTime(NotificationsService.HEARTBEAT_MS);
       sub.unsubscribe();
 
-      expect(events.filter((e) => !e.type).map((e) => (e.data as Notification).title)).toEqual(['Mine']);
+      expect(
+        events
+          .filter((e) => !e.type)
+          .map((e) => (e.data as Notification).title),
+      ).toEqual(['Mine']);
       expect(events.filter((e) => e.type === 'ping')).toHaveLength(1);
     } finally {
       vi.useRealTimers();
@@ -166,10 +227,17 @@ describe('NotificationsService', () => {
 
   it('pages back to older notifications, unread only, with a capped page size', async () => {
     const before = new Date('2026-09-30T10:00:00Z');
-    await service.getUserNotifications('user-1', { limit: 500, before, unreadOnly: true });
+    await service.getUserNotifications('user-1', {
+      limit: 500,
+      before,
+      unreadOnly: true,
+    });
     const [options] = mockNotificationRepo.find.mock.calls[0];
     expect(options.take).toBe(100);
     expect(options.where).toMatchObject({ userId: 'user-1', read: false });
-    expect(options.where.createdAt).toMatchObject({ _type: 'lessThan', _value: before });
+    expect(options.where.createdAt).toMatchObject({
+      _type: 'lessThan',
+      _value: before,
+    });
   });
 });

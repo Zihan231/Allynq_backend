@@ -5,8 +5,16 @@ import { In, LessThan, Repository } from 'typeorm';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
-import { ClubRole, CommunityRole } from '../users/enums/user-attributes.enum.js';
-import { Notification, NotificationParams, NotificationType } from './entities/notification.entity.js';
+import {
+  ClubRole,
+  CommunityRole,
+} from '../users/enums/user-attributes.enum.js';
+import {
+  Notification,
+  NotificationParams,
+  NotificationType,
+} from './entities/notification.entity.js';
+import { NotificationTemplate } from './entities/notification-template.entity.js';
 
 /** A message code + params the app renders in the viewer's language (see Notification.code). */
 export interface NotificationI18n {
@@ -32,6 +40,10 @@ export class NotificationsService {
   static readonly HEARTBEAT_MS = 20_000;
   private readonly logger = new Logger(NotificationsService.name);
   private readonly notificationSubject$ = new Subject<NotificationEvent>();
+  private readonly templateCache = new Map<
+    string,
+    { row: NotificationTemplate | null; at: number }
+  >();
 
   constructor(
     @InjectRepository(Notification)
@@ -42,16 +54,22 @@ export class NotificationsService {
     private readonly communityMembersRepository: Repository<CommunityMember>,
     @InjectRepository(Community)
     private readonly communitiesRepository: Repository<Community>,
+    @InjectRepository(NotificationTemplate)
+    private readonly templatesRepository: Repository<NotificationTemplate>,
   ) {}
 
   /**
    * Creates and persists a notification, then emits it in real-time.
    */
-  async createNotification(userId: string, dto: CreateNotificationDto): Promise<Notification> {
+  async createNotification(
+    userId: string,
+    dto: CreateNotificationDto,
+  ): Promise<Notification> {
+    const text = await this.resolveText(dto);
     const notification = this.notificationsRepository.create({
       userId,
-      title: dto.title,
-      message: dto.message,
+      title: text.title,
+      message: text.message,
       type: dto.type ?? 'system',
       link: dto.link ?? null,
       code: dto.code ?? null,
@@ -75,14 +93,18 @@ export class NotificationsService {
    * The same notification for many users at once (announcements): inserted in batches,
    * then pushed to anyone connected. Returns how many were created.
    */
-  async createMany(userIds: string[], dto: CreateNotificationDto): Promise<number> {
+  async createMany(
+    userIds: string[],
+    dto: CreateNotificationDto,
+  ): Promise<number> {
     const unique = [...new Set(userIds)];
+    const text = await this.resolveText(dto);
     for (let i = 0; i < unique.length; i += 500) {
       const rows = unique.slice(i, i + 500).map((userId) =>
         this.notificationsRepository.create({
           userId,
-          title: dto.title,
-          message: dto.message,
+          title: text.title,
+          message: text.message,
           type: dto.type ?? 'system',
           link: dto.link ?? null,
           code: dto.code ?? null,
@@ -90,10 +112,49 @@ export class NotificationsService {
           read: false,
         }),
       );
-      const saved = await this.notificationsRepository.save(rows, { chunk: 100 });
-      for (const notification of saved) this.notificationSubject$.next({ userId: notification.userId, notification });
+      const saved = await this.notificationsRepository.save(rows, {
+        chunk: 100,
+      });
+      for (const notification of saved)
+        this.notificationSubject$.next({
+          userId: notification.userId,
+          notification,
+        });
     }
     return unique.length;
+  }
+
+  clearTemplateCache(code?: string): void {
+    if (code) this.templateCache.delete(code);
+    else this.templateCache.clear();
+  }
+
+  private async resolveText(
+    dto: CreateNotificationDto,
+  ): Promise<{ title: string; message: string }> {
+    if (!dto.code) return { title: dto.title, message: dto.message };
+    const cached = this.templateCache.get(dto.code);
+    let row: NotificationTemplate | null;
+    if (cached && Date.now() - cached.at < 30_000) row = cached.row;
+    else {
+      row = await this.templatesRepository.findOne({
+        where: { code: dto.code },
+      });
+      this.templateCache.set(dto.code, { row, at: Date.now() });
+    }
+    if (!row?.enabled) return { title: dto.title, message: dto.message };
+    const render = (template: string) =>
+      template.replace(
+        /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/gu,
+        (_match, key: string) => {
+          const value = dto.params?.[key];
+          return value === null || value === undefined ? '' : String(value);
+        },
+      );
+    return {
+      title: render(row.titleTemplate),
+      message: render(row.messageTemplate),
+    };
   }
 
   /**
@@ -101,12 +162,16 @@ export class NotificationsService {
    * A named `ping` event every 20s keeps idle proxies (e.g. the Next.js rewrite proxy, which drops
    * connections after 30s of silence) from closing the stream; EventSource.onmessage ignores it.
    */
-  getStream(userId: string): Observable<{ data: Notification | string; type?: string }> {
+  getStream(
+    userId: string,
+  ): Observable<{ data: Notification | string; type?: string }> {
     const notifications$ = this.notificationSubject$.asObservable().pipe(
       filter((event) => event.userId === userId),
       map((event) => ({ data: event.notification })),
     );
-    const heartbeat$ = interval(NotificationsService.HEARTBEAT_MS).pipe(map(() => ({ type: 'ping', data: '' })));
+    const heartbeat$ = interval(NotificationsService.HEARTBEAT_MS).pipe(
+      map(() => ({ type: 'ping', data: '' })),
+    );
     return merge(notifications$, heartbeat$);
   }
 
@@ -118,7 +183,10 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
-    options: { type?: NotificationType; excludeUserIds?: string[] } & NotificationI18n = {},
+    options: {
+      type?: NotificationType;
+      excludeUserIds?: string[];
+    } & NotificationI18n = {},
   ): Promise<Notification[]> {
     const authorityRoles: ClubRole[] = [
       ClubRole.PRESIDENT,
@@ -137,7 +205,11 @@ export class NotificationsService {
 
     const excluded = new Set(options.excludeUserIds ?? []);
     const targetUserIds = Array.from(
-      new Set(profiles.map((p) => p.userId).filter((id): id is string => Boolean(id) && !excluded.has(id))),
+      new Set(
+        profiles
+          .map((p) => p.userId)
+          .filter((id): id is string => Boolean(id) && !excluded.has(id)),
+      ),
     );
 
     const sentNotifications = await Promise.all(
@@ -188,8 +260,9 @@ export class NotificationsService {
 
     const targetUserIds = Array.from(
       new Set(
-        [...members.map((m) => m.profile?.userId), community?.creatorId]
-          .filter((id): id is string => Boolean(id)),
+        [...members.map((m) => m.profile?.userId), community?.creatorId].filter(
+          (id): id is string => Boolean(id),
+        ),
       ),
     );
 

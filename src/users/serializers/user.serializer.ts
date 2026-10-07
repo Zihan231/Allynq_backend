@@ -16,12 +16,30 @@ type PrivateModerationFields =
 
 export type PublicUser = Omit<
   User,
-  'email' | 'phoneNumber' | 'permanentAddress' | 'documentDataUrl' | 'documentType' | 'password' | 'tokenVersion' | PrivateModerationFields
+  | 'email'
+  | 'phoneNumber'
+  | 'permanentAddress'
+  | 'documentDataUrl'
+  | 'documentType'
+  | 'password'
+  | 'tokenVersion'
+  | 'twoFactorSecretEncrypted'
+  | 'twoFactorEnabledAt'
+  | 'twoFactorLastCounter'
+  | 'authContext'
+  | PrivateModerationFields
 >;
 
 export function serializeUser(user: User, isSelf = false): PublicUser | User {
   // Always remove sensitive password hash
-  const { password: _password, tokenVersion: _tokenVersion, ...safeUser } = user as any;
+  const {
+    password: _password,
+    tokenVersion: _tokenVersion,
+    twoFactorSecretEncrypted: _twoFactorSecretEncrypted,
+    twoFactorLastCounter: _twoFactorLastCounter,
+    authContext: _authContext,
+    ...safeUser
+  } = user as any;
 
   if (isSelf) {
     return safeUser as User;
@@ -45,12 +63,18 @@ export function serializeUser(user: User, isSelf = false): PublicUser | User {
     bannedAt: _bannedAt,
     suspendedUntil: _suspendedUntil,
     deletedAt: _deletedAt,
+    twoFactorEnabledAt: _twoFactorEnabledAt,
     ...publicUser
   } = safeUser;
 
   return publicUser as PublicUser;
 }
 
-export function serializeUsers(users: User[], currentUserId?: string | null): (PublicUser | User)[] {
-  return users.map((u) => serializeUser(u, Boolean(currentUserId && u.id === currentUserId)));
+export function serializeUsers(
+  users: User[],
+  currentUserId?: string | null,
+): (PublicUser | User)[] {
+  return users.map((u) =>
+    serializeUser(u, Boolean(currentUserId && u.id === currentUserId)),
+  );
 }

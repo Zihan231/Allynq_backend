@@ -11,6 +11,9 @@ import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
+import { TwoFactorService } from './two-factor.service.js';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ViewOnlyInterceptor } from './view-only.interceptor.js';
 
 @Global()
 @Module({
@@ -21,7 +24,9 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') ?? 'allync_jwt_secret_key_2026',
+        secret:
+          configService.get<string>('JWT_SECRET') ??
+          'allync_jwt_secret_key_2026',
         signOptions: {
           expiresIn: (configService.get<string>('JWT_EXPIRES_IN') ??
             '1h') as StringValue,
@@ -31,7 +36,14 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
     TypeOrmModule.forFeature([User, EfootballProfile]),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard, OptionalJwtAuthGuard],
+  providers: [
+    AuthService,
+    TwoFactorService,
+    JwtStrategy,
+    JwtAuthGuard,
+    OptionalJwtAuthGuard,
+    { provide: APP_INTERCEPTOR, useClass: ViewOnlyInterceptor },
+  ],
   exports: [
     AuthService,
     JwtStrategy,
@@ -39,6 +51,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
     JwtModule,
     JwtAuthGuard,
     OptionalJwtAuthGuard,
+    TwoFactorService,
   ],
 })
 export class AuthModule {}
