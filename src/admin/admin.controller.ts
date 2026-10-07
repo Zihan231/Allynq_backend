@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -22,6 +23,21 @@ import { ActivityFeedQueryDto, LoginFeedQueryDto } from '../reports/dto/report.d
 import { AdminActivityService } from './admin-activity.service.js';
 import { AdminContentService } from './admin-content.service.js';
 import { AdminDashboardService } from './admin-dashboard.service.js';
+import { AdminDisputesService } from './admin-disputes.service.js';
+import { AdminManageService } from './admin-manage.service.js';
+import {
+  ClubCommunityDto,
+  DecideGameDto,
+  DisputeQueryDto,
+  EditClubDto,
+  EditCommunityDto,
+  FreezeDto,
+  RemoveParticipantDto,
+  SetLeaderDto,
+  TournamentOfficialsDto,
+  TournamentStatusDto,
+  TournamentTimesDto,
+} from './dto/manage.dto.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { AuditService } from './audit.service.js';
 import {
@@ -51,6 +67,10 @@ function contentType(value: string): ContentType {
   if (!(CONTENT_TYPES as readonly string[]).includes(value)) throw new BadRequestException('Unknown type');
   return value as ContentType;
 }
+function freezable(value: string): 'club' | 'community' {
+  if (value !== 'club' && value !== 'community') throw new BadRequestException('Only clubs and communities can be frozen');
+  return value;
+}
 function binType(value: string): BinEntityType {
   if (!(BIN_ENTITY_TYPES as string[]).includes(value)) throw new BadRequestException('Unknown type');
   return value as BinEntityType;
@@ -70,7 +90,123 @@ export class AdminController {
     private readonly content: AdminContentService,
     private readonly audit: AuditService,
     private readonly activity: AdminActivityService,
+    private readonly disputes: AdminDisputesService,
+    private readonly manage: AdminManageService,
   ) {}
+
+  // ---------------------------------------------------------- dispute centre
+
+  @Get('disputes')
+  disputeList(@Query() query: DisputeQueryDto) {
+    return this.disputes.list(query);
+  }
+
+  @Get('disputes/:gameId')
+  disputeDetail(@CurrentUser() actor: User, @Param('gameId', ParseUUIDPipe) gameId: string) {
+    return this.disputes.detail(actor, gameId);
+  }
+
+  @Post('disputes/:gameId/decide')
+  decide(@CurrentUser() actor: User, @Param('gameId', ParseUUIDPipe) gameId: string, @Body() dto: DecideGameDto, @Req() req: Request) {
+    return this.disputes.decide(actor, gameId, dto, ctx(req));
+  }
+
+  // ------------------------------------------- clubs, communities, tournaments
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('manage/club/:id')
+  clubDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.manage.clubDetail(id);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Patch('manage/club/:id')
+  editClub(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EditClubDto, @Req() req: Request) {
+    return this.manage.editClub(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('manage/club/:id/leader')
+  clubLeader(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLeaderDto, @Req() req: Request) {
+    return this.manage.setClubLeader(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('manage/club/:id/community')
+  clubCommunity(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ClubCommunityDto, @Req() req: Request) {
+    return this.manage.setClubCommunity(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('manage/community/:id')
+  communityDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.manage.communityDetail(id);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Get('manage/community/:id/members')
+  communityMembers(@Param('id', ParseUUIDPipe) id: string, @Query('search') search?: string) {
+    return this.manage.communityMembers(id, search ?? '');
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Patch('manage/community/:id')
+  editCommunity(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EditCommunityDto, @Req() req: Request) {
+    return this.manage.editCommunity(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('manage/community/:id/leader')
+  communityLeader(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLeaderDto, @Req() req: Request) {
+    return this.manage.setCommunityLeader(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('manage/:kind/:id/freeze')
+  freeze(@CurrentUser() actor: User, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: FreezeDto, @Req() req: Request) {
+    return this.manage.setFrozen(actor, freezable(kind), id, true, dto.reason, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('manage/:kind/:id/unfreeze')
+  unfreeze(@CurrentUser() actor: User, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OptionalReasonDto, @Req() req: Request) {
+    return this.manage.setFrozen(actor, freezable(kind), id, false, dto.reason, ctx(req));
+  }
+
+  @Get('manage/tournament/:id')
+  tournamentDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.manage.tournamentDetail(id);
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Patch('manage/tournament/:id/times')
+  tournamentTimes(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: TournamentTimesDto, @Req() req: Request) {
+    return this.manage.setTournamentTimes(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Post('manage/tournament/:id/status')
+  tournamentStatus(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: TournamentStatusDto, @Req() req: Request) {
+    return this.manage.setTournamentStatus(actor, id, dto, ctx(req));
+  }
+
+  /** Moderators can fix officials too, so stuck reviews get unstuck. */
+  @Put('manage/tournament/:id/officials')
+  tournamentOfficials(@CurrentUser() actor: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: TournamentOfficialsDto, @Req() req: Request) {
+    return this.manage.setTournamentOfficials(actor, id, dto, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
+  @Delete('manage/tournament/:id/participants/:participantId')
+  removeEntry(
+    @CurrentUser() actor: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('participantId', ParseUUIDPipe) participantId: string,
+    @Body() dto: RemoveParticipantDto,
+    @Req() req: Request,
+  ) {
+    return this.manage.removeParticipant(actor, id, participantId, dto.reason, ctx(req));
+  }
 
   // ------------------------------------------------- activity and sign-ins
 

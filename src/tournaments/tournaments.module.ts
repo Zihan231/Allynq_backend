@@ -46,6 +46,6 @@ import { MyGamesService } from './my-games.service.js';
     TournamentDeadlinesService,
     MyGamesService,
   ],
-  exports: [TournamentsService],
+  exports: [TournamentsService, TournamentResultsService],
 })
 export class TournamentsModule {}

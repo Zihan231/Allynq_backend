@@ -122,6 +122,10 @@ function makeDb() {
       return [];
     }
     if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    if (sql.includes('"frozenAt", "frozenReason" FROM "clubs"')) {
+      const club = table(Club).find((c) => c.id === params[0]);
+      return club ? [{ name: club.name, frozenAt: club.frozenAt ?? null, frozenReason: club.frozenReason ?? null }] : [];
+    }
     if (sql.includes('FROM tournaments t')) {
       const found = commitments.get(params[1] as string);
       return found ? [found] : [];
@@ -262,6 +266,16 @@ describe('TransfersService', () => {
     expect(offer(o.id).status).toBe('declined');
     expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
     expect(codesTo(users.padmaPres)).toContain('transfer.declinedByPlayer');
+  });
+
+  it('a club frozen by staff can neither send offers nor accept proposals', async () => {
+    const { service, users, db } = t;
+    const proposal = await service.createOffer(users.free, { clubId: PADMA, amountTk: 0 });
+    Object.assign(db.table(Club).find((c) => c.id === PADMA)!, { frozenAt: new Date(), frozenReason: 'Investigation' });
+    await expect(
+      service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'card' }),
+    ).rejects.toThrow('frozen by ALLYNQ staff: Investigation');
+    await expect(service.respond(users.padmaPres, proposal.id, { accept: true, paymentMethod: 'card' })).rejects.toThrow('frozen');
   });
 
   it('withdrawing a club offer refunds the hold; only the sender side may withdraw', async () => {

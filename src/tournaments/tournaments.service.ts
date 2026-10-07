@@ -44,6 +44,7 @@ import {
   TournamentStatus,
   TournamentType,
 } from './enums/tournament.enum.js';
+import { assertNotFrozen } from '../common/frozen.js';
 
 const LINEUP_CUTOFF_MS = 2 * 60 * 60 * 1000;
 
@@ -155,6 +156,7 @@ export class TournamentsService {
       await this.assertCommunityLeaderForCreate(userId, dto.communityId!);
       host = { kind: 'community', id: dto.communityId! };
     }
+    await assertNotFrozen(this.tournamentsRepository, host.kind, host.id);
 
     const startAt = new Date(dto.startAt);
     if (isNaN(startAt.getTime())) {
@@ -784,6 +786,7 @@ export class TournamentsService {
         'Tournament registration is not currently open',
       );
     }
+    await assertNotFrozen(this.tournamentsRepository, tournament.hostClubId ? 'club' : 'community', tournament.hostClubId ?? tournament.communityId);
 
     const now = new Date();
     if (
@@ -822,6 +825,8 @@ export class TournamentsService {
       }
       return this.registerPlayer(tournament, userId, callerProfile);
     }
+    // A frozen club can't enter club-vs-club tournaments.
+    if (tournament.type === TournamentType.CVC) await assertNotFrozen(this.tournamentsRepository, 'club', callerProfile.clubId);
 
     const membership = await this.communityMembersRepository.findOne({
       where: {

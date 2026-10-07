@@ -21,6 +21,7 @@ import { createPaginatedResult } from '../common/interfaces/paginated-result.int
 import { Club } from './entities/club.entity.js';
 import { ClubJoinRequest } from './entities/club-join-request.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
+import { assertNotFrozen } from '../common/frozen.js';
 
 @Injectable()
 export class ClubsService {
@@ -134,6 +135,7 @@ export class ClubsService {
 
   async update(id: string, dto: UpdateClubDto): Promise<Club> {
     const club = await this.findOne(id);
+    await assertNotFrozen(this.clubsRepository, 'club', id);
 
     if (dto.dpUrl !== undefined && dto.dpUrl !== club.dpUrl) {
       if (club.dpUrl) {

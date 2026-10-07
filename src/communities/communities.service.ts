@@ -29,6 +29,7 @@ import { createPaginatedResult } from '../common/interfaces/paginated-result.int
 import { FileStorageService } from '../common/services/file-storage.service.js';
 import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { assertNotFrozen } from '../common/frozen.js';
 
 @Injectable()
 export class CommunitiesService {
@@ -139,7 +140,7 @@ export class CommunitiesService {
     const qb = this.communitiesRepository.createQueryBuilder('community').select('community.id', 'id');
     for (const column of [
       'name', 'rules', 'dpUrl', 'coverUrl', 'color', 'initials', 'points', 'tier',
-      'joinPolicy', 'location', 'motto', 'facebookUrl', 'creatorId', 'createdAt', 'updatedAt',
+      'joinPolicy', 'location', 'motto', 'facebookUrl', 'creatorId', 'createdAt', 'updatedAt', 'frozenAt', 'frozenReason',
     ]) {
       qb.addSelect(`community.${column}`, column);
     }
@@ -234,6 +235,7 @@ export class CommunitiesService {
     if (!community) {
       throw new NotFoundException(`Community ${id} not found`);
     }
+    await assertNotFrozen(this.communitiesRepository, 'community', id);
 
     if (dto.dpUrl !== undefined && dto.dpUrl !== community.dpUrl) {
       if (community.dpUrl) {
@@ -428,7 +430,8 @@ export class CommunitiesService {
     return { message: 'Successfully left community' };
   }
 
-  async addClub(communityId: string, clubId: string, user: User): Promise<any> {
+  /** `staff`: ALLYNQ staff moving a club, without the leaders' permission check or approval step. */
+  async addClub(communityId: string, clubId: string, user: User, options: { staff?: boolean } = {}): Promise<any> {
     const community = await this.communitiesRepository.findOne({
       where: { id: communityId },
       relations: { clubs: true },
@@ -456,7 +459,11 @@ export class CommunitiesService {
       where: { userId: user.id },
     });
 
-    const isCommunityPresident = community.creatorId === user.id;
+    if (!options.staff) {
+      await assertNotFrozen(this.communitiesRepository, 'community', communityId);
+      await assertNotFrozen(this.communitiesRepository, 'club', clubId);
+    }
+    const isCommunityPresident = options.staff || community.creatorId === user.id;
     const isClubLeadership =
       userProfile &&
       userProfile.clubId === club.id &&
@@ -562,7 +569,7 @@ export class CommunitiesService {
     }
   }
 
-  async removeClub(communityId: string, clubId: string, user: User): Promise<any> {
+  async removeClub(communityId: string, clubId: string, user: User, options: { staff?: boolean } = {}): Promise<any> {
     const community = await this.communitiesRepository.findOne({
       where: { id: communityId },
       relations: { clubs: true },
@@ -582,7 +589,7 @@ export class CommunitiesService {
       where: { userId: user.id },
     });
 
-    const isCommunityPresident = community.creatorId === user.id;
+    const isCommunityPresident = options.staff || community.creatorId === user.id;
     const isClubLeadership =
       userProfile &&
       userProfile.clubId === club.id &&

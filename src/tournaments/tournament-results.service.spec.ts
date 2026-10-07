@@ -297,6 +297,16 @@ describe('TournamentResultsService.reviewGame', () => {
     ).rejects.toThrow(ForbiddenException);
     expect(gamesRepository.update).not.toHaveBeenCalled();
   });
+  it('lets ALLYNQ staff decide from the dispute centre without an official role or waiting for the window', async () => {
+    const { service, gamesRepository } = setup({ gameStatus: 'submitted', evidenceDeadline: new Date(Date.now() + HOUR) });
+    await service.reviewGame('staff-member', 't1', 'g1', { action: 'approve', goalsA: 2, goalsB: 1 }, { staff: true });
+    expect(gamesRepository.update).toHaveBeenCalledWith({ id: 'g1' }, expect.objectContaining({ status: 'approved', goalsA: 2, goalsB: 1 }));
+  });
+
+  it('still keeps staff out of a game they play in', async () => {
+    const { service } = setup({ gameStatus: 'submitted' });
+    await expect(service.reviewGame('user-a', 't1', 'g1', { action: 'approve', goalsA: 1, goalsB: 0 }, { staff: true })).rejects.toThrow(ForbiddenException);
+  });
 });
 
 describe('TournamentResultsService review visibility', () => {

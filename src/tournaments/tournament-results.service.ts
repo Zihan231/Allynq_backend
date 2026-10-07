@@ -129,9 +129,9 @@ export class TournamentResultsService {
    * One game with both sides' evidence, for the review screen. Viewable any time;
    * approving or rejecting waits for the evidence window to close (see reviewGame).
    */
-  async getGameForReview(userId: string, tournamentId: string, gameId: string): Promise<ReviewGameView> {
+  async getGameForReview(userId: string, tournamentId: string, gameId: string, options: { staff?: boolean } = {}): Promise<ReviewGameView> {
     const tournament = await this.tournamentsService.findOne(tournamentId);
-    await this.assertCanReview(userId, tournament);
+    if (!options.staff) await this.assertCanReview(userId, tournament);
     const game = await this.loadGame(tournamentId, gameId);
     if (userId === game.playerAUserId || userId === game.playerBUserId) {
       throw new ForbiddenException("You can't review a game you played in");
@@ -148,14 +148,16 @@ export class TournamentResultsService {
     tournamentId: string,
     gameId: string,
     decision: ReviewDecision,
+    /** ALLYNQ staff deciding from the dispute centre: no official role needed, and no waiting for the evidence window. */
+    options: { staff?: boolean } = {},
   ): Promise<{ game: ReviewGameView; fixture: 'pending' | 'needs_decider' | 'completed' }> {
     const tournament = await this.tournamentsService.findOne(tournamentId);
-    await this.assertCanReview(userId, tournament);
+    if (!options.staff) await this.assertCanReview(userId, tournament);
     const game = await this.loadGame(tournamentId, gameId);
     if (game.match!.status === 'completed' || game.match!.status === 'bye') {
       throw new BadRequestException('This fixture is already completed');
     }
-    assertReviewOpen(game);
+    if (!options.staff) assertReviewOpen(game);
     if (userId === game.playerAUserId || userId === game.playerBUserId) {
       throw new ForbiddenException("You can't review a game you played in");
     }

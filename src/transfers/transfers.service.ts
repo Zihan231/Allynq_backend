@@ -14,6 +14,7 @@ import type { CreateOfferDto, FreeAgentsQueryDto, RespondOfferDto, TransferHisto
 import { PlayerContract, type ContractEndReason } from './entities/player-contract.entity.js';
 import { TransferOffer, type TransferOfferKind } from './entities/transfer-offer.entity.js';
 import { WalletsService, type WalletOwner } from './wallets.service.js';
+import { assertNotFrozen } from '../common/frozen.js';
 
 const LEADER_ROLES: string[] = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
 const PLAYER_LINK = '/dashboard/efootball/transfers';
@@ -195,6 +196,7 @@ export class TransfersService {
     const now = new Date();
 
     const offerId = await this.dataSource.transaction(async (em) => {
+      await assertNotFrozen(em, 'club', dto.clubId);
       const club = await this.clubOf(em, dto.clubId);
       const isPlayerProposal = !dto.playerUserId;
       const playerUserId = dto.playerUserId ?? caller.id;
@@ -359,6 +361,7 @@ export class TransfersService {
 
     await this.dataSource.transaction(async (em) => {
       const offer = await this.lockOffer(em, offerId);
+      if (dto.accept) await assertNotFrozen(em, 'club', offer.toClubId);
       if (offer.status !== 'pending') throw new BadRequestException(`This offer is already ${offer.status}`);
       if (offer.expiresAt <= new Date()) throw new BadRequestException('This offer has expired');
 
