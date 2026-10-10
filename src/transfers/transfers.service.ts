@@ -64,6 +64,16 @@ export interface ContractView {
   locked: boolean;
 }
 
+export type PaymentStatus = 'none' | 'held' | 'paid' | 'refunded' | 'reversed';
+
+/** Where the club's money for a deal is, from its status and hold. */
+export function paymentStatusOf(o: Pick<TransferOffer, 'status' | 'amountTk' | 'heldTk' | 'paidAt'>): PaymentStatus {
+  if (o.status === 'reversed') return 'reversed';
+  if (o.status === 'completed') return o.amountTk > 0 ? 'paid' : 'none';
+  if (o.heldTk > 0) return 'held';
+  return o.paidAt ? 'refunded' : 'none';
+}
+
 /** A tournament of the old club (not started yet) with the player in its lineup or entered by him. */
 export interface UpcomingEntry {
   participantId: string;
@@ -92,6 +102,12 @@ export interface OfferView {
   amountTk: number;
   /** Club money held for this deal right now. */
   heldTk: number;
+  /**
+   * Where the club's money is: `held` (taken from the club wallet, not yet with the payee),
+   * `paid` (transfer completed), `refunded` (deal closed, money back with the club),
+   * `reversed` (staff undid the transfer) or `none` (no money involved yet).
+   */
+  paymentStatus: PaymentStatus;
   payeeType: 'player' | 'club';
   message: string | null;
   player: { id: string; name: string; dpUrl: string | null };
@@ -1220,6 +1236,7 @@ export class TransfersService {
         turn: r.turn,
         amountTk: r.amountTk,
         heldTk: r.heldTk,
+        paymentStatus: paymentStatusOf(r as TransferOffer),
         payeeType: r.payeeType,
         message: r.message,
         player: { id: r.playerUserId, name: r.playerName, dpUrl: r.playerDpUrl },

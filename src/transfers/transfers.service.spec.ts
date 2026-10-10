@@ -12,7 +12,7 @@ import { TransferOfferBid } from './entities/transfer-offer-bid.entity.js';
 import { TransferOffer } from './entities/transfer-offer.entity.js';
 import { WalletTransaction } from './entities/wallet-transaction.entity.js';
 import { Wallet } from './entities/wallet.entity.js';
-import { TransfersService } from './transfers.service.js';
+import { paymentStatusOf, TransfersService } from './transfers.service.js';
 import { WalletsService } from './wallets.service.js';
 
 /**
@@ -631,5 +631,19 @@ describe('TransfersService', () => {
     expect(await ensureContract(db.dataSource, DEFAULT_TRANSFER_SETTINGS, users.padmaPres.id, PADMA)).toBe(true);
     expect(activeContract(users.padmaPres)).toMatchObject({ clubId: PADMA, frozenTk: 0, baseTk: 120, lockDays: 120 });
     expect(await ensureContract(db.dataSource, DEFAULT_TRANSFER_SETTINGS, users.padmaPres.id, PADMA)).toBe(false);
+  });
+
+  it('reports where the club money is: held while open, paid once completed, refunded when closed', async () => {
+    const { service, users, offer } = t;
+    const p = await service.createOffer(users.free, { clubId: T4, amountTk: 50 });
+    expect(paymentStatusOf(offer(p.id))).toBe('none');
+
+    const o = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'bkash' });
+    expect(paymentStatusOf(offer(o.id))).toBe('held');
+    await service.respond(users.free, o.id, { accept: true });
+    expect(paymentStatusOf(offer(o.id))).toBe('paid');
+    const r = await service.createOffer(users.t4Pres, { clubId: T4, playerUserId: users.locked.id, amountTk: 40, paymentMethod: 'card' });
+    await service.respond(users.locked, r.id, { accept: false });
+    expect(paymentStatusOf(offer(r.id))).toBe('refunded');
   });
 });
