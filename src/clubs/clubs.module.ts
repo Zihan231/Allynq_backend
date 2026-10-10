@@ -11,6 +11,7 @@ import { Club } from './entities/club.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
 import { Team } from './entities/team.entity.js';
 import { ClubRoleGuard } from './guards/club-role.guard.js';
+import { ProfileRequirementsGuard } from '../users/profile-requirements.guard.js';
 import { TeamsController } from './teams.controller.js';
 import { TeamsService } from './teams.service.js';
 
@@ -22,7 +23,7 @@ import { TeamsService } from './teams.service.js';
     NotificationsModule,
   ],
   controllers: [ClubsController, TeamsController],
-  providers: [ClubsService, TeamsService, ClubRoleGuard],
+  providers: [ClubsService, TeamsService, ClubRoleGuard, ProfileRequirementsGuard],
   exports: [ClubsService, TeamsService],
 })
 export class ClubsModule {}

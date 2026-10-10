@@ -14,6 +14,7 @@ import {
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
+import { ProfileRequirementsGuard, RequireCompleteProfile } from '../users/profile-requirements.guard.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ClubsService } from './clubs.service.js';
 import { RequireClubRoles } from './decorators/require-club-roles.decorator.js';
@@ -32,7 +33,8 @@ import { ClubRoleGuard } from './guards/club-role.guard.js';
 export class ClubsController {
   constructor(private readonly clubsService: ClubsService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile('organizer')
   @Post()
   create(@CurrentUser() user: User, @Body() dto: CreateClubDto) {
     return this.clubsService.create(user, dto);
@@ -132,7 +134,8 @@ export class ClubsController {
     return this.clubsService.transferPresidency(id, user, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile()
   @Post(':id/join')
   join(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
     return this.clubsService.join(id, user);

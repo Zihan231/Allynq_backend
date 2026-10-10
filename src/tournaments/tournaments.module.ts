@@ -21,6 +21,7 @@ import { TournamentsController } from './tournaments.controller.js';
 import { TournamentsService } from './tournaments.service.js';
 import { MyGamesService } from './my-games.service.js';
 import { TournamentMoneyService } from './tournament-money.service.js';
+import { ProfileRequirementsGuard } from '../users/profile-requirements.guard.js';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { TournamentMoneyService } from './tournament-money.service.js';
     TournamentDeadlinesService,
     MyGamesService,
     TournamentMoneyService,
+    ProfileRequirementsGuard,
   ],
   exports: [TournamentsService, TournamentResultsService],
 })

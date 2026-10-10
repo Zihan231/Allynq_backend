@@ -13,6 +13,7 @@ import {
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
+import { ProfileRequirementsGuard, RequireCompleteProfile } from '../users/profile-requirements.guard.js';
 import { CommunityRole } from '../users/enums/user-attributes.enum.js';
 import { CommunitiesService } from './communities.service.js';
 import { RequireCommunityRoles } from './decorators/require-community-roles.decorator.js';
@@ -29,7 +30,8 @@ import { CommunityRoleGuard } from './guards/community-role.guard.js';
 export class CommunitiesController {
   constructor(private readonly communitiesService: CommunitiesService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile('organizer')
   @Post()
   create(@CurrentUser() user: User, @Body() dto: CreateCommunityDto) {
     return this.communitiesService.create(user, dto);
@@ -68,7 +70,8 @@ export class CommunitiesController {
     return this.communitiesService.remove(id, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile()
   @Post(':id/join')
   joinIndividual(
     @Param('id', ParseUUIDPipe) id: string,
@@ -95,7 +98,8 @@ export class CommunitiesController {
     return this.communitiesService.leaveIndividual(id, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile()
   @Post(':id/clubs/:clubId')
   addClub(
     @Param('id', ParseUUIDPipe) id: string,

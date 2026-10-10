@@ -17,6 +17,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
+import { ProfileRequirementsGuard, RequireCompleteProfile } from '../users/profile-requirements.guard.js';
 import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
@@ -66,7 +67,8 @@ export class TournamentsController {
     return this.scheduleService.respondToTimeChange(user.id, id, requestId, dto.accept);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile('organizer')
   @Post()
   create(@CurrentUser() user: User, @Body() dto: CreateTournamentDto) {
     return this.tournamentsService.create(user.id, dto);
@@ -106,7 +108,8 @@ export class TournamentsController {
     return this.tournamentsService.remove(user.id, id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile()
   @Post(':id/join')
   join(
     @CurrentUser() user: User,

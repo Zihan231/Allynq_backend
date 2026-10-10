@@ -3,6 +3,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
+import { ProfileRequirementsGuard, RequireCompleteProfile } from '../users/profile-requirements.guard.js';
 import {
   BuyLoanDto,
   CounterLoanDto,
@@ -33,13 +34,15 @@ export class TransfersController {
   }
 
   /** A player proposes himself to a club, or a club leader makes an offer (paid upfront into a hold). */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile()
   @Post('offers')
   createOffer(@CurrentUser() user: User, @Body() dto: CreateOfferDto) {
     return this.transfersService.createOffer(user, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ProfileRequirementsGuard)
+  @RequireCompleteProfile()
   @Post('offers/:id/respond')
   respond(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
     return this.transfersService.respond(user, id, dto);

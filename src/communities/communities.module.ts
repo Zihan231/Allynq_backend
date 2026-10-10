@@ -9,6 +9,7 @@ import { CommunityJoinRequest } from './entities/community-join-request.entity.j
 import { CommunityMember } from './entities/community-member.entity.js';
 import { Community } from './entities/community.entity.js';
 import { CommunityRoleGuard } from './guards/community-role.guard.js';
+import { ProfileRequirementsGuard } from '../users/profile-requirements.guard.js';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { CommunityRoleGuard } from './guards/community-role.guard.js';
     NotificationsModule,
   ],
   controllers: [CommunitiesController],
-  providers: [CommunitiesService, CommunityRoleGuard],
+  providers: [CommunitiesService, CommunityRoleGuard, ProfileRequirementsGuard],
   exports: [CommunitiesService],
 })
 export class CommunitiesModule {}

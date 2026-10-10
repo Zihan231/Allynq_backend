@@ -14,6 +14,7 @@ import { TransfersJobsService } from './transfers-jobs.service.js';
 import { TransfersController } from './transfers.controller.js';
 import { TransfersService } from './transfers.service.js';
 import { WalletsService } from './wallets.service.js';
+import { ProfileRequirementsGuard } from '../users/profile-requirements.guard.js';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { WalletsService } from './wallets.service.js';
     NotificationsModule,
   ],
   controllers: [TransfersController],
-  providers: [TransfersService, WalletsService, LoansService, TransfersJobsService],
+  providers: [TransfersService, WalletsService, LoansService, TransfersJobsService, ProfileRequirementsGuard],
   exports: [TransfersService, WalletsService, LoansService],
 })
 export class TransfersModule {}
