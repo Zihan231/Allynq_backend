@@ -8,8 +8,17 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
  * - received: money credited for a completed transfer;
  * - adjustment: a correction made by ALLYNQ staff (either sign);
  * - reversal: money moved back when staff reversed a completed transfer (either sign).
+ * - purchase: spent in the store (negative).
  */
-export type WalletTransactionKind = 'top_up' | 'hold' | 'refund' | 'payout_sent' | 'received' | 'adjustment' | 'reversal';
+export type WalletTransactionKind =
+  | 'top_up'
+  | 'hold'
+  | 'refund'
+  | 'payout_sent'
+  | 'received'
+  | 'adjustment'
+  | 'reversal'
+  | 'purchase';
 
 @Entity('wallet_transactions')
 export class WalletTransaction {
@@ -40,6 +49,10 @@ export class WalletTransaction {
   /** The tournament it belongs to: entry fees and prize money of general tournaments. */
   @Column({ type: 'uuid', nullable: true })
   tournamentId!: string | null;
+
+  /** The store item it paid for (purchases). */
+  @Column({ type: 'uuid', nullable: true })
+  storeItemId!: string | null;
 
   /** Who the money went to / came from (display name). */
   @Column({ type: 'varchar', length: 255, nullable: true })

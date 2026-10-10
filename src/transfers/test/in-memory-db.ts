@@ -102,6 +102,7 @@ export function makeDb() {
     const rows = table(entity);
     if (params.offerId) return rows.find((r) => r.id === params.offerId) ?? null;
     if (params.loanId) return rows.find((r) => r.id === params.loanId) ?? null;
+    if (params.userId) return rows.find((r) => r.id === params.userId) ?? null;
     if (params.type && params.id) return rows.find((r) => r.ownerType === params.type && r.ownerId === params.id) ?? null;
     return null;
   };

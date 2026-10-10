@@ -160,7 +160,7 @@ export class TopUpDto {
   clubId?: string;
 }
 
-export const WALLET_TX_KINDS = ['top_up', 'hold', 'refund', 'payout_sent', 'received'] as const;
+export const WALLET_TX_KINDS = ['top_up', 'hold', 'refund', 'payout_sent', 'received', 'purchase'] as const;
 
 export class WalletHistoryQueryDto extends PaginationQueryDto {
   /** A club wallet you lead; omit for your own wallet. */

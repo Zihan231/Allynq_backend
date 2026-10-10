@@ -9,6 +9,7 @@ export interface DealRef {
   offerId?: string | null;
   loanId?: string | null;
   tournamentId?: string | null;
+  storeItemId?: string | null;
 }
 
 export interface WalletOwner {
@@ -167,6 +168,25 @@ export class WalletsService {
     else if (toTk < fromTk) await this.refund(em, owner, fromTk - toTk, ref);
   }
 
+  /** Spends money straight from the balance (a store purchase). Refuses if there isn't enough. */
+  async spend(
+    em: EntityManager,
+    owner: WalletOwner,
+    amountTk: number,
+    ref: DealRef & { counterparty: string; reference: string | null },
+  ): Promise<void> {
+    if (amountTk <= 0) return;
+    const w = await this.lock(em, owner);
+    if (w.balanceTk < amountTk) {
+      throw new BadRequestException(
+        `Not enough money in the wallet: ${amountTk} tk needed, ${w.balanceTk} tk available. Add demo funds first.`,
+      );
+    }
+    w.balanceTk -= amountTk;
+    await em.save(w);
+    await this.record(em, w, 'purchase', -amountTk, ref);
+  }
+
   /** Pays held money out to the payee (transfer completed). */
   async payOut(
     em: EntityManager,
@@ -234,6 +254,7 @@ export class WalletsService {
       offerId: ref.offerId ?? null,
       loanId: ref.loanId ?? null,
       tournamentId: ref.tournamentId ?? null,
+      storeItemId: ref.storeItemId ?? null,
       counterparty: ref.counterparty ?? null,
       reference: ref.reference ?? null,
     });

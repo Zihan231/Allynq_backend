@@ -24,6 +24,14 @@ export class UsersService {
   ) {}
 
   async create(dto: CreateUserDto): Promise<User> {
+    // Cosmetics are bought and switched through the store (StoreService), which checks
+    // payment and ownership: registration or a profile edit can't grant or equip them.
+    delete dto.ownedCosmeticIds;
+    delete dto.equippedBadgeId;
+    delete dto.equippedTitleId;
+    delete dto.equippedFrameId;
+    delete dto.equippedThemeId;
+
     // Verification is granted by staff after reviewing the document, never self-assigned.
     delete dto.verificationLevel;
     if (dto.dpUrl) {
@@ -154,6 +162,14 @@ export class UsersService {
       user.password = await bcrypt.hash(dto.password.trim(), 10);
       delete dto.password;
     }
+
+    // Cosmetics are bought and switched through the store (StoreService), which checks
+    // payment and ownership: registration or a profile edit can't grant or equip them.
+    delete dto.ownedCosmeticIds;
+    delete dto.equippedBadgeId;
+    delete dto.equippedTitleId;
+    delete dto.equippedFrameId;
+    delete dto.equippedThemeId;
 
     // Verification is granted by staff after reviewing the document, never self-assigned.
     // A new or changed document goes back into the review queue; removing it clears the level.

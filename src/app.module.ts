@@ -18,6 +18,7 @@ import { TournamentsModule } from './tournaments/tournaments.module.js';
 import { StatsModule } from './stats/stats.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { TransfersModule } from './transfers/transfers.module.js';
+import { StoreModule } from './store/store.module.js';
 import { UsersModule } from './users/users.module.js';
 import { HealthModule } from './health/health.module.js';
 import { SecurityModule } from './security/security.module.js';
@@ -45,6 +46,7 @@ import { SecurityModule } from './security/security.module.js';
     StatsModule,
     SettingsModule,
     TransfersModule,
+    StoreModule,
     AdminModule,
     ReportsModule,
   ],
