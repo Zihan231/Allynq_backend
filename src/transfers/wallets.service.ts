@@ -8,6 +8,7 @@ import { WalletTransaction, type WalletTransactionKind } from './entities/wallet
 export interface DealRef {
   offerId?: string | null;
   loanId?: string | null;
+  tournamentId?: string | null;
 }
 
 export interface WalletOwner {
@@ -181,6 +182,7 @@ export class WalletsService {
     await this.record(em, payer, 'payout_sent', amountTk, {
       offerId: ref.offerId,
       loanId: ref.loanId,
+      tournamentId: ref.tournamentId,
       counterparty: ref.toName,
       reference: ref.reference,
     });
@@ -191,6 +193,7 @@ export class WalletsService {
     await this.record(em, payee, 'received', amountTk, {
       offerId: ref.offerId,
       loanId: ref.loanId,
+      tournamentId: ref.tournamentId,
       counterparty: ref.fromName,
       reference: ref.reference,
     });
@@ -205,7 +208,7 @@ export class WalletsService {
     owner: WalletOwner,
     amountTk: number,
     kind: 'adjustment' | 'reversal',
-    ref: { offerId?: string | null; counterparty: string },
+    ref: DealRef & { counterparty: string },
   ): Promise<Wallet> {
     const w = await this.lock(em, owner);
     if (w.balanceTk + amountTk < 0) {
@@ -213,7 +216,7 @@ export class WalletsService {
     }
     w.balanceTk += amountTk;
     await em.save(w);
-    await this.record(em, w, kind, amountTk, { offerId: ref.offerId ?? null, counterparty: ref.counterparty });
+    await this.record(em, w, kind, amountTk, { ...ref, counterparty: ref.counterparty });
     return w;
   }
 
@@ -222,7 +225,7 @@ export class WalletsService {
     wallet: Wallet,
     kind: WalletTransactionKind,
     amountTk: number,
-    ref: { offerId?: string | null; loanId?: string | null; counterparty?: string | null; reference?: string | null },
+    ref: DealRef & { counterparty?: string | null; reference?: string | null },
   ): Promise<void> {
     await em.getRepository(WalletTransaction).insert({
       walletId: wallet.id,
@@ -230,6 +233,7 @@ export class WalletsService {
       amountTk,
       offerId: ref.offerId ?? null,
       loanId: ref.loanId ?? null,
+      tournamentId: ref.tournamentId ?? null,
       counterparty: ref.counterparty ?? null,
       reference: ref.reference ?? null,
     });

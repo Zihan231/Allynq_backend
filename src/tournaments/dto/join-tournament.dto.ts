@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsOptional, IsUUID, ValidateNested } from 'class-validator';
+import { IsIn, IsOptional, IsUUID, ValidateNested } from 'class-validator';
 import { SubmitLineupDto } from './submit-lineup.dto.js';
 
 export class JoinTournamentDto {
@@ -12,4 +12,9 @@ export class JoinTournamentDto {
   @ValidateNested()
   @Type(() => SubmitLineupDto)
   lineup?: SubmitLineupDto;
+
+  /** General tournaments with an entry fee: how the entrant pays (held until fixtures are out). */
+  @IsOptional()
+  @IsIn(['bkash', 'nagad', 'card'])
+  paymentMethod?: 'bkash' | 'nagad' | 'card';
 }

@@ -63,10 +63,18 @@ export class Tournament {
   @Column({ type: 'varchar', length: 8, default: GamingPlatform.MOBILE })
   platform!: GamingPlatform;
 
-  @Column({ type: 'enum', enum: TournamentStatus, default: TournamentStatus.REGISTRATION_OPEN })
+  @Column({
+    type: 'enum',
+    enum: TournamentStatus,
+    default: TournamentStatus.REGISTRATION_OPEN,
+  })
   status!: TournamentStatus;
 
-  @Column({ type: 'enum', enum: TournamentPreset, default: TournamentPreset.ELEVEN_V_ELEVEN })
+  @Column({
+    type: 'enum',
+    enum: TournamentPreset,
+    default: TournamentPreset.ELEVEN_V_ELEVEN,
+  })
   preset!: TournamentPreset;
 
   @Column({ type: 'int', default: 11 })
@@ -83,6 +91,10 @@ export class Tournament {
 
   @Column({ type: 'int', default: 0 })
   prizePoolBdt!: number;
+
+  /** General tournaments: prize money held from the organizer's wallet until the champion is known. */
+  @Column({ type: 'int', default: 0 })
+  prizeHeldTk!: number;
 
   @Column({ type: 'timestamp with time zone', nullable: true })
   registrationDeadline!: Date | null;
@@ -153,13 +165,29 @@ export class Tournament {
   deletedAt!: Date | null;
 }
 
-export type TournamentHost = { kind: 'community'; id: string } | { kind: 'club'; id: string };
+export type TournamentHost =
+  | { kind: 'community'; id: string }
+  | { kind: 'club'; id: string }
+  /** A general tournament: no community or club, run by the user who created it. */
+  | { kind: 'organizer'; id: string };
 
-/** Who hosts a tournament: its community, or (for club tournaments) its club. */
-export function hostOf(tournament: Pick<Tournament, 'communityId' | 'hostClubId'>): TournamentHost {
-  return tournament.hostClubId
-    ? { kind: 'club', id: tournament.hostClubId }
-    : { kind: 'community', id: tournament.communityId ?? '' };
+/** A general tournament is hosted by a user (its organizer), not by a community or club. */
+export function isGeneral(
+  tournament: Pick<Tournament, 'communityId' | 'hostClubId'>,
+): boolean {
+  return !tournament.communityId && !tournament.hostClubId;
+}
+
+/** Who hosts a tournament: its community, its club, or (general tournaments) its organizer. */
+export function hostOf(
+  tournament: Pick<Tournament, 'communityId' | 'hostClubId'> & {
+    creatorId?: string | null;
+  },
+): TournamentHost {
+  if (tournament.hostClubId) return { kind: 'club', id: tournament.hostClubId };
+  if (tournament.communityId)
+    return { kind: 'community', id: tournament.communityId };
+  return { kind: 'organizer', id: tournament.creatorId ?? '' };
 }
 
 /** App link to a tournament page (optionally with a query such as `?tab=bracket&match=…`). */
@@ -171,14 +199,20 @@ export function tournamentLink(
   const base =
     host.kind === 'club'
       ? `/dashboard/efootball/clubs/${host.id}/tournaments/${tournament.id}`
-      : `/dashboard/efootball/community/${host.id}/tournaments/${tournament.id}`;
+      : host.kind === 'community'
+        ? `/dashboard/efootball/community/${host.id}/tournaments/${tournament.id}`
+        : `/dashboard/efootball/tournaments/${tournament.id}`;
   return `${base}${query}`;
 }
 
-/** App link to the host's tournament list (community or club Tournaments tab). */
-export function hostTournamentsLink(tournament: Pick<Tournament, 'communityId' | 'hostClubId'>): string {
+/** App link to the host's tournament list (community or club Tournaments tab, or the general list). */
+export function hostTournamentsLink(
+  tournament: Pick<Tournament, 'communityId' | 'hostClubId'>,
+): string {
   const host = hostOf(tournament);
   return host.kind === 'club'
     ? `/dashboard/efootball/clubs/${host.id}?tab=tournaments`
-    : `/dashboard/efootball/community/${host.id}?tab=tournaments`;
+    : host.kind === 'community'
+      ? `/dashboard/efootball/community/${host.id}?tab=tournaments`
+      : '/dashboard/efootball/tournaments/general';
 }

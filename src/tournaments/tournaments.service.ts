@@ -15,20 +15,26 @@ import {
 } from '../users/enums/user-attributes.enum.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
-import { NotificationsService, type NotificationI18n } from '../notifications/notifications.service.js';
+import {
+  NotificationsService,
+  type NotificationI18n,
+} from '../notifications/notifications.service.js';
 import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
-import { User } from '../users/entities/user.entity.js';
 import { CreateTournamentDto } from './dto/create-tournament.dto.js';
 import { JoinTournamentDto } from './dto/join-tournament.dto.js';
 import { SubmitLineupDto } from './dto/submit-lineup.dto.js';
 import { TournamentQueryDto } from './dto/tournament-query.dto.js';
+import {
+  paymentMethodRequired,
+  TournamentMoneyService,
+} from './tournament-money.service.js';
 import { UpdateTournamentDto } from './dto/update-tournament.dto.js';
 import { normalizePlayHours, playHoursError } from './bracket/schedule.js';
 import {
-  BracketMatch,
   hostOf,
   hostTournamentsLink,
+  isGeneral,
   Tournament,
   type TournamentHost,
   tournamentLink,
@@ -57,10 +63,16 @@ export const MATCH_OFFICIAL_ROLES: CommunityRole[] = [
 ];
 
 /** Community roles that host (organize) the community's tournaments. */
-const LEADER_ROLES: string[] = [CommunityRole.PRESIDENT, CommunityRole.VICE_PRESIDENT];
+const LEADER_ROLES: string[] = [
+  CommunityRole.PRESIDENT,
+  CommunityRole.VICE_PRESIDENT,
+];
 
 /** Club roles that host (organize) a club's tournaments. */
-export const CLUB_LEADER_ROLES: string[] = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
+export const CLUB_LEADER_ROLES: string[] = [
+  ClubRole.PRESIDENT,
+  ClubRole.GENERAL_SECRETARY,
+];
 
 /** Club roles that may be appointed as a club tournament's match officials. */
 export const CLUB_OFFICIAL_ROLES: string[] = [
@@ -101,7 +113,11 @@ const hostedSql = (user: string, roles: string, clubRoles: string) =>
  * A tournament notification: English `title` / `message` (the fallback) plus a
  * message `code` and `params` the app renders in the viewer's language.
  */
-export type TournamentNotification = { title: string; message: string; link: string } & NotificationI18n;
+export type TournamentNotification = {
+  title: string;
+  message: string;
+  link: string;
+} & NotificationI18n;
 
 export interface PlayerCommitment {
   profileId: string;
@@ -130,26 +146,49 @@ export class TournamentsService {
     private readonly profilesRepository: Repository<EfootballProfile>,
     private readonly notificationsService: NotificationsService,
     private readonly recycleBin: RecycleBinService,
+    private readonly money: TournamentMoneyService,
   ) {}
 
   /** Club tournaments are friendlies: refuse an entry fee or prize pool. */
   private assertFriendly(dto: { entryFeeBdt?: number; prizePoolBdt?: number }) {
     if ((dto.entryFeeBdt ?? 0) > 0 || (dto.prizePoolBdt ?? 0) > 0) {
-      throw new BadRequestException('Club tournaments are friendlies and cannot have an entry fee or prize pool');
+      throw new BadRequestException(
+        'Club tournaments are friendlies and cannot have an entry fee or prize pool',
+      );
     }
   }
 
   async create(userId: string, dto: CreateTournamentDto): Promise<Tournament> {
-    if (Boolean(dto.communityId) === Boolean(dto.hostClubId)) {
-      throw new BadRequestException('Choose exactly one host for the tournament: a community or a club');
+    const selectedHosts =
+      Number(Boolean(dto.communityId)) +
+      Number(Boolean(dto.hostClubId)) +
+      Number(dto.general === true);
+    if (selectedHosts > 1) {
+      throw new BadRequestException(
+        'Choose exactly one tournament host: a community, a club, or general organizer mode',
+      );
+    }
+    if (selectedHosts === 0) {
+      throw new BadRequestException(
+        'Choose a host for the tournament (a community or a club), or create it as a general tournament',
+      );
     }
 
     let host: TournamentHost;
-    if (dto.hostClubId) {
+    if (!dto.communityId && !dto.hostClubId) {
+      // General tournament (organizer mode): any user runs it; PvP or CvC, open to everyone.
+      host = { kind: 'organizer', id: userId };
+    } else if (dto.hostClubId) {
       // Club tournaments: PvP between the club's members, run by its President / General Secretary.
-      await this.assertClubLeader(userId, dto.hostClubId, 'create club tournaments');
+      await this.assertClubLeader(
+        userId,
+        dto.hostClubId,
+        'create club tournaments',
+      );
       if (dto.type !== TournamentType.PVP) {
-        throw new BadRequestException('Club tournaments are Player vs Player only');
+        throw new BadRequestException(
+          'Club tournaments are Player vs Player only',
+        );
       }
       this.assertFriendly(dto);
       host = { kind: 'club', id: dto.hostClubId };
@@ -157,7 +196,8 @@ export class TournamentsService {
       await this.assertCommunityLeaderForCreate(userId, dto.communityId!);
       host = { kind: 'community', id: dto.communityId! };
     }
-    await assertNotFrozen(this.tournamentsRepository, host.kind, host.id);
+    if (host.kind !== 'organizer')
+      await assertNotFrozen(this.tournamentsRepository, host.kind, host.id);
 
     const startAt = new Date(dto.startAt);
     if (isNaN(startAt.getTime())) {
@@ -172,7 +212,8 @@ export class TournamentsService {
     const { preset, startersCount, subsCount } = this.resolveRoster(dto);
 
     // Club tournaments are friendlies: no entry fee or prize.
-    const entryFeeBdt = host.kind === 'club' || dto.isPaid === false ? 0 : (dto.entryFeeBdt ?? 0);
+    const entryFeeBdt =
+      host.kind === 'club' || dto.isPaid === false ? 0 : (dto.entryFeeBdt ?? 0);
 
     const tournament = this.tournamentsRepository.create({
       name: dto.name,
@@ -187,7 +228,10 @@ export class TournamentsService {
       entryFeeBdt,
       prizePoolBdt: host.kind === 'club' ? 0 : (dto.prizePoolBdt ?? 0),
       ...this.resolvePlayHours(dto.playHoursStart, dto.playHoursEnd),
-      matchOfficialIds: await this.resolveMatchOfficials(host, dto.matchOfficialIds),
+      matchOfficialIds: await this.resolveMatchOfficials(
+        host,
+        dto.matchOfficialIds,
+      ),
       registrationDeadline: dto.registrationDeadline
         ? new Date(dto.registrationDeadline)
         : teamSubmissionDeadline,
@@ -199,19 +243,34 @@ export class TournamentsService {
       creatorId: userId,
     });
 
-    const saved = await this.tournamentsRepository.save(tournament);
+    // A general tournament's prize is held from the organizer's wallet right away.
+    const saved =
+      host.kind === 'organizer' && tournament.prizePoolBdt > 0
+        ? await this.tournamentsRepository.manager.transaction(async (em) => {
+            const created = await em.getRepository(Tournament).save(tournament);
+            await this.money.holdPrize(em, created, created.prizePoolBdt);
+            return created;
+          })
+        : await this.tournamentsRepository.save(tournament);
     await this.notifyNewOfficials(saved, saved.matchOfficialIds, userId);
     return saved;
   }
 
   /** Community tournaments are created by the community's creator, President or Vice President. */
-  private async assertCommunityLeaderForCreate(userId: string, communityId: string): Promise<void> {
-    const community = await this.communitiesRepository.findOne({ where: { id: communityId } });
+  private async assertCommunityLeaderForCreate(
+    userId: string,
+    communityId: string,
+  ): Promise<void> {
+    const community = await this.communitiesRepository.findOne({
+      where: { id: communityId },
+    });
     if (!community) {
       throw new NotFoundException(`Community ${communityId} not found`);
     }
 
-    const callerProfile = await this.profilesRepository.findOne({ where: { userId } });
+    const callerProfile = await this.profilesRepository.findOne({
+      where: { userId },
+    });
     if (!callerProfile) {
       throw new ForbiddenException('User eFootball profile not found');
     }
@@ -222,19 +281,36 @@ export class TournamentsService {
 
     const isCreator = community.creatorId === userId;
     const isProfileAuthority =
-      callerProfile.communityId === communityId && LEADER_ROLES.includes(callerProfile.communityRole ?? '');
-    const isMembershipAuthority = Boolean(membership && LEADER_ROLES.includes(membership.role));
+      callerProfile.communityId === communityId &&
+      LEADER_ROLES.includes(callerProfile.communityRole ?? '');
+    const isMembershipAuthority = Boolean(
+      membership && LEADER_ROLES.includes(membership.role),
+    );
 
     if (!isCreator && !isProfileAuthority && !isMembershipAuthority) {
-      throw new ForbiddenException('Only the Community President or Vice President can create tournaments');
+      throw new ForbiddenException(
+        'Only the Community President or Vice President can create tournaments',
+      );
     }
   }
 
   /** Club tournaments are run by the club's President or General Secretary. */
-  private async assertClubLeader(userId: string, clubId: string, action: string): Promise<void> {
-    const profile = await this.profilesRepository.findOne({ where: { userId } });
-    if (!profile || profile.clubId !== clubId || !CLUB_LEADER_ROLES.includes(profile.clubRole ?? '')) {
-      throw new ForbiddenException(`Only the Club President or General Secretary can ${action}`);
+  private async assertClubLeader(
+    userId: string,
+    clubId: string,
+    action: string,
+  ): Promise<void> {
+    const profile = await this.profilesRepository.findOne({
+      where: { userId },
+    });
+    if (
+      !profile ||
+      profile.clubId !== clubId ||
+      !CLUB_LEADER_ROLES.includes(profile.clubRole ?? '')
+    ) {
+      throw new ForbiddenException(
+        `Only the Club President or General Secretary can ${action}`,
+      );
     }
   }
 
@@ -244,9 +320,28 @@ export class TournamentsService {
    * (Team Manager, Head of Discipline or Scout). Club tournaments: club staff
    * (Captain, Vice-Captain, Academy Captain or Manager).
    */
-  private async resolveMatchOfficials(host: TournamentHost, userIds: string[] | undefined): Promise<string[]> {
+  private async resolveMatchOfficials(
+    host: TournamentHost,
+    userIds: string[] | undefined,
+  ): Promise<string[]> {
     const unique = [...new Set(userIds ?? [])];
     if (!unique.length) return [];
+
+    if (host.kind === 'organizer') {
+      // General tournaments: the organizer appoints any players (they review anyway, so they're left out).
+      const officials = unique.filter((id) => id !== host.id);
+      if (!officials.length) return [];
+      const found = await this.profilesRepository.find({
+        where: { userId: In(officials) },
+        select: { userId: true },
+      });
+      if (found.length !== officials.length) {
+        throw new BadRequestException(
+          'Match officials must be existing players',
+        );
+      }
+      return officials;
+    }
 
     if (host.kind === 'club') {
       const [profiles, club] = await Promise.all([
@@ -254,14 +349,22 @@ export class TournamentsService {
           where: { userId: In(unique), clubId: host.id },
           select: { userId: true, clubRole: true },
         }),
-        this.clubsRepository.findOne({ where: { id: host.id }, select: { id: true, matchOfficialIds: true } }),
+        this.clubsRepository.findOne({
+          where: { id: host.id },
+          select: { id: true, matchOfficialIds: true },
+        }),
       ]);
-      const roleByUser = new Map(profiles.map((p) => [p.userId, p.clubRole ?? '']));
+      const roleByUser = new Map(
+        profiles.map((p) => [p.userId, p.clubRole ?? '']),
+      );
       const nominees = new Set(club?.matchOfficialIds ?? []);
-      const officials = unique.filter((id) => !CLUB_LEADER_ROLES.includes(roleByUser.get(id) ?? ''));
+      const officials = unique.filter(
+        (id) => !CLUB_LEADER_ROLES.includes(roleByUser.get(id) ?? ''),
+      );
       // Eligible: club members who are staff, or whom the club nominated as match officials.
       const eligible = (id: string) =>
-        roleByUser.has(id) && (CLUB_OFFICIAL_ROLES.includes(roleByUser.get(id)!) || nominees.has(id));
+        roleByUser.has(id) &&
+        (CLUB_OFFICIAL_ROLES.includes(roleByUser.get(id)!) || nominees.has(id));
       if (officials.some((id) => !eligible(id))) {
         throw new BadRequestException(
           "Match officials must be club staff (Captain, Vice-Captain, Academy Captain or Manager) or one of the club's match-official nominees",
@@ -270,15 +373,23 @@ export class TournamentsService {
       return officials;
     }
 
-    const rows: Array<{ userId: string; role: string }> = await this.communityMembersRepository.query(
-      `SELECT ep."userId", m.role FROM community_members m
+    const rows: Array<{ userId: string; role: string }> =
+      await this.communityMembersRepository.query(
+        `SELECT ep."userId", m.role FROM community_members m
          JOIN efootball_profiles ep ON ep.id = m."profileId"
         WHERE m."communityId" = $1 AND ep."userId" = ANY($2)`,
-      [host.id, unique],
-    );
+        [host.id, unique],
+      );
     const roleByUser = new Map(rows.map((r) => [r.userId, r.role]));
-    const officials = unique.filter((id) => !LEADER_ROLES.includes(roleByUser.get(id) ?? ''));
-    if (officials.some((id) => !MATCH_OFFICIAL_ROLES.includes(roleByUser.get(id) as CommunityRole))) {
+    const officials = unique.filter(
+      (id) => !LEADER_ROLES.includes(roleByUser.get(id) ?? ''),
+    );
+    if (
+      officials.some(
+        (id) =>
+          !MATCH_OFFICIAL_ROLES.includes(roleByUser.get(id) as CommunityRole),
+      )
+    ) {
       throw new BadRequestException(
         'Match officials must be community officials (Team Manager, Head of Discipline or Scout)',
       );
@@ -286,7 +397,11 @@ export class TournamentsService {
     return officials;
   }
 
-  private async notifyNewOfficials(tournament: Tournament, officialIds: string[], actorUserId: string): Promise<void> {
+  private async notifyNewOfficials(
+    tournament: Tournament,
+    officialIds: string[],
+    actorUserId: string,
+  ): Promise<void> {
     const recipients = officialIds.filter((id) => id !== actorUserId);
     if (!recipients.length) return;
     await this.sendNotifications(recipients, {
@@ -303,9 +418,12 @@ export class TournamentsService {
     start: number | null | undefined,
     end: number | null | undefined,
   ): { playHoursStart: number | null; playHoursEnd: number | null } {
-    if (start == null && end == null) return { playHoursStart: null, playHoursEnd: null };
+    if (start == null && end == null)
+      return { playHoursStart: null, playHoursEnd: null };
     if (start == null || end == null) {
-      throw new BadRequestException('Set both the start and end of the daily play hours');
+      throw new BadRequestException(
+        'Set both the start and end of the daily play hours',
+      );
     }
     const error = playHoursError(normalizePlayHours(start, end));
     if (error) throw new BadRequestException(error);
@@ -324,7 +442,11 @@ export class TournamentsService {
     subsCount: number;
   } {
     if (dto.type === TournamentType.PVP) {
-      return { preset: TournamentPreset.CUSTOM, startersCount: 1, subsCount: 0 };
+      return {
+        preset: TournamentPreset.CUSTOM,
+        startersCount: 1,
+        subsCount: 0,
+      };
     }
 
     const rawPreset = String(dto.preset || TournamentPreset.EIGHT_V_EIGHT)
@@ -334,7 +456,9 @@ export class TournamentsService {
     if (rawPreset === TournamentPreset.CUSTOM) {
       const startersCount = dto.startersCount ?? 0;
       if (startersCount < 4 || startersCount > 16 || startersCount % 4 !== 0) {
-        throw new BadRequestException('Custom rosters need 4, 8, 12 or 16 starters');
+        throw new BadRequestException(
+          'Custom rosters need 4, 8, 12 or 16 starters',
+        );
       }
       return {
         preset: TournamentPreset.CUSTOM,
@@ -361,25 +485,54 @@ export class TournamentsService {
       .createQueryBuilder('t')
       .select(
         [
-          'id', 'name', 'description', 'type', 'platform', 'status', 'preset', 'startersCount', 'subsCount',
-          'maxParticipants', 'entryFeeBdt', 'prizePoolBdt', 'registrationDeadline',
-          'teamSubmissionDeadline', 'startAt', 'endAt', 'communityId', 'hostClubId', 'creatorId', 'createdAt',
+          'id',
+          'name',
+          'description',
+          'type',
+          'platform',
+          'status',
+          'preset',
+          'startersCount',
+          'subsCount',
+          'maxParticipants',
+          'entryFeeBdt',
+          'prizePoolBdt',
+          'registrationDeadline',
+          'teamSubmissionDeadline',
+          'startAt',
+          'endAt',
+          'communityId',
+          'hostClubId',
+          'creatorId',
+          'createdAt',
           'updatedAt',
         ].map((column) => `t.${column}`),
       )
       .leftJoin('t.community', 'community')
       .addSelect(
-        ['id', 'name', 'color', 'initials', 'dpUrl', 'creatorId'].map((column) => `community.${column}`),
+        ['id', 'name', 'color', 'initials', 'dpUrl', 'creatorId'].map(
+          (column) => `community.${column}`,
+        ),
       )
       .leftJoin('t.hostClub', 'hostClub')
-      .addSelect(['id', 'name', 'color', 'initials', 'dpUrl'].map((column) => `hostClub.${column}`));
+      .addSelect(
+        ['id', 'name', 'color', 'initials', 'dpUrl'].map(
+          (column) => `hostClub.${column}`,
+        ),
+      )
+      // General tournaments show who organizes them.
+      .leftJoin('t.creator', 'creator')
+      .addSelect(['id', 'name', 'dpUrl'].map((column) => `creator.${column}`));
 
-    const scope = query.scope ?? (query.joined === 'true' ? 'joined' : undefined);
+    const scope =
+      query.scope ?? (query.joined === 'true' ? 'joined' : undefined);
     if (scope) {
       if (!userId) return [];
       const conditions = [
         scope !== 'hosted' ? joinedSql(':userId') : null,
-        scope !== 'joined' ? hostedSql(':userId', ':leaderRoles', ':clubLeaderRoles') : null,
+        scope !== 'joined'
+          ? hostedSql(':userId', ':leaderRoles', ':clubLeaderRoles')
+          : null,
       ].filter(Boolean);
       qb.andWhere(`(${conditions.join(' OR ')})`, {
         userId,
@@ -396,6 +549,14 @@ export class TournamentsService {
       qb.andWhere('t.platform = :platform', { platform: query.platform });
     }
 
+    if (query.host === 'general') {
+      qb.andWhere('t.communityId IS NULL AND t.hostClubId IS NULL');
+    } else if (query.host === 'community') {
+      qb.andWhere('t.communityId IS NOT NULL');
+    } else if (query.host === 'club') {
+      qb.andWhere('t.hostClubId IS NOT NULL');
+    }
+
     if (query.communityId) {
       qb.andWhere('t.communityId = :communityId', {
         communityId: query.communityId,
@@ -410,12 +571,14 @@ export class TournamentsService {
     }
 
     if (query.hostClubId) {
-      qb.andWhere('t.hostClubId = :hostClubId', { hostClubId: query.hostClubId });
+      qb.andWhere('t.hostClubId = :hostClubId', {
+        hostClubId: query.hostClubId,
+      });
     }
 
     if (query.search) {
       qb.andWhere(
-        '(LOWER(t.name) LIKE :search OR LOWER(community.name) LIKE :search OR LOWER(hostClub.name) LIKE :search)',
+        '(LOWER(t.name) LIKE :search OR LOWER(community.name) LIKE :search OR LOWER(hostClub.name) LIKE :search OR LOWER(creator.name) LIKE :search)',
         { search: `%${query.search.toLowerCase().trim()}%` },
       );
     }
@@ -446,19 +609,28 @@ export class TournamentsService {
     const tournaments = await qb.getMany();
     if (!tournaments.length) return [];
 
-    const counts: Array<{ tournamentId: string; count: number }> = await this.participantsRepository
-      .createQueryBuilder('p')
-      .select('p.tournamentId', 'tournamentId')
-      .addSelect('COUNT(*)::int', 'count')
-      .where('p.tournamentId IN (:...ids)', { ids: tournaments.map((t) => t.id) })
-      .groupBy('p.tournamentId')
-      .getRawMany();
+    const counts: Array<{ tournamentId: string; count: number }> =
+      await this.participantsRepository
+        .createQueryBuilder('p')
+        .select('p.tournamentId', 'tournamentId')
+        .addSelect('COUNT(*)::int', 'count')
+        .where('p.tournamentId IN (:...ids)', {
+          ids: tournaments.map((t) => t.id),
+        })
+        .groupBy('p.tournamentId')
+        .getRawMany();
     const countById = new Map(counts.map((c) => [c.tournamentId, c.count]));
     const ids = tournaments.map((t) => t.id);
 
     // Champion of each finished tournament: the winner of its last knockout match.
-    const completedIds = tournaments.filter((t) => t.status === TournamentStatus.COMPLETED).map((t) => t.id);
-    const champions: Array<{ tournamentId: string; name: string; dpUrl: string | null }> = completedIds.length
+    const completedIds = tournaments
+      .filter((t) => t.status === TournamentStatus.COMPLETED)
+      .map((t) => t.id);
+    const champions: Array<{
+      tournamentId: string;
+      name: string;
+      dpUrl: string | null;
+    }> = completedIds.length
       ? await this.participantsRepository.query(
           `SELECT DISTINCT ON (m."tournamentId") m."tournamentId", COALESCE(c.name, u.name) AS name,
                   COALESCE(c."dpUrl", u."dpUrl") AS "dpUrl"
@@ -471,20 +643,23 @@ export class TournamentsService {
           [completedIds],
         )
       : [];
-    const championById = new Map(champions.map((c) => [c.tournamentId, { name: c.name, dpUrl: c.dpUrl }]));
+    const championById = new Map(
+      champions.map((c) => [c.tournamentId, { name: c.name, dpUrl: c.dpUrl }]),
+    );
 
     // How the viewer relates to each tournament: they host it, and / or they (or their club) entered it.
     let joinedIds = new Set<string>();
     let hostedIds = new Set<string>();
     if (userId) {
-      const rows: Array<{ id: string; joined: boolean; hosted: boolean }> = await this.tournamentsRepository.query(
-        `SELECT t.id,
+      const rows: Array<{ id: string; joined: boolean; hosted: boolean }> =
+        await this.tournamentsRepository.query(
+          `SELECT t.id,
                 ${joinedSql('$2')} AS joined,
                 ${hostedSql('$2', '$3', '$4')} AS hosted
            FROM tournaments t LEFT JOIN communities community ON community.id = t."communityId"
           WHERE t.id = ANY($1)`,
-        [ids, userId, LEADER_ROLES, CLUB_LEADER_ROLES],
-      );
+          [ids, userId, LEADER_ROLES, CLUB_LEADER_ROLES],
+        );
       joinedIds = new Set(rows.filter((r) => r.joined).map((r) => r.id));
       hostedIds = new Set(rows.filter((r) => r.hosted).map((r) => r.id));
     }
@@ -529,7 +704,9 @@ export class TournamentsService {
     const tournament = await this.findOne(tournamentId);
     await this.assertCanManage(userId, tournament, 'edit tournaments');
     if (this.isLocked(tournament)) {
-      throw new BadRequestException('Live or finished tournaments can no longer be edited');
+      throw new BadRequestException(
+        'Live or finished tournaments can no longer be edited',
+      );
     }
 
     const changes: string[] = [];
@@ -539,12 +716,18 @@ export class TournamentsService {
       changes.push('name');
     }
 
-    if (dto.description !== undefined && (dto.description || null) !== tournament.description) {
+    if (
+      dto.description !== undefined &&
+      (dto.description || null) !== tournament.description
+    ) {
       tournament.description = dto.description || null;
       changes.push('description');
     }
 
-    if (dto.maxParticipants !== undefined && dto.maxParticipants !== tournament.maxParticipants) {
+    if (
+      dto.maxParticipants !== undefined &&
+      dto.maxParticipants !== tournament.maxParticipants
+    ) {
       const enrolled = tournament.participants?.length ?? 0;
       if (dto.maxParticipants < enrolled) {
         throw new BadRequestException(
@@ -558,7 +741,10 @@ export class TournamentsService {
     if (dto.startAt !== undefined) {
       const startAt = new Date(dto.startAt);
       if (startAt.getTime() !== new Date(tournament.startAt).getTime()) {
-        if (ENFORCE_START_LEAD && startAt.getTime() <= Date.now() + LINEUP_CUTOFF_MS) {
+        if (
+          ENFORCE_START_LEAD &&
+          startAt.getTime() <= Date.now() + LINEUP_CUTOFF_MS
+        ) {
           throw new BadRequestException(
             'Start time must be at least 2 hours in the future to allow lineup submissions',
           );
@@ -573,24 +759,41 @@ export class TournamentsService {
 
     if (dto.endAt !== undefined) {
       const endAt = dto.endAt ? new Date(dto.endAt) : null;
-      const current = tournament.endAt ? new Date(tournament.endAt).getTime() : null;
+      const current = tournament.endAt
+        ? new Date(tournament.endAt).getTime()
+        : null;
       if ((endAt?.getTime() ?? null) !== current) {
         tournament.endAt = endAt;
         changes.push('end time');
       }
     }
-    if (tournament.endAt && new Date(tournament.endAt) <= new Date(tournament.startAt)) {
+    if (
+      tournament.endAt &&
+      new Date(tournament.endAt) <= new Date(tournament.startAt)
+    ) {
       throw new BadRequestException('End time must be after the start time');
     }
 
     if (tournament.hostClubId) this.assertFriendly(dto);
 
-    if (dto.entryFeeBdt !== undefined && dto.entryFeeBdt !== tournament.entryFeeBdt) {
+    const general = isGeneral(tournament);
+    if (
+      dto.entryFeeBdt !== undefined &&
+      dto.entryFeeBdt !== tournament.entryFeeBdt
+    ) {
+      if (general && (tournament.participants?.length ?? 0) > 0) {
+        throw new BadRequestException(
+          "The entry fee can't change once players have joined (they've already paid)",
+        );
+      }
       tournament.entryFeeBdt = dto.entryFeeBdt;
       changes.push('entry fee');
     }
 
-    if (dto.prizePoolBdt !== undefined && dto.prizePoolBdt !== tournament.prizePoolBdt) {
+    if (
+      dto.prizePoolBdt !== undefined &&
+      dto.prizePoolBdt !== tournament.prizePoolBdt
+    ) {
       tournament.prizePoolBdt = dto.prizePoolBdt;
       changes.push('prize pool');
     }
@@ -600,9 +803,14 @@ export class TournamentsService {
         dto.playHoursStart ?? tournament.playHoursStart,
         dto.playHoursEnd ?? tournament.playHoursEnd,
       );
-      if (next.playHoursStart !== tournament.playHoursStart || next.playHoursEnd !== tournament.playHoursEnd) {
+      if (
+        next.playHoursStart !== tournament.playHoursStart ||
+        next.playHoursEnd !== tournament.playHoursEnd
+      ) {
         if (tournament.format) {
-          throw new BadRequestException("Play hours can't change after fixtures are generated");
+          throw new BadRequestException(
+            "Play hours can't change after fixtures are generated",
+          );
         }
         Object.assign(tournament, next);
         changes.push('play hours');
@@ -611,9 +819,15 @@ export class TournamentsService {
 
     let newOfficials: string[] = [];
     if (dto.matchOfficialIds !== undefined) {
-      const next = await this.resolveMatchOfficials(hostOf(tournament), dto.matchOfficialIds);
+      const next = await this.resolveMatchOfficials(
+        hostOf(tournament),
+        dto.matchOfficialIds,
+      );
       const current = tournament.matchOfficialIds ?? [];
-      if (next.length !== current.length || next.some((id) => !current.includes(id))) {
+      if (
+        next.length !== current.length ||
+        next.some((id) => !current.includes(id))
+      ) {
         newOfficials = next.filter((id) => !current.includes(id));
         tournament.matchOfficialIds = next;
         changes.push('match officials');
@@ -630,7 +844,15 @@ export class TournamentsService {
       creator: _creator,
       ...columns
     } = tournament;
-    await this.tournamentsRepository.save(columns);
+    if (general && changes.includes('prize pool')) {
+      // The organizer's prize hold follows the new amount (more held, or the difference returned).
+      await this.tournamentsRepository.manager.transaction(async (em) => {
+        await this.money.reholdPrize(em, columns, tournament.prizePoolBdt);
+        await em.getRepository(Tournament).save(columns);
+      });
+    } else {
+      await this.tournamentsRepository.save(columns);
+    }
 
     await this.notifyNewOfficials(tournament, newOfficials, userId);
     await this.notifyParticipants(tournament, userId, {
@@ -649,12 +871,20 @@ export class TournamentsService {
     const tournament = await this.findOne(tournamentId);
     await this.assertCanManage(userId, tournament, 'delete tournaments');
     if (this.isLocked(tournament)) {
-      throw new BadRequestException('Live or finished tournaments can no longer be deleted');
+      throw new BadRequestException(
+        'Live or finished tournaments can no longer be deleted',
+      );
     }
 
-    // Resolve recipients before it is hidden.
+    // Resolve recipients before it is hidden; a general tournament refunds entry fees and the prize first.
     const recipients = await this.participantRecipients(tournament, userId);
-    await this.recycleBin.moveToBin('tournament', tournament.id, userId, 'Deleted by the organizer');
+    if (isGeneral(tournament)) await this.money.settleCancel(tournament);
+    await this.recycleBin.moveToBin(
+      'tournament',
+      tournament.id,
+      userId,
+      'Deleted by the organizer',
+    );
 
     await this.sendNotifications(recipients, {
       title: 'Tournament cancelled',
@@ -692,6 +922,8 @@ export class TournamentsService {
     action: string,
   ): Promise<void> {
     if (tournament.creatorId === userId) return;
+    if (isGeneral(tournament))
+      throw new ForbiddenException(`Only the organizer can ${action}`);
     if (tournament.hostClubId) {
       await this.assertClubLeader(userId, tournament.hostClubId, action);
       return;
@@ -700,10 +932,15 @@ export class TournamentsService {
       return;
     }
 
-    const callerProfile = await this.profilesRepository.findOne({ where: { userId } });
+    const callerProfile = await this.profilesRepository.findOne({
+      where: { userId },
+    });
     const membership = callerProfile
       ? await this.communityMembersRepository.findOne({
-          where: { communityId: tournament.communityId!, profileId: callerProfile.id },
+          where: {
+            communityId: tournament.communityId!,
+            profileId: callerProfile.id,
+          },
         })
       : null;
 
@@ -727,9 +964,14 @@ export class TournamentsService {
     actorUserId: string,
   ): Promise<string[]> {
     const participants = tournament.participants ?? [];
-    const userIds = participants.flatMap((p) => [p.userId, p.registeredByUserId]);
+    const userIds = participants.flatMap((p) => [
+      p.userId,
+      p.registeredByUserId,
+    ]);
 
-    const clubIds = participants.map((p) => p.clubId).filter((id): id is string => Boolean(id));
+    const clubIds = participants
+      .map((p) => p.clubId)
+      .filter((id): id is string => Boolean(id));
     if (clubIds.length) {
       const presidents = await this.profilesRepository.find({
         where: { clubId: In(clubIds), clubRole: ClubRole.PRESIDENT },
@@ -738,10 +980,12 @@ export class TournamentsService {
       userIds.push(...presidents.map((p) => p.userId));
     }
 
-    const pickedProfileIds = participants.flatMap((p) => [
-      ...(p.lineup?.starters ?? []),
-      ...(p.lineup?.substitutes ?? []),
-    ]).map((player) => player.profileId);
+    const pickedProfileIds = participants
+      .flatMap((p) => [
+        ...(p.lineup?.starters ?? []),
+        ...(p.lineup?.substitutes ?? []),
+      ])
+      .map((player) => player.profileId);
     if (pickedProfileIds.length) {
       const picked = await this.profilesRepository.find({
         where: { id: In(pickedProfileIds) },
@@ -751,7 +995,9 @@ export class TournamentsService {
     }
 
     return Array.from(
-      new Set(userIds.filter((id): id is string => Boolean(id) && id !== actorUserId)),
+      new Set(
+        userIds.filter((id): id is string => Boolean(id) && id !== actorUserId),
+      ),
     );
   }
 
@@ -760,12 +1006,18 @@ export class TournamentsService {
     actorUserId: string,
     notification: TournamentNotification,
   ): Promise<void> {
-    const recipients = await this.participantRecipients(tournament, actorUserId);
+    const recipients = await this.participantRecipients(
+      tournament,
+      actorUserId,
+    );
     await this.sendNotifications(recipients, notification);
   }
 
   /** Notification failures are logged, never surfaced: the edit/delete already succeeded. */
-  async sendNotifications(userIds: string[], notification: TournamentNotification): Promise<void> {
+  async sendNotifications(
+    userIds: string[],
+    notification: TournamentNotification,
+  ): Promise<void> {
     const results = await Promise.allSettled(
       userIds.map((id) =>
         this.notificationsService.createNotification(id, {
@@ -792,7 +1044,11 @@ export class TournamentsService {
         'Tournament registration is not currently open',
       );
     }
-    await assertNotFrozen(this.tournamentsRepository, tournament.hostClubId ? 'club' : 'community', tournament.hostClubId ?? tournament.communityId);
+    await assertNotFrozen(
+      this.tournamentsRepository,
+      tournament.hostClubId ? 'club' : 'community',
+      tournament.hostClubId ?? tournament.communityId,
+    );
 
     const now = new Date();
     if (
@@ -822,7 +1078,9 @@ export class TournamentsService {
     // Club tournaments: PvP for the hosting club's members; its President / GS run it, so they can't play.
     if (tournament.hostClubId) {
       if (callerProfile.clubId !== tournament.hostClubId) {
-        throw new ForbiddenException('Only members of the hosting club can join this tournament');
+        throw new ForbiddenException(
+          'Only members of the hosting club can join this tournament',
+        );
       }
       if (CLUB_LEADER_ROLES.includes(callerProfile.clubRole ?? '')) {
         throw new ForbiddenException(
@@ -832,7 +1090,14 @@ export class TournamentsService {
       return this.registerPlayer(tournament, userId, callerProfile);
     }
     // A frozen club can't enter club-vs-club tournaments.
-    if (tournament.type === TournamentType.CVC) await assertNotFrozen(this.tournamentsRepository, 'club', callerProfile.clubId);
+    if (tournament.type === TournamentType.CVC)
+      await assertNotFrozen(
+        this.tournamentsRepository,
+        'club',
+        callerProfile.clubId,
+      );
+    if (isGeneral(tournament))
+      return this.joinGeneral(userId, tournament, callerProfile, dto);
 
     const membership = await this.communityMembersRepository.findOne({
       where: {
@@ -928,7 +1193,10 @@ export class TournamentsService {
     }
 
     this.assertValidLineup(tournament, club.members ?? [], dto.lineup);
-    await this.assertPlatform(tournament, [...dto.lineup.starters, ...dto.lineup.substitutes]);
+    await this.assertPlatform(tournament, [
+      ...dto.lineup.starters,
+      ...dto.lineup.substitutes,
+    ]);
     await this.assertPlayersAvailable(tournament, dto.lineup);
 
     const participant = this.participantsRepository.create({
@@ -943,7 +1211,14 @@ export class TournamentsService {
     });
 
     const saved = await this.participantsRepository.save(participant);
-    await this.notifyLineupChanges(tournament, club.name, club.members ?? [], null, saved.lineup, userId);
+    await this.notifyLineupChanges(
+      tournament,
+      club.name,
+      club.members ?? [],
+      null,
+      saved.lineup,
+      userId,
+    );
     return saved;
   }
 
@@ -952,16 +1227,22 @@ export class TournamentsService {
     tournament: Tournament,
     userId: string,
     callerProfile: EfootballProfile,
+    paymentMethod?: JoinTournamentDto['paymentMethod'],
   ): Promise<TournamentParticipant> {
     const existing = await this.participantsRepository.findOne({
       where: { tournamentId: tournament.id, userId },
     });
     if (existing) {
-      throw new BadRequestException('You are already registered for this tournament');
+      throw new BadRequestException(
+        'You are already registered for this tournament',
+      );
     }
 
     if (tournament.platform === GamingPlatform.CONSOLE) {
-      const [player] = await this.participantsRepository.query(`SELECT "gamingPlatform" FROM users WHERE id = $1`, [userId]);
+      const [player] = await this.participantsRepository.query(
+        `SELECT "gamingPlatform" FROM users WHERE id = $1`,
+        [userId],
+      );
       if (player?.gamingPlatform !== GamingPlatform.CONSOLE) {
         throw new BadRequestException(
           'This is a console tournament. Set your gaming platform to Console in your profile to join.',
@@ -969,7 +1250,10 @@ export class TournamentsService {
       }
     }
 
-    const [commitment] = await this.findPlayerCommitments([callerProfile.id], tournament.id);
+    const [commitment] = await this.findPlayerCommitments(
+      [callerProfile.id],
+      tournament.id,
+    );
     if (commitment) {
       throw new BadRequestException(
         `You are already registered in "${commitment.tournamentName}". A player can take part in only one active tournament at a time.`,
@@ -983,7 +1267,188 @@ export class TournamentsService {
       registeredByUserId: userId,
       status: ParticipantStatus.REGISTERED,
     });
-    return this.participantsRepository.save(participant);
+    return this.saveEntrant(tournament, participant, paymentMethod);
+  }
+
+  /**
+   * General tournaments are open to everyone: any player (PvP), or any club registered
+   * by its President / General Secretary (CvC). The organizer can't enter. A paid entry
+   * holds the fee from the player's or the club's wallet.
+   */
+  private async joinGeneral(
+    userId: string,
+    tournament: Tournament,
+    callerProfile: EfootballProfile,
+    dto: JoinTournamentDto,
+  ): Promise<TournamentParticipant> {
+    if (tournament.creatorId === userId) {
+      throw new ForbiddenException(
+        "Organizers can't enter their own tournament",
+      );
+    }
+    if (tournament.type === TournamentType.PVP) {
+      return this.registerPlayer(
+        tournament,
+        userId,
+        callerProfile,
+        dto.paymentMethod,
+      );
+    }
+
+    if (!dto.clubId)
+      throw new BadRequestException(
+        'clubId is required to register for a CvC tournament',
+      );
+    if (!dto.lineup) {
+      throw new BadRequestException(
+        'Clubs must submit their team lineup when registering for a CvC tournament',
+      );
+    }
+    const club = await this.clubsRepository.findOne({
+      where: { id: dto.clubId },
+      relations: { members: true },
+    });
+    if (!club) throw new NotFoundException(`Club ${dto.clubId} not found`);
+    const member = club.members?.find((m) => m.id === callerProfile.id);
+    if (!member || !CLUB_LEADER_ROLES.includes(member.clubRole ?? '')) {
+      throw new ForbiddenException(
+        'Only the Club President or General Secretary can register the club for a tournament',
+      );
+    }
+    await assertNotFrozen(this.tournamentsRepository, 'club', club.id);
+    const existing = await this.participantsRepository.findOne({
+      where: { tournamentId: tournament.id, clubId: club.id },
+    });
+    if (existing)
+      throw new BadRequestException(
+        'This club is already registered for this tournament',
+      );
+
+    this.assertValidLineup(tournament, club.members ?? [], dto.lineup);
+    await this.assertPlatform(tournament, [
+      ...dto.lineup.starters,
+      ...dto.lineup.substitutes,
+    ]);
+    await this.assertPlayersAvailable(tournament, dto.lineup);
+
+    const participant = this.participantsRepository.create({
+      tournamentId: tournament.id,
+      participantType: ParticipantType.CLUB,
+      clubId: club.id,
+      registeredByUserId: userId,
+      status: ParticipantStatus.LINEUP_SUBMITTED,
+      lineup: this.toLineup(dto.lineup),
+      submittedAt: new Date(),
+      submittedByUserId: userId,
+    });
+    const saved = await this.saveEntrant(
+      tournament,
+      participant,
+      dto.paymentMethod,
+    );
+    await this.notifyLineupChanges(
+      tournament,
+      club.name,
+      club.members ?? [],
+      null,
+      saved.lineup,
+      userId,
+    );
+    return saved;
+  }
+
+  /** Saves a new entrant; a paid general tournament also holds the entry fee (both or neither). */
+  private async saveEntrant(
+    tournament: Tournament,
+    participant: TournamentParticipant,
+    paymentMethod?: JoinTournamentDto['paymentMethod'],
+  ): Promise<TournamentParticipant> {
+    if (!isGeneral(tournament) || tournament.entryFeeBdt <= 0)
+      return this.participantsRepository.save(participant);
+    if (!paymentMethod) throw paymentMethodRequired();
+    return this.tournamentsRepository.manager.transaction(async (em) => {
+      const saved = await em
+        .getRepository(TournamentParticipant)
+        .save(participant);
+      await this.money.chargeEntry(em, tournament, saved, paymentMethod);
+      return saved;
+    });
+  }
+
+  /**
+   * An entrant withdraws before fixtures are generated: a player leaves, or a club's
+   * President / General Secretary withdraws the club. A paid entry is refunded.
+   */
+  async leave(
+    userId: string,
+    tournamentId: string,
+  ): Promise<{ id: string; refundedTk: number }> {
+    const tournament = await this.findOne(tournamentId);
+    if (
+      tournament.status !== TournamentStatus.REGISTRATION_OPEN ||
+      tournament.format
+    ) {
+      throw new BadRequestException(
+        'You can only leave a tournament before its fixtures are generated',
+      );
+    }
+    const profile = await this.profilesRepository.findOne({
+      where: { userId },
+    });
+    const participant =
+      tournament.participants?.find((p) => p.userId === userId) ??
+      (profile?.clubId
+        ? tournament.participants?.find((p) => p.clubId === profile.clubId)
+        : undefined);
+    if (!participant)
+      throw new NotFoundException('You are not entered in this tournament');
+    if (
+      participant.clubId &&
+      !CLUB_LEADER_ROLES.includes(profile?.clubRole ?? '')
+    ) {
+      throw new ForbiddenException(
+        'Only the Club President or General Secretary can withdraw the club',
+      );
+    }
+
+    const refundedTk = await this.tournamentsRepository.manager.transaction(
+      async (em) => {
+        const refunded = isGeneral(tournament)
+          ? await this.money.refundEntry(em, tournament, participant)
+          : 0;
+        await em
+          .getRepository(TournamentParticipant)
+          .delete({ id: participant.id });
+        return refunded;
+      },
+    );
+
+    const name =
+      participant.club?.name ?? participant.user?.name ?? 'An entrant';
+    const hosts = isGeneral(tournament) ? [tournament.creatorId] : [];
+    await this.sendNotifications(
+      hosts.filter((id): id is string => Boolean(id) && id !== userId),
+      {
+        title: 'Entrant left',
+        message: `${name} left "${tournament.name}".${refundedTk ? ` Their ${refundedTk} tk entry fee was refunded.` : ''}`,
+        link: tournamentLink(tournament),
+        code: 'tournament.entrantLeft',
+        params: {
+          tournament: tournament.name,
+          entrant: name,
+          amount: refundedTk,
+        },
+      },
+    );
+    return { id: participant.id, refundedTk };
+  }
+
+  /** Staff cancelled a tournament: a general tournament refunds entry fees and returns the prize. */
+  async settleCancelled(
+    tournamentId: string,
+  ): Promise<{ refunded: number; shortfall: number } | null> {
+    const tournament = await this.findOne(tournamentId);
+    return isGeneral(tournament) ? this.money.settleCancel(tournament) : null;
   }
 
   /**
@@ -1006,25 +1471,36 @@ export class TournamentsService {
       );
     }
 
-    const profileIds = [...lineup.starters, ...lineup.substitutes].map((p) => p.profileId);
+    const profileIds = [...lineup.starters, ...lineup.substitutes].map(
+      (p) => p.profileId,
+    );
     if (new Set(profileIds).size !== profileIds.length) {
-      throw new BadRequestException('A player can only appear once in the lineup');
+      throw new BadRequestException(
+        'A player can only appear once in the lineup',
+      );
     }
 
     const memberIds = new Set(clubMembers.map((m) => m.id));
     if (profileIds.some((id) => !memberIds.has(id))) {
-      throw new BadRequestException('Every player in the lineup must be a member of the club');
+      throw new BadRequestException(
+        'Every player in the lineup must be a member of the club',
+      );
     }
   }
 
   /** A console tournament's lineup may only have console players (PC counts as console). */
-  private async assertPlatform(tournament: Tournament, players: Array<{ profileId: string; name?: string }>): Promise<void> {
-    if (tournament.platform !== GamingPlatform.CONSOLE || !players.length) return;
-    const rows: Array<{ profileId: string; name: string }> = await this.participantsRepository.query(
-      `SELECT ep.id AS "profileId", u.name FROM efootball_profiles ep JOIN users u ON u.id = ep."userId"
+  private async assertPlatform(
+    tournament: Tournament,
+    players: Array<{ profileId: string; name?: string }>,
+  ): Promise<void> {
+    if (tournament.platform !== GamingPlatform.CONSOLE || !players.length)
+      return;
+    const rows: Array<{ profileId: string; name: string }> =
+      await this.participantsRepository.query(
+        `SELECT ep.id AS "profileId", u.name FROM efootball_profiles ep JOIN users u ON u.id = ep."userId"
         WHERE ep.id = ANY($1) AND u."gamingPlatform" IS DISTINCT FROM $2`,
-      [players.map((p) => p.profileId), GamingPlatform.CONSOLE],
-    );
+        [players.map((p) => p.profileId), GamingPlatform.CONSOLE],
+      );
     if (rows.length) {
       throw new BadRequestException(
         `This is a console tournament; these players don't play on console: ${rows.map((r) => r.name).join(', ')}`,
@@ -1037,12 +1513,21 @@ export class TournamentsService {
    * tournament at a time: in a club's team (starter or sub) or registered
    * individually for a PvP tournament.
    */
-  private async assertPlayersAvailable(tournament: Tournament, lineup: SubmitLineupDto): Promise<void> {
+  private async assertPlayersAvailable(
+    tournament: Tournament,
+    lineup: SubmitLineupDto,
+  ): Promise<void> {
     const players = [...lineup.starters, ...lineup.substitutes];
-    const commitments = await this.findPlayerCommitments(players.map((p) => p.profileId), tournament.id);
+    const commitments = await this.findPlayerCommitments(
+      players.map((p) => p.profileId),
+      tournament.id,
+    );
     if (!commitments.length) return;
-    const nameOf = (profileId: string) => players.find((p) => p.profileId === profileId)?.name || 'A player';
-    const list = commitments.map((c) => `${nameOf(c.profileId)} ("${c.tournamentName}")`).join(', ');
+    const nameOf = (profileId: string) =>
+      players.find((p) => p.profileId === profileId)?.name || 'A player';
+    const list = commitments
+      .map((c) => `${nameOf(c.profileId)} ("${c.tournamentName}")`)
+      .join(', ');
     throw new BadRequestException(
       `Already registered in another tournament: ${list}. A player can take part in only one active tournament at a time.`,
     );
@@ -1079,9 +1564,18 @@ export class TournamentsService {
   }
 
   /** Club members already taking part in another active tournament (for the team picker). */
-  async getClubCommitments(tournamentId: string, clubId: string): Promise<PlayerCommitment[]> {
-    const members = await this.profilesRepository.find({ where: { clubId }, select: { id: true } });
-    return this.findPlayerCommitments(members.map((m) => m.id), tournamentId);
+  async getClubCommitments(
+    tournamentId: string,
+    clubId: string,
+  ): Promise<PlayerCommitment[]> {
+    const members = await this.profilesRepository.find({
+      where: { clubId },
+      select: { id: true },
+    });
+    return this.findPlayerCommitments(
+      members.map((m) => m.id),
+      tournamentId,
+    );
   }
 
   private toLineup(dto: SubmitLineupDto) {
@@ -1114,7 +1608,9 @@ export class TournamentsService {
       tournament.status === TournamentStatus.COMPLETED ||
       tournament.status === TournamentStatus.CANCELLED
     ) {
-      throw new BadRequestException('This tournament is finished; its teams can no longer be changed');
+      throw new BadRequestException(
+        'This tournament is finished; its teams can no longer be changed',
+      );
     }
 
     // Enforce 2-hour pre-match cutoff deadline
@@ -1152,7 +1648,10 @@ export class TournamentsService {
       }
 
       this.assertValidLineup(tournament, club?.members ?? [], dto);
-      await this.assertPlatform(tournament, [...dto.starters, ...dto.substitutes]);
+      await this.assertPlatform(tournament, [
+        ...dto.starters,
+        ...dto.substitutes,
+      ]);
       await this.assertPlayersAvailable(tournament, dto);
     }
 
@@ -1212,7 +1711,10 @@ export class TournamentsService {
           title: 'Picked for a tournament',
           message: `${clubName} picked you for "${tournament.name}" — you're in ${describe(role)}.`,
           link: lineupLink,
-          code: role === 'starter' ? 'tournament.pickedStarter' : 'tournament.pickedSub',
+          code:
+            role === 'starter'
+              ? 'tournament.pickedStarter'
+              : 'tournament.pickedSub',
           params,
         });
       } else if (previous !== role) {
@@ -1220,7 +1722,10 @@ export class TournamentsService {
           title: 'Tournament role changed',
           message: `${clubName} moved you to ${describe(role)} for "${tournament.name}".`,
           link: lineupLink,
-          code: role === 'starter' ? 'tournament.movedToStarter' : 'tournament.movedToSub',
+          code:
+            role === 'starter'
+              ? 'tournament.movedToStarter'
+              : 'tournament.movedToSub',
           params,
         });
       }
@@ -1246,5 +1751,4 @@ export class TournamentsService {
       }),
     );
   }
-
 }

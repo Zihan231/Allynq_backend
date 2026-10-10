@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import { Club } from '../../clubs/entities/club.entity.js';
 import { DEFAULT_TRANSFER_SETTINGS } from '../../settings/settings.service.js';
 import { EfootballProfile } from '../../users/entities/efootball-profile.entity.js';
+import { Tournament } from '../../tournaments/entities/tournament.entity.js';
 import { User } from '../../users/entities/user.entity.js';
 import { lockEnd } from '../contract-fee.js';
 import { PlayerContract } from '../entities/player-contract.entity.js';
@@ -168,6 +169,10 @@ export function makeDb() {
       return loan ? [{ name: table(Club).find((c) => c.id === loan.borrowClubId)?.name }] : [];
     }
     if (sql.includes('FROM tournament_matches m')) return [{ n: played.get(params[0] as string) ?? 0 }];
+    if (sql.includes('"prizeHeldTk" FROM tournaments')) {
+      const t = table(Tournament).find((r) => r.id === params[0]);
+      return t ? [{ prizeHeldTk: t.prizeHeldTk ?? 0 }] : [];
+    }
     if (sql.includes('FROM tournaments t')) {
       const found = commitments.get(params[1] as string);
       return found ? [found] : [];

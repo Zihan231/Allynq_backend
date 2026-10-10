@@ -14,7 +14,7 @@ import {
   Min,
 } from 'class-validator';
 import { GamingPlatform } from '../../users/enums/user-attributes.enum.js';
-import { TournamentPreset, TournamentType } from '../enums/tournament.enum.js';
+import { TournamentType } from '../enums/tournament.enum.js';
 
 export const MAX_MATCH_OFFICIALS = 10;
 
@@ -35,7 +35,7 @@ export class CreateTournamentDto {
   @IsEnum(GamingPlatform)
   platform?: GamingPlatform;
 
-  /** Hosting community. Exactly one of `communityId` / `hostClubId` is required. */
+  /** Hosting community. Mutually exclusive with `hostClubId` and `general`. */
   @IsOptional()
   @IsUUID()
   communityId?: string;
@@ -44,6 +44,11 @@ export class CreateTournamentDto {
   @IsOptional()
   @IsUUID()
   hostClubId?: string;
+
+  /** No community or club: a general tournament run by the creator (organizer mode), open to everyone. */
+  @IsOptional()
+  @IsBoolean()
+  general?: boolean;
 
   @IsOptional()
   @IsString()

@@ -92,7 +92,7 @@ describe('LoansService', () => {
     expect(loan(l.id).status).toBe('declined');
     expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
     expect(codesTo(users.padmaPres)).toContain('loan.declined');
-    expect(loanPaymentStatus(loan(l.id))).toBe('refunded');
+    expect(loanPaymentStatus(loan(l.id) as never)).toBe('refunded');
 
     const again = await borrow(80);
     loan(again.id).expiresAt = new Date(Date.now() - 60_000);

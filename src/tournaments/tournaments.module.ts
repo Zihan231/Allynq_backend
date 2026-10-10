@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Club } from '../clubs/entities/club.entity.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
+import { TransfersModule } from '../transfers/transfers.module.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
@@ -19,6 +20,7 @@ import { TournamentDeadlinesService } from './tournament-deadlines.service.js';
 import { TournamentsController } from './tournaments.controller.js';
 import { TournamentsService } from './tournaments.service.js';
 import { MyGamesService } from './my-games.service.js';
+import { TournamentMoneyService } from './tournament-money.service.js';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { MyGamesService } from './my-games.service.js';
       User,
     ]),
     NotificationsModule,
+    // Wallets: entry fees and prizes of general tournaments.
+    TransfersModule,
   ],
   controllers: [TournamentsController],
   providers: [
@@ -45,6 +49,7 @@ import { MyGamesService } from './my-games.service.js';
     TournamentScheduleService,
     TournamentDeadlinesService,
     MyGamesService,
+    TournamentMoneyService,
   ],
   exports: [TournamentsService, TournamentResultsService],
 })

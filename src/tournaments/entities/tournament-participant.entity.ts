@@ -88,6 +88,23 @@ export class TournamentParticipant {
   @Column({ type: 'uuid', nullable: true })
   submittedByUserId!: string | null;
 
+  /** General tournaments: entry fee held from the entrant's wallet (player, or club for CvC). */
+  @Column({ type: 'int', default: 0 })
+  feeHeldTk!: number;
+
+  /** Entry fee paid out to the organizer once fixtures were generated. */
+  @Column({ type: 'int', default: 0 })
+  feePaidTk!: number;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  paymentMethod!: 'bkash' | 'nagad' | 'card' | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  paymentRef!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  paidAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

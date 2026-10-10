@@ -5,10 +5,10 @@ export const MY_GAME_STATES = ['to_play', 'waiting', 'review', 'finished'] as co
 export type MyGameState = (typeof MY_GAME_STATES)[number];
 
 export class MyGamesQueryDto extends PaginationQueryDto {
-  /** Only games of tournaments hosted by a club, or by a community. */
+  /** Only games of tournaments hosted by a club, a community, or an organizer (general tournaments). */
   @IsOptional()
-  @IsIn(['club', 'community'])
-  host?: 'club' | 'community';
+  @IsIn(['club', 'community', 'general'])
+  host?: 'club' | 'community' | 'general';
 
   /** One specific hosting club or community (use with `host`). */
   @IsOptional()

@@ -4,7 +4,8 @@ import { createPaginatedResult, type PaginatedResult } from '../common/interface
 import { MY_GAME_STATES, type MyGameState, type MyGamesQueryDto } from './dto/my-games-query.dto.js';
 import { tournamentLink } from './entities/tournament.entity.js';
 
-type HostKind = 'club' | 'community';
+/** Who hosts the game's tournament; 'general' = an organizer-run tournament. */
+type HostKind = 'club' | 'community' | 'general';
 
 export interface MyGameView {
   id: string;
@@ -109,7 +110,7 @@ export class MyGamesService {
 
     const states = Object.fromEntries(MY_GAME_STATES.map((s) => [s, 0])) as Record<MyGameState, number>;
     for (const r of stateRows as Array<{ state: MyGameState; count: number }>) states[r.state] = r.count;
-    const hostKinds: Record<HostKind, number> = { club: 0, community: 0 };
+    const hostKinds: Record<HostKind, number> = { club: 0, community: 0, general: 0 };
     const hosts = (hostRows as Array<{ hostKind: HostKind; hostId: string; hostName: string; count: number }>).map(
       (r) => {
         hostKinds[r.hostKind] += r.count;
@@ -192,10 +193,10 @@ const GAMES_SQL = `
              m.stage, m."roundName", m."groupLabel",
              t.id AS "tournamentId", t.name AS "tournamentName", t.type AS "tournamentType",
              t.status AS "tournamentStatus", t."communityId", t."hostClubId",
-             CASE WHEN t."hostClubId" IS NOT NULL THEN 'club' ELSE 'community' END AS "hostKind",
-             COALESCE(t."hostClubId", t."communityId") AS "hostId",
-             COALESCE(hc.name, co.name) AS "hostName",
-             COALESCE(hc."dpUrl", co."dpUrl") AS "hostDpUrl"
+             CASE WHEN t."hostClubId" IS NOT NULL THEN 'club' WHEN t."communityId" IS NOT NULL THEN 'community' ELSE 'general' END AS "hostKind",
+             COALESCE(t."hostClubId", t."communityId", t."creatorId") AS "hostId",
+             COALESCE(hc.name, co.name, org.name) AS "hostName",
+             COALESCE(hc."dpUrl", co."dpUrl", org."dpUrl") AS "hostDpUrl"
         FROM tournament_match_games g
         CROSS JOIN LATERAL (
           SELECT CASE WHEN g."playerAUserId" = $1 THEN 'A' ELSE 'B' END AS side
@@ -204,6 +205,7 @@ const GAMES_SQL = `
         JOIN tournaments t ON t.id = m."tournamentId"
         LEFT JOIN clubs hc ON hc.id = t."hostClubId"
         LEFT JOIN communities co ON co.id = t."communityId"
+        LEFT JOIN users org ON org.id = t."creatorId" AND t."communityId" IS NULL AND t."hostClubId" IS NULL
         LEFT JOIN tournament_participants pa ON pa.id = m."participantAId"
         LEFT JOIN clubs ca ON ca.id = pa."clubId"
         LEFT JOIN tournament_participants pb ON pb.id = m."participantBId"

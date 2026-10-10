@@ -15,6 +15,11 @@ export class TournamentQueryDto {
   @IsEnum(GamingPlatform)
   platform?: GamingPlatform;
 
+  /** Who hosts it: 'general' (organizer-run, open to everyone), 'community' or 'club'. */
+  @IsOptional()
+  @IsIn(['general', 'community', 'club'])
+  host?: 'general' | 'community' | 'club';
+
   @IsOptional()
   @IsUUID()
   communityId?: string;

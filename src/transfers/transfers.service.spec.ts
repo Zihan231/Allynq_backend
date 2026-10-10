@@ -387,14 +387,14 @@ describe('TransfersService', () => {
   it('reports where the club money is: held while open, paid once completed, refunded when closed', async () => {
     const { service, users, offer } = t;
     const p = await service.createOffer(users.free, { clubId: T4, amountTk: 50 });
-    expect(paymentStatusOf(offer(p.id))).toBe('none');
+    expect(paymentStatusOf(offer(p.id) as never)).toBe('none');
 
     const o = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'bkash' });
-    expect(paymentStatusOf(offer(o.id))).toBe('held');
+    expect(paymentStatusOf(offer(o.id) as never)).toBe('held');
     await service.respond(users.free, o.id, { accept: true });
-    expect(paymentStatusOf(offer(o.id))).toBe('paid');
+    expect(paymentStatusOf(offer(o.id) as never)).toBe('paid');
     const r = await service.createOffer(users.t4Pres, { clubId: T4, playerUserId: users.locked.id, amountTk: 40, paymentMethod: 'card' });
     await service.respond(users.locked, r.id, { accept: false });
-    expect(paymentStatusOf(offer(r.id))).toBe('refunded');
+    expect(paymentStatusOf(offer(r.id) as never)).toBe('refunded');
   });
 });

@@ -37,6 +37,10 @@ export class WalletTransaction {
   @Column({ type: 'uuid', nullable: true })
   loanId!: string | null;
 
+  /** The tournament it belongs to: entry fees and prize money of general tournaments. */
+  @Column({ type: 'uuid', nullable: true })
+  tournamentId!: string | null;
+
   /** Who the money went to / came from (display name). */
   @Column({ type: 'varchar', length: 255, nullable: true })
   counterparty!: string | null;

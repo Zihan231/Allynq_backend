@@ -347,6 +347,8 @@ export class AdminManageService {
     const before = await this.tournamentDetail(id);
     if (before.status === dto.status) throw new BadRequestException('The tournament already has that status');
     await this.update('tournaments', id, { status: dto.status });
+    // A cancelled general tournament refunds entry fees and returns the organizer's prize.
+    const settled = dto.status === 'cancelled' ? await this.tournaments.settleCancelled(id) : null;
     const words: Record<string, string> = {
       cancelled: 'cancelled',
       completed: 'marked as finished',
@@ -366,7 +368,7 @@ export class AdminManageService {
       targetId: id,
       targetName: before.name,
       before: { status: before.status },
-      after: { status: dto.status },
+      after: { status: dto.status, ...(settled ? { refundedTk: settled.refunded, unrefundedTk: settled.shortfall } : {}) },
       reason: dto.reason,
       ip: ctx.ip,
     });

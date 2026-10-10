@@ -38,9 +38,10 @@ import { TournamentGameTimeRequest } from './entities/tournament-game-time-reque
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
 import { TournamentParticipant } from './entities/tournament-participant.entity.js';
-import { Tournament, tournamentLink } from './entities/tournament.entity.js';
+import { Tournament, tournamentLink, isGeneral } from './entities/tournament.entity.js';
 import { TournamentStatus, TournamentType } from './enums/tournament.enum.js';
 import { TournamentsService } from './tournaments.service.js';
+import { TournamentMoneyService } from './tournament-money.service.js';
 
 /** Where new games are placed: a local day inside the play hours, not before `notBefore`. */
 interface ScheduleSlot {
@@ -162,6 +163,7 @@ export class TournamentMatchesService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly tournamentsService: TournamentsService,
+    private readonly money: TournamentMoneyService,
   ) {}
 
   /**
@@ -319,6 +321,8 @@ export class TournamentMatchesService {
       },
     });
     await this.notifyScheduled(tournament, games);
+    // General tournaments: the field is fixed now, so the entry fees go to the organizer.
+    if (isGeneral(tournament)) await this.money.payOutFees(tournament);
 
     return this.getStructure(tournamentId);
   }
@@ -565,6 +569,8 @@ export class TournamentMatchesService {
         .getRepository(Tournament)
         .update({ id: tournament.id }, { status: TournamentStatus.COMPLETED });
       const champion = tournament.participants?.find((p) => p.id === winnerId);
+      // General tournaments: the organizer's prize goes to the champion (or back if there is none).
+      if (isGeneral(tournament)) await this.money.payPrize(tournament, champion?.id ?? null);
       await this.tournamentsService.notifyParticipants(tournament, '', {
         title: 'Tournament finished',
         message: champion

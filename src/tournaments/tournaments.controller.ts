@@ -116,6 +116,13 @@ export class TournamentsController {
     return this.tournamentsService.join(user.id, id, dto);
   }
 
+  /** Leave before fixtures are generated (a club's President / GS withdraws the club); paid entries are refunded. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/leave')
+  leave(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.tournamentsService.leave(user.id, id);
+  }
+
   /** Members of a club already playing in another active tournament (can't be picked). */
   @UseGuards(JwtAuthGuard)
   @Get(':id/club-commitments')

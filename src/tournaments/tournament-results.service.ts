@@ -12,7 +12,7 @@ import { CommunityRole } from '../users/enums/user-attributes.enum.js';
 import { TournamentGameSubmission } from './entities/tournament-game-submission.entity.js';
 import { TournamentMatchGame } from './entities/tournament-match-game.entity.js';
 import { TournamentMatch } from './entities/tournament-match.entity.js';
-import { Tournament, tournamentLink } from './entities/tournament.entity.js';
+import { Tournament, tournamentLink, isGeneral } from './entities/tournament.entity.js';
 import {
   type EvidenceFiles,
   evidenceUrl,
@@ -237,7 +237,7 @@ export class TournamentResultsService {
   async assertCanReview(userId: string, tournament: Tournament): Promise<void> {
     if (!(await this.reviewerUserIds(tournament)).includes(userId)) {
       throw new ForbiddenException(
-        "Only the community President, Vice President or this tournament's match officials can review results",
+        "Only the tournament's hosts (or organizer) and its match officials can review results",
       );
     }
   }
@@ -380,6 +380,11 @@ export class TournamentResultsService {
    */
   async reviewerUserIds(tournament: Tournament): Promise<string[]> {
     const officialIds = tournament.matchOfficialIds ?? [];
+
+    // General tournaments: the organizer plus the players they appointed as match officials.
+    if (isGeneral(tournament)) {
+      return Array.from(new Set([tournament.creatorId, ...officialIds].filter((id): id is string => Boolean(id))));
+    }
 
     if (tournament.hostClubId) {
       // Leaders, plus appointed officials who are still club members and still eligible:
