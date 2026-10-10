@@ -489,6 +489,26 @@ export class AdminPhaseSixService {
 
   // -------------------------------------------------------- store catalogue
 
+  /** Staff view of the catalogue: every item with how many users own it and what it has earned. */
+  async adminStoreCatalog() {
+    const items = await this.storeCatalog(true);
+    if (!items.length) return [];
+    const stats: Array<{ sku: string; owners: number; revenueTk: number; sales: number }> = await this.dataSource.query(
+      `SELECT i.sku,
+              (SELECT count(*)::int FROM users u WHERE u."ownedCosmeticIds" ? i.sku) AS owners,
+              COALESCE((SELECT -sum(w."amountTk") FROM wallet_transactions w WHERE w."storeItemId" = i.id AND w.kind = 'purchase'), 0)::int AS "revenueTk",
+              (SELECT count(*)::int FROM wallet_transactions w WHERE w."storeItemId" = i.id AND w.kind = 'purchase') AS sales
+         FROM store_items i`,
+    );
+    const bySku = new Map(stats.map((s) => [s.sku, s]));
+    return items.map((item) => ({
+      ...item,
+      owners: bySku.get(item.sku)?.owners ?? 0,
+      sales: bySku.get(item.sku)?.sales ?? 0,
+      revenueTk: bySku.get(item.sku)?.revenueTk ?? 0,
+    }));
+  }
+
   storeCatalog(includeInactive = true) {
     return this.storeItems.find({
       where: includeInactive ? {} : { active: true },
@@ -588,6 +608,10 @@ export class AdminPhaseSixService {
       if (remove) {
         owned.delete(item.sku);
         owned.delete(item.id);
+        // A revoked item can't stay equipped.
+        for (const field of ['equippedBadgeId', 'equippedTitleId', 'equippedFrameId', 'equippedThemeId'] as const) {
+          if (target[field] === item.sku || target[field] === item.id) target[field] = null;
+        }
       } else owned.add(item.sku);
       target.ownedCosmeticIds = [...owned];
       return repo.save(target);

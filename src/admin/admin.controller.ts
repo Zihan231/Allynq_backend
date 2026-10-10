@@ -938,7 +938,7 @@ export class AdminController {
   @RequireSystemRole(SystemRole.ADMIN)
   @Get('store/items')
   storeItems() {
-    return this.phaseSix.storeCatalog(true);
+    return this.phaseSix.adminStoreCatalog();
   }
 
   @RequireSystemRole(SystemRole.ADMIN)

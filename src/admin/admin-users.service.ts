@@ -168,7 +168,8 @@ export class AdminUsersService {
               ep."clubId", c.name AS "clubName", ep."clubRole", ep."communityId", co.name AS "communityName",
               ep."communityRole", ep.points, ep."konamiUid",
               w."balanceTk" AS "walletTk", w."heldTk" AS "walletHeldTk",
-              pc."contractNo", pc."lockEndsAt"
+              pc."contractNo", pc."lockEndsAt",
+              u."ownedCosmeticIds", u."equippedBadgeId", u."equippedTitleId", u."equippedFrameId", u."equippedThemeId"
          FROM users u
          LEFT JOIN users rv ON rv.id = u."verificationReviewedById"
          LEFT JOIN efootball_profiles ep ON ep."userId" = u.id
