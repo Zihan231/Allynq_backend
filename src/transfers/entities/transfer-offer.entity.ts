@@ -16,6 +16,9 @@ export type TransferOfferStatus = 'pending' | 'scheduled' | 'completed' | 'decli
 
 export type PaymentMethod = 'bkash' | 'nagad' | 'card';
 
+/** The two sides of a deal: the player, and the club he would sign for (its President / GS). */
+export type TransferOfferParty = 'player' | 'club';
+
 @Entity('transfer_offers')
 export class TransferOffer {
   @PrimaryGeneratedColumn('uuid')
@@ -56,6 +59,13 @@ export class TransferOffer {
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: TransferOfferStatus;
 
+  /**
+   * Who answers next while pending: accept, reject or counter with a new amount
+   * (the other side can only withdraw). Flips with every counter-offer.
+   */
+  @Column({ type: 'varchar', length: 8 })
+  turn!: TransferOfferParty;
+
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
@@ -85,6 +95,14 @@ export class TransferOffer {
 
   @Column({ type: 'timestamptz', nullable: true })
   paidAt!: Date | null;
+
+  /**
+   * Club money held for this deal right now: the club's last bid while pending, the
+   * agreed amount once accepted; 0 after payout or refund. After a player's counter
+   * it can differ from `amountTk` until the club answers.
+   */
+  @Column({ type: 'int', default: 0 })
+  heldTk!: number;
 
   /** While scheduled: the tournament the player has to finish first. */
   @Column({ type: 'uuid', nullable: true })

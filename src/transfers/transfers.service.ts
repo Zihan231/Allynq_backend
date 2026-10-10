@@ -9,10 +9,19 @@ import { SettingsService } from '../settings/settings.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
-import { currentFee, daysLeft, decayingTk, formatContractNo, isLocked, lockEnd, paymentRef } from './contract-fee.js';
-import type { CreateOfferDto, FreeAgentsQueryDto, RespondOfferDto, TransferHistoryQueryDto, WalletHistoryQueryDto } from './dto/transfer.dto.js';
+import { currentFee, daysLeft, decayingTk, isLocked, paymentRef } from './contract-fee.js';
+import { startContract } from './contracts.js';
+import type {
+  CounterOfferDto,
+  CreateOfferDto,
+  FreeAgentsQueryDto,
+  RespondOfferDto,
+  TransferHistoryQueryDto,
+  WalletHistoryQueryDto,
+} from './dto/transfer.dto.js';
 import { PlayerContract, type ContractEndReason } from './entities/player-contract.entity.js';
-import { TransferOffer, type TransferOfferKind } from './entities/transfer-offer.entity.js';
+import { TransferOfferBid } from './entities/transfer-offer-bid.entity.js';
+import { TransferOffer, type TransferOfferKind, type TransferOfferParty } from './entities/transfer-offer.entity.js';
 import { WalletsService, type WalletOwner } from './wallets.service.js';
 import { assertNotFrozen } from '../common/frozen.js';
 
@@ -20,6 +29,10 @@ const LEADER_ROLES: string[] = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
 const PLAYER_LINK = '/dashboard/efootball/transfers';
 const clubLink = (clubId: string) => `/dashboard/efootball/clubs/${clubId}?tab=transfers`;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** A tournament blocks a move while it runs, or once it starts within this many days. */
+const COMMITMENT_WINDOW_DAYS = 3;
+
+type NoticeTarget = 'player' | 'clubLeaders' | 'fromClubLeaders' | 'clubMembers' | 'fromClubMembers';
 
 /** An active tournament the player is playing with his current club (blocks the move until it ends). */
 export interface ClubCommitment {
@@ -51,11 +64,34 @@ export interface ContractView {
   locked: boolean;
 }
 
+/** A tournament of the old club (not started yet) with the player in its lineup or entered by him. */
+export interface UpcomingEntry {
+  participantId: string;
+  tournamentId: string;
+  tournamentName: string;
+  /** `lineup`: he is in the club's lineup (removed when he moves); `solo`: he entered the club's own tournament. */
+  entry: 'lineup' | 'solo';
+}
+
+export interface BidView {
+  id: string;
+  party: TransferOfferParty;
+  byUserId: string;
+  byName: string | null;
+  amountTk: number;
+  message: string | null;
+  createdAt: string;
+}
+
 export interface OfferView {
   id: string;
   kind: TransferOfferKind;
   status: TransferOffer['status'];
+  /** Who answers next while pending. */
+  turn: TransferOfferParty;
   amountTk: number;
+  /** Club money held for this deal right now. */
+  heldTk: number;
   payeeType: 'player' | 'club';
   message: string | null;
   player: { id: string; name: string; dpUrl: string | null };
@@ -145,7 +181,11 @@ export class TransfersService {
     }
   }
 
-  /** Active tournament the player is playing in with his current club, if any. */
+  /**
+   * Tournament the player is playing in with his current club that holds up a move:
+   * one that is running, or starts within COMMITMENT_WINDOW_DAYS. Later ones don't
+   * block; he is taken out of them when he moves (see upcomingEntries).
+   */
   async clubCommitment(
     em: EntityManager | DataSource,
     profile: Pick<EfootballProfile, 'id' | 'userId' | 'clubId'>,
@@ -156,6 +196,8 @@ export class TransfersService {
          FROM tournaments t
          JOIN tournament_participants p ON p."tournamentId" = t.id
         WHERE t.status NOT IN ('completed', 'cancelled')
+          AND t."deletedAt" IS NULL
+          AND (t.status = 'ongoing' OR t."startAt" <= now() + make_interval(days => $4))
           AND (
             (p."participantType" = 'club' AND p."clubId" = $1 AND EXISTS (
                SELECT 1 FROM jsonb_array_elements(
@@ -165,7 +207,7 @@ export class TransfersService {
           )
         ORDER BY t."startAt"
         LIMIT 1`,
-      [profile.clubId, profile.id, profile.userId],
+      [profile.clubId, profile.id, profile.userId, COMMITMENT_WINDOW_DAYS],
     );
     return row
       ? {
@@ -175,6 +217,73 @@ export class TransfersService {
           endAt: row.endAt ? new Date(row.endAt).toISOString() : null,
         }
       : null;
+  }
+
+  /** His current club's tournaments that haven't started, where he's in the lineup (or entered himself). */
+  async upcomingEntries(
+    em: EntityManager | DataSource,
+    profile: Pick<EfootballProfile, 'id' | 'userId' | 'clubId'>,
+  ): Promise<UpcomingEntry[]> {
+    if (!profile.clubId) return [];
+    return em.query(
+      `SELECT p.id AS "participantId", tr.id AS "tournamentId", tr.name AS "tournamentName",
+              CASE WHEN p."participantType" = 'club' THEN 'lineup' ELSE 'solo' END AS entry
+         FROM tournament_participants p
+         JOIN tournaments tr ON tr.id = p."tournamentId"
+        WHERE tr.status IN ('registration_open', 'submission_phase')
+          AND tr."deletedAt" IS NULL
+          AND (
+            (p."participantType" = 'club' AND p."clubId" = $1 AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(
+                 COALESCE(p.lineup->'starters', '[]'::jsonb) || COALESCE(p.lineup->'substitutes', '[]'::jsonb)
+               ) e WHERE e->>'profileId' = $2))
+            OR (tr."hostClubId" = $1 AND p."participantType" = 'player' AND p."userId" = $3)
+          )
+        ORDER BY tr."startAt"`,
+      [profile.clubId, profile.id, profile.userId],
+    );
+  }
+
+  /** Takes the player out of the given club lineups (starters and substitutes). */
+  private async removeFromLineups(em: EntityManager, participantIds: string[], profileId: string): Promise<void> {
+    if (!participantIds.length) return;
+    await em.query(
+      `UPDATE tournament_participants p
+          SET lineup = p.lineup || jsonb_build_object(
+            'starters', COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(COALESCE(p.lineup->'starters', '[]'::jsonb)) e
+                                   WHERE e->>'profileId' IS DISTINCT FROM $2), '[]'::jsonb),
+            'substitutes', COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(COALESCE(p.lineup->'substitutes', '[]'::jsonb)) e
+                                      WHERE e->>'profileId' IS DISTINCT FROM $2), '[]'::jsonb))
+        WHERE p.id = ANY($1) AND p.lineup IS NOT NULL`,
+      [participantIds, profileId],
+    );
+  }
+
+  /** Which side of the deal the caller is on; throws if he's on neither. */
+  private async partyOf(em: EntityManager, offer: TransferOffer, callerId: string): Promise<TransferOfferParty> {
+    if (callerId === offer.playerUserId) return 'player';
+    await this.assertClubLeader(em, offer.toClubId, callerId);
+    return 'club';
+  }
+
+  /** Only the side whose turn it is may accept, reject or counter. */
+  private async assertTurn(em: EntityManager, offer: TransferOffer, callerId: string): Promise<void> {
+    if (offer.turn === 'club') await this.assertClubLeader(em, offer.toClubId, callerId);
+    else if (callerId !== offer.playerUserId) throw new ForbiddenException('Only the player can answer this offer');
+  }
+
+  /** A player whose move is waiting for a tournament can't take up another deal until he has moved. */
+  private async assertNoScheduledMove(em: EntityManager, playerUserId: string, offerId: string): Promise<void> {
+    const scheduled = await em.getRepository(TransferOffer).findOne({ where: { playerUserId, status: 'scheduled' } });
+    if (scheduled && scheduled.id !== offerId) {
+      throw new BadRequestException(
+        'This player has a move waiting for a tournament to end. New offers can be accepted after he joins his new club.',
+      );
+    }
+  }
+
+  private async recordBid(em: EntityManager, offer: TransferOffer, party: TransferOfferParty, byUserId: string, message: string | null) {
+    await em.getRepository(TransferOfferBid).insert({ offerId: offer.id, party, byUserId, amountTk: offer.amountTk, message });
   }
 
   /** Club side of an offer pays / gets refunds. */
@@ -191,7 +300,7 @@ export class TransfersService {
   // ------------------------------------------------------------------ create
 
   async createOffer(caller: User, dto: CreateOfferDto): Promise<OfferView> {
-    const notices: Array<{ to: 'player' | 'clubLeaders' | 'fromClubLeaders'; notice: Notice }> = [];
+    const notices: Array<{ to: NoticeTarget; notice: Notice }> = [];
     const settings = await this.settingsService.transfers();
     const now = new Date();
 
@@ -261,7 +370,9 @@ export class TransfersService {
         fromClubId: profile.clubId ?? null,
         toClubId: club.id,
         amountTk,
+        heldTk: clubPays ? amountTk : 0,
         payeeType,
+        turn: isPlayerProposal ? 'club' : 'player',
         message: dto.message?.trim() || null,
         createdByUserId: caller.id,
         expiresAt: new Date(now.getTime() + settings.offerExpiryDays * DAY_MS),
@@ -274,6 +385,7 @@ export class TransfersService {
         paidAt: clubPays ? now : null,
       });
       await em.save(offer);
+      await this.recordBid(em, offer, isPlayerProposal ? 'player' : 'club', caller.id, offer.message);
 
       // Club offers are paid upfront into a hold.
       if (clubPays) {
@@ -356,9 +468,13 @@ export class TransfersService {
 
   // ----------------------------------------------------------------- respond
 
+  /**
+   * The side whose turn it is accepts or rejects the current amount. Rejecting ends
+   * the negotiation (its bids stay on record); accepting signs the contract.
+   */
   async respond(caller: User, offerId: string, dto: RespondOfferDto): Promise<OfferView> {
-    const notices: Array<{ to: 'player' | 'clubLeaders' | 'fromClubLeaders'; notice: Notice }> = [];
-    let completion: { offerId: string; moved: boolean } | null = null;
+    const notices: Array<{ to: NoticeTarget; notice: Notice }> = [];
+    let removed: UpcomingEntry[] | null = null;
 
     await this.dataSource.transaction(async (em) => {
       const offer = await this.lockOffer(em, offerId);
@@ -366,10 +482,8 @@ export class TransfersService {
       if (dto.accept) await assertNotFrozen(em, 'club', offer.toClubId);
       if (offer.status !== 'pending') throw new BadRequestException(`This offer is already ${offer.status}`);
       if (offer.expiresAt <= new Date()) throw new BadRequestException('This offer has expired');
-
-      const isProposal = offer.kind === 'player_proposal';
-      if (isProposal) await this.assertClubLeader(em, offer.toClubId, caller.id);
-      else if (caller.id !== offer.playerUserId) throw new ForbiddenException('Only the player can answer this offer');
+      await this.assertTurn(em, offer, caller.id);
+      const byClub = offer.turn === 'club';
 
       const club = await this.clubOf(em, offer.toClubId);
       const profile = await this.profileOf(em, offer.playerUserId);
@@ -378,17 +492,17 @@ export class TransfersService {
       offer.respondedByUserId = caller.id;
 
       if (!dto.accept) {
+        const refunded = offer.heldTk;
         offer.status = 'declined';
-        await em.save(offer);
-        if (!isProposal) await this.refundHold(em, offer, playerName);
+        await this.refundHold(em, offer, playerName);
         notices.push(
-          isProposal
+          byClub
             ? {
                 to: 'player',
                 notice: {
                   code: 'transfer.declinedByClub',
-                  title: 'Proposal declined',
-                  message: `${club.name} declined your proposal.`,
+                  title: offer.kind === 'player_proposal' ? 'Proposal declined' : 'Offer declined',
+                  message: `${club.name} declined your ${offer.amountTk} tk ask. This negotiation is closed.`,
                   link: PLAYER_LINK,
                   params,
                 },
@@ -398,7 +512,7 @@ export class TransfersService {
                 notice: {
                   code: 'transfer.declinedByPlayer',
                   title: 'Offer declined',
-                  message: `${playerName} declined your offer. ${offer.amountTk} tk was returned to the club wallet.`,
+                  message: `${playerName} declined your offer.${refunded > 0 ? ` ${refunded} tk was returned to the club wallet.` : ''}`,
                   link: clubLink(club.id),
                   params,
                 },
@@ -408,26 +522,20 @@ export class TransfersService {
       }
 
       // Accepting signs the contract.
+      await this.assertNoScheduledMove(em, offer.playerUserId, offer.id);
+      await this.assertTransferable(profile, 'player');
       const now = new Date();
-      if (isProposal) {
-        if (offer.amountTk > 0 && !dto.paymentMethod) throw new BadRequestException('Choose a payment method');
-        await this.assertTransferable(profile, 'player');
-        const current = await this.activeContract(em, profile.userId);
-        if (current && profile.clubId && profile.clubId !== offer.toClubId && isLocked(current.lockEndsAt, now)) {
-          throw new BadRequestException('This player is now under contract at another club; make a buyout offer instead');
+      if (byClub) {
+        if (offer.kind === 'player_proposal') {
+          const current = await this.activeContract(em, profile.userId);
+          if (current && profile.clubId && profile.clubId !== offer.toClubId && isLocked(current.lockEndsAt, now)) {
+            throw new BadRequestException('This player is now under contract at another club; make a buyout offer instead');
+          }
         }
+        if (offer.amountTk > offer.heldTk && !dto.paymentMethod) throw new BadRequestException('Choose a payment method');
         offer.clubSignedByUserId = caller.id;
         offer.clubSignedAt = now;
-        if (offer.amountTk > 0) {
-          offer.paymentMethod = dto.paymentMethod!;
-          offer.paymentRef = paymentRef();
-          offer.paidAt = now;
-          await this.walletsService.hold(em, this.clubWallet(club.id), offer.amountTk, {
-            offerId: offer.id,
-            counterparty: playerName,
-            reference: offer.paymentRef,
-          });
-        }
+        await this.chargeClub(em, offer, playerName, dto.paymentMethod, now);
       } else {
         offer.playerSignedAt = now;
       }
@@ -439,14 +547,12 @@ export class TransfersService {
       if (offer.kind === 'player_proposal') offer.fromClubId = profile.clubId ?? null;
 
       notices.push({
-        to: isProposal ? 'player' : 'clubLeaders',
+        to: byClub ? 'player' : 'clubLeaders',
         notice: {
           code: 'transfer.accepted',
-          title: isProposal ? 'Proposal accepted' : 'Offer accepted',
-          message: isProposal
-            ? `${club.name} accepted your proposal.`
-            : `${playerName} accepted your offer.`,
-          link: isProposal ? PLAYER_LINK : clubLink(club.id),
+          title: byClub ? (offer.kind === 'player_proposal' ? 'Proposal accepted' : 'Your ask was accepted') : 'Offer accepted',
+          message: byClub ? `${club.name} accepted ${offer.amountTk} tk.` : `${playerName} accepted your ${offer.amountTk} tk offer.`,
+          link: byClub ? PLAYER_LINK : clubLink(club.id),
           params,
         },
       });
@@ -471,25 +577,153 @@ export class TransfersService {
         };
         notices.push({ to: 'player', notice: { ...notice, link: PLAYER_LINK } });
         notices.push({ to: 'clubLeaders', notice: { ...notice, link: clubLink(club.id) } });
-        if (offer.fromClubId) notices.push({ to: 'fromClubLeaders', notice: { ...notice, link: clubLink(offer.fromClubId) } });
+        if (offer.fromClubId) {
+          notices.push({ to: 'fromClubLeaders', notice: { ...notice, link: clubLink(offer.fromClubId) } });
+          // Later tournaments he's entered for his old club: warn now, he's taken out when he moves.
+          const later = (await this.upcomingEntries(em, profile)).filter((e) => e.tournamentId !== commitment.tournamentId);
+          if (later.length) {
+            const names = [...new Set(later.map((e) => e.tournamentName))].join(', ');
+            notices.push({
+              to: 'fromClubLeaders',
+              notice: {
+                code: 'transfer.lineupWarning',
+                title: 'Player leaving: pick a replacement',
+                message: `${playerName} is leaving for ${club.name} and is entered for ${names}. He'll be taken out of those lineups when he moves, so pick a replacement.`,
+                link: clubLink(offer.fromClubId),
+                params: { ...params, tournaments: names },
+              },
+            });
+          }
+        }
         return;
       }
 
       await em.save(offer);
-      completion = { offerId: offer.id, moved: moving };
-      await this.completeInTransaction(em, offer, profile, club);
+      removed = await this.completeInTransaction(em, offer, profile, club);
     });
 
     const offer = await this.dataSource.getRepository(TransferOffer).findOneOrFail({ where: { id: offerId } });
     await this.dispatch(offer, notices);
-    if (completion) await this.afterCompletion(offer);
+    if (removed) await this.afterCompletion(offer, removed);
     return this.offerView(offerId);
+  }
+
+  // ----------------------------------------------------------------- counter
+
+  /**
+   * The side whose turn it is answers with a new amount instead of accepting or
+   * rejecting; the turn passes to the other side. A club counter is paid into the
+   * hold at once (more held, or the difference refunded); a player counter leaves
+   * the club's hold as it is until the club answers. Buyouts can't be countered:
+   * their price is the player's fee.
+   */
+  async counter(caller: User, offerId: string, dto: CounterOfferDto): Promise<OfferView> {
+    const notices: Array<{ to: NoticeTarget; notice: Notice }> = [];
+    const settings = await this.settingsService.transfers();
+    await this.assertMarketOpen();
+
+    await this.dataSource.transaction(async (em) => {
+      const offer = await this.lockOffer(em, offerId);
+      if (offer.status !== 'pending') throw new BadRequestException(`This offer is already ${offer.status}`);
+      if (offer.expiresAt <= new Date()) throw new BadRequestException('This offer has expired');
+      if (offer.kind === 'buyout') {
+        throw new BadRequestException("A buyout is at the player's current transfer fee, so it can't be countered");
+      }
+      await this.assertTurn(em, offer, caller.id);
+      const party = offer.turn;
+      if (party === 'club') await assertNotFrozen(em, 'club', offer.toClubId);
+      await this.assertNoScheduledMove(em, offer.playerUserId, offer.id);
+      if (dto.amountTk === offer.amountTk) {
+        throw new BadRequestException(`${offer.amountTk} tk is already on the table. Accept it instead of countering.`);
+      }
+
+      const club = await this.clubOf(em, offer.toClubId);
+      const profile = await this.profileOf(em, offer.playerUserId);
+      const playerName = profile.user?.name ?? 'Player';
+      const now = new Date();
+
+      offer.amountTk = dto.amountTk;
+      if (party === 'club') {
+        if (dto.amountTk > offer.heldTk && !dto.paymentMethod) throw new BadRequestException('Choose a payment method');
+        await this.chargeClub(em, offer, playerName, dto.paymentMethod, now);
+        offer.clubSignedByUserId = caller.id;
+        offer.clubSignedAt = now;
+        offer.playerSignedAt = null;
+      } else {
+        offer.playerSignedAt = now;
+        offer.clubSignedByUserId = null;
+        offer.clubSignedAt = null;
+      }
+      offer.turn = party === 'club' ? 'player' : 'club';
+      offer.respondedByUserId = caller.id;
+      offer.expiresAt = new Date(now.getTime() + settings.offerExpiryDays * DAY_MS);
+      await em.save(offer);
+      const message = dto.message?.trim() || null;
+      await this.recordBid(em, offer, party, caller.id, message);
+
+      const params = {
+        player: playerName,
+        club: club.name,
+        amount: offer.amountTk,
+        kind: offer.kind,
+        expiresAt: offer.expiresAt.toISOString(),
+        message,
+      };
+      notices.push(
+        party === 'club'
+          ? {
+              to: 'player',
+              notice: {
+                code: 'transfer.counterReceived',
+                title: 'Counter-offer',
+                message: `${club.name} counters with ${offer.amountTk} tk.`,
+                link: PLAYER_LINK,
+                params,
+              },
+            }
+          : {
+              to: 'clubLeaders',
+              notice: {
+                code: 'transfer.counterReceived',
+                title: 'Counter-offer',
+                message: `${playerName} asks for ${offer.amountTk} tk.`,
+                link: clubLink(club.id),
+                params,
+              },
+            },
+      );
+    });
+
+    const offer = await this.dataSource.getRepository(TransferOffer).findOneOrFail({ where: { id: offerId } });
+    await this.dispatch(offer, notices);
+    return this.offerView(offerId);
+  }
+
+  /** Brings the club's hold for the offer up (or down) to the amount on the table. */
+  private async chargeClub(
+    em: EntityManager,
+    offer: TransferOffer,
+    playerName: string,
+    method: TransferOffer['paymentMethod'] | undefined,
+    now: Date,
+  ): Promise<void> {
+    if (offer.amountTk === offer.heldTk && (offer.amountTk === 0 || offer.paidAt)) return;
+    offer.paymentMethod = offer.amountTk > 0 ? (method ?? offer.paymentMethod) : null;
+    offer.paymentRef = offer.amountTk > 0 ? paymentRef() : null;
+    offer.paidAt = offer.amountTk > 0 ? now : null;
+    await this.walletsService.rehold(em, this.clubWallet(offer.toClubId), offer.heldTk, offer.amountTk, {
+      offerId: offer.id,
+      counterparty: playerName,
+      reference: offer.paymentRef,
+    });
+    offer.heldTk = offer.amountTk;
   }
 
   // ------------------------------------------------------------------ cancel
 
+  /** The side waiting for an answer withdraws its offer (any club money held is refunded). */
   async cancel(caller: User, offerId: string): Promise<OfferView> {
-    const notices: Array<{ to: 'player' | 'clubLeaders' | 'fromClubLeaders'; notice: Notice }> = [];
+    const notices: Array<{ to: NoticeTarget; notice: Notice }> = [];
     await this.dataSource.transaction(async (em) => {
       const offer = await this.lockOffer(em, offerId);
       if (offer.status !== 'pending') throw new BadRequestException(`This offer is already ${offer.status}`);
@@ -498,21 +732,20 @@ export class TransfersService {
       const playerName = profile.user?.name ?? 'Player';
       const params = { player: playerName, club: club.name, amount: offer.amountTk };
 
-      if (offer.kind === 'player_proposal') {
-        if (caller.id !== offer.playerUserId) throw new ForbiddenException('Only the player can withdraw his proposal');
+      if (offer.turn === 'club') {
+        if (caller.id !== offer.playerUserId) throw new ForbiddenException('Only the player can withdraw this offer');
         notices.push({
           to: 'clubLeaders',
           notice: {
             code: 'transfer.cancelledByPlayer',
-            title: 'Proposal withdrawn',
-            message: `${playerName} withdrew his proposal.`,
+            title: offer.kind === 'player_proposal' ? 'Proposal withdrawn' : 'Offer withdrawn',
+            message: `${playerName} withdrew from the deal.`,
             link: clubLink(club.id),
             params,
           },
         });
       } else {
         await this.assertClubLeader(em, offer.toClubId, caller.id);
-        await this.refundHold(em, offer, playerName);
         notices.push({
           to: 'player',
           notice: {
@@ -526,7 +759,7 @@ export class TransfersService {
       }
       offer.status = 'cancelled';
       offer.respondedByUserId = caller.id;
-      await em.save(offer);
+      await this.refundHold(em, offer, playerName);
     });
     const offer = await this.dataSource.getRepository(TransferOffer).findOneOrFail({ where: { id: offerId } });
     await this.dispatch(offer, notices);
@@ -546,9 +779,14 @@ export class TransfersService {
     return offer;
   }
 
+  /** Returns the club money held for the offer and saves it (the caller sets the new status first). */
   private async refundHold(em: EntityManager, offer: TransferOffer, playerName: string): Promise<void> {
-    if (offer.kind === 'player_proposal' || offer.amountTk <= 0 || !offer.paidAt) return;
-    await this.walletsService.refund(em, this.clubWallet(offer.toClubId), offer.amountTk, {
+    const held = offer.heldTk;
+    offer.heldTk = 0;
+    offer.scheduledTournamentId = null;
+    await em.save(offer);
+    if (held <= 0) return;
+    await this.walletsService.refund(em, this.clubWallet(offer.toClubId), held, {
       offerId: offer.id,
       counterparty: playerName,
     });
@@ -556,14 +794,16 @@ export class TransfersService {
 
   /**
    * Pays the hold out, ends the old contract, moves the player and starts the new
-   * contract (frozen part = the amount). Runs inside the caller's transaction.
+   * contract (frozen part = the amount). A player leaving his club is taken out of its
+   * lineups for tournaments that haven't started. Runs inside the caller's transaction;
+   * returns the old club's upcoming tournaments he was entered for.
    */
   private async completeInTransaction(
     em: EntityManager,
     offer: TransferOffer,
     profile: EfootballProfile & { user?: User },
     club: Club,
-  ): Promise<void> {
+  ): Promise<UpcomingEntry[]> {
     const settings = await this.settingsService.transfers();
     const now = new Date();
     const playerName = profile.user?.name ?? 'Player';
@@ -577,9 +817,16 @@ export class TransfersService {
         reference: offer.paymentRef,
       });
     }
+    offer.heldTk = 0;
 
     const old = await this.activeContract(em, offer.playerUserId);
     const moving = profile.clubId !== club.id;
+    const entries = moving ? await this.upcomingEntries(em, profile) : [];
+    await this.removeFromLineups(
+      em,
+      entries.filter((e) => e.entry === 'lineup').map((e) => e.participantId),
+      profile.id,
+    );
     if (old) {
       old.status = 'ended';
       old.endedAt = now;
@@ -593,19 +840,7 @@ export class TransfersService {
         .update({ id: profile.id }, { clubId: club.id, clubRole: ClubRole.PLAYER, teamId: null });
     }
 
-    const [{ seq }] = await em.query(`SELECT nextval('contract_no_seq')::int AS seq`);
-    await em.getRepository(PlayerContract).insert({
-      contractNo: formatContractNo(seq, now),
-      userId: offer.playerUserId,
-      clubId: club.id,
-      offerId: offer.id,
-      frozenTk: offer.amountTk,
-      baseTk: settings.baseFeeTk,
-      lockDays: settings.lockDays,
-      startAt: now,
-      lockEndsAt: lockEnd(now, settings.lockDays),
-      status: 'active',
-    });
+    await startContract(em, settings, { userId: offer.playerUserId, clubId: club.id, offerId: offer.id, frozenTk: offer.amountTk }, now);
 
     offer.status = 'completed';
     offer.completedAt = now;
@@ -618,13 +853,16 @@ export class TransfersService {
     });
     for (const other of others) {
       other.status = 'cancelled';
-      await em.save(other);
       await this.refundHold(em, other, playerName);
     }
+    return entries;
   }
 
-  /** Community membership and the notifications for a completed move (after commit). */
-  private async afterCompletion(offer: TransferOffer): Promise<void> {
+  /**
+   * Community membership and the notifications for a completed move (after commit).
+   * `entries`: the old club's upcoming tournaments he was entered for (lineups he was taken out of).
+   */
+  private async afterCompletion(offer: TransferOffer, entries: UpcomingEntry[] = []): Promise<void> {
     const ds = this.dataSource;
     const profile = await ds.getRepository(EfootballProfile).findOne({ where: { userId: offer.playerUserId }, relations: { user: true } });
     const club = await ds.getRepository(Club).findOne({ where: { id: offer.toClubId } });
@@ -653,7 +891,7 @@ export class TransfersService {
       contractNo: contract.contractNo,
       lockEndsAt: contract.lockEndsAt.toISOString(),
     };
-    const notices: Array<{ to: 'player' | 'clubLeaders' | 'fromClubLeaders' | 'clubMembers' | 'fromClubMembers'; notice: Notice }> = [];
+    const notices: Array<{ to: NoticeTarget; notice: Notice }> = [];
     if (moved) {
       notices.push({
         to: 'player',
@@ -686,12 +924,25 @@ export class TransfersService {
             params,
           },
         });
+        if (entries.length) {
+          const names = [...new Set(entries.map((e) => e.tournamentName))].join(', ');
+          notices.push({
+            to: 'fromClubLeaders',
+            notice: {
+              code: 'transfer.lineupRemoved',
+              title: 'Pick a replacement',
+              message: `${playerName} has left ${fromClub.name}. He was entered for ${names}; he's been taken out of the club lineups, so pick a replacement.`,
+              link: clubLink(fromClub.id),
+              params: { ...params, tournaments: names },
+            },
+          });
+        }
       }
     } else {
       const renewed = {
         code: 'transfer.renewed',
         title: 'Contract renewed',
-        message: `${playerName}'s contract with ${club.name} is renewed (contract ${contract.contractNo}). New 120-day lock started.`,
+        message: `${playerName}'s contract with ${club.name} is renewed (contract ${contract.contractNo}). New ${contract.lockDays}-day lock started.`,
         params,
       };
       notices.push({ to: 'player', notice: { ...renewed, link: PLAYER_LINK } });
@@ -738,10 +989,10 @@ export class TransfersService {
         const club = await this.clubOf(em, offer.toClubId);
         const profile = await this.profileOf(em, offer.playerUserId);
         const playerName = profile.user?.name ?? 'Player';
+        const refundedTk = offer.heldTk;
         offer.status = 'expired';
-        await em.save(offer);
         await this.refundHold(em, offer, playerName);
-        const refunded = offer.kind !== 'player_proposal' && offer.amountTk > 0;
+        const refunded = refundedTk > 0;
         const params = { player: playerName, club: club.name, amount: offer.amountTk, refunded: refunded ? 1 : 0 };
         notices.push({
           to: 'player',
@@ -764,7 +1015,7 @@ export class TransfersService {
             message:
               offer.kind === 'player_proposal'
                 ? `${playerName}'s proposal expired without an answer.`
-                : `Your offer to ${playerName} expired after no answer${refunded ? ` — ${offer.amountTk} tk returned to the club wallet` : ''}.`,
+                : `Your offer to ${playerName} expired after no answer${refunded ? ` — ${refundedTk} tk returned to the club wallet` : ''}.`,
             link: clubLink(club.id),
             params,
           },
@@ -779,27 +1030,68 @@ export class TransfersService {
     return count;
   }
 
+  /**
+   * Completes scheduled moves whose tournament is over. The rules are checked again
+   * first: while the market is closed the move waits; if the buying club is frozen,
+   * the player can no longer transfer or has moved meanwhile, the deal is cancelled
+   * and the club's money refunded.
+   */
   async completeScheduled(): Promise<number> {
     const scheduled = await this.dataSource.getRepository(TransferOffer).find({ where: { status: 'scheduled' } });
+    if (!scheduled.length || !(await this.settingsService.features()).transfersOpen) return 0;
     let count = 0;
     for (const { id } of scheduled) {
-      let done = false;
+      let removed: UpcomingEntry[] | null = null;
+      let cancelled: { reason: string; player: string; club: string } | null = null;
       await this.dataSource.transaction(async (em) => {
         const offer = await this.lockOffer(em, id);
         if (offer.status !== 'scheduled') return;
         const profile = await this.profileOf(em, offer.playerUserId);
         if (await this.clubCommitment(em, profile)) return; // still playing
         const club = await this.clubOf(em, offer.toClubId);
-        await this.completeInTransaction(em, offer, profile, club);
-        done = true;
+        const reason = await this.completionProblem(em, offer, profile);
+        if (reason) {
+          const playerName = profile.user?.name ?? 'Player';
+          offer.status = 'cancelled';
+          await this.refundHold(em, offer, playerName);
+          cancelled = { reason, player: playerName, club: club.name };
+          return;
+        }
+        removed = await this.completeInTransaction(em, offer, profile, club);
       });
-      if (done) {
-        const offer = await this.dataSource.getRepository(TransferOffer).findOneOrFail({ where: { id } });
-        await this.afterCompletion(offer);
+      const offer = await this.dataSource.getRepository(TransferOffer).findOneOrFail({ where: { id } });
+      if (removed) {
+        await this.afterCompletion(offer, removed);
         count++;
+      } else if (cancelled) {
+        const { reason, player, club } = cancelled;
+        const notice: Notice = {
+          code: 'transfer.cancelledAtCompletion',
+          title: 'Transfer cancelled',
+          message: `${player}'s move to ${club} was cancelled: ${reason} Any money the club paid was refunded.`,
+          link: PLAYER_LINK,
+          params: { player, club, reason },
+        };
+        await this.dispatch(offer, [
+          { to: 'player', notice },
+          { to: 'clubLeaders', notice: { ...notice, link: clubLink(offer.toClubId) } },
+          ...(offer.fromClubId ? [{ to: 'fromClubLeaders' as const, notice: { ...notice, link: clubLink(offer.fromClubId) } }] : []),
+        ]);
       }
     }
     return count;
+  }
+
+  /** Why a scheduled move can no longer go ahead, or null if it still can. */
+  private async completionProblem(em: EntityManager, offer: TransferOffer, profile: EfootballProfile): Promise<string | null> {
+    try {
+      await assertNotFrozen(em, 'club', offer.toClubId);
+      await this.assertTransferable(profile, 'player');
+    } catch (err) {
+      return (err as Error).message;
+    }
+    if ((profile.clubId ?? null) !== (offer.fromClubId ?? null)) return 'The player has moved since the deal was agreed.';
+    return null;
   }
 
   /** "Lock ends in 7 days / 1 day" and "now a free agent", once each. */
@@ -925,7 +1217,9 @@ export class TransfersService {
         id: r.id,
         kind: r.kind,
         status: r.status,
+        turn: r.turn,
         amountTk: r.amountTk,
+        heldTk: r.heldTk,
         payeeType: r.payeeType,
         message: r.message,
         player: { id: r.playerUserId, name: r.playerName, dpUrl: r.playerDpUrl },
@@ -1007,9 +1301,11 @@ export class TransfersService {
     );
     const [incoming, outgoing, wallet] = leader
       ? await Promise.all([
-          this.offerViews({ where: `o."toClubId" = $1 AND o.kind = 'player_proposal' AND o.status = 'pending'`, params: [clubId] }),
+          // Waiting for the club's answer (proposals and players' counter-offers).
+          this.offerViews({ where: `o."toClubId" = $1 AND o.status = 'pending' AND o.turn = 'club'`, params: [clubId] }),
+          // Waiting for the player, agreed moves still to complete, and buyouts of the club's players.
           this.offerViews({
-            where: `((o."toClubId" = $1 AND o.kind <> 'player_proposal') OR (o."fromClubId" = $1 AND o.kind = 'buyout')) AND o.status IN ('pending', 'scheduled')`,
+            where: `((o."toClubId" = $1 AND (o.turn = 'player' OR o.status = 'scheduled')) OR (o."fromClubId" = $1 AND o.kind = 'buyout')) AND o.status IN ('pending', 'scheduled')`,
             params: [clubId],
           }),
           this.walletsService.view(this.clubWallet(clubId)),
@@ -1074,14 +1370,41 @@ export class TransfersService {
     return createPaginatedResult(views.slice((page - 1) * limit, page * limit), total, page, limit);
   }
 
-  /** Everything the contract document needs, for the player or either club's leaders. */
-  async contractDocument(caller: User, offerId: string) {
-    const offer = await this.offerView(offerId);
+  /** The player and the leaders of both clubs involved may see a deal's documents. */
+  private async assertCanViewDeal(caller: User, offer: OfferView, what: string): Promise<void> {
     const allowed =
       caller.id === offer.player.id ||
       (await this.isClubLeader(this.dataSource.manager, offer.toClub.id, caller.id)) ||
       (offer.fromClub ? await this.isClubLeader(this.dataSource.manager, offer.fromClub.id, caller.id) : false);
-    if (!allowed) throw new ForbiddenException('Only the player and the clubs involved can view this contract');
+    if (!allowed) throw new ForbiddenException(`Only the player and the clubs involved can view this ${what}`);
+  }
+
+  /** Every bid of a negotiation, oldest first. */
+  async bids(caller: User, offerId: string): Promise<BidView[]> {
+    await this.assertCanViewDeal(caller, await this.offerView(offerId), 'negotiation');
+    const rows: Array<Record<string, any>> = await this.dataSource.query(
+      `SELECT b.id, b.party, b."byUserId", u.name AS "byName", b."amountTk", b.message, b."createdAt"
+         FROM transfer_offer_bids b
+         LEFT JOIN users u ON u.id = b."byUserId"
+        WHERE b."offerId" = $1
+        ORDER BY b."createdAt"`,
+      [offerId],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      party: r.party,
+      byUserId: r.byUserId,
+      byName: r.byName ?? null,
+      amountTk: r.amountTk,
+      message: r.message,
+      createdAt: new Date(r.createdAt).toISOString(),
+    }));
+  }
+
+  /** Everything the contract document needs, for the player or either club's leaders. */
+  async contractDocument(caller: User, offerId: string) {
+    const offer = await this.offerView(offerId);
+    await this.assertCanViewDeal(caller, offer, 'contract');
     const settings = await this.settingsService.transfers();
     const contractRow = await this.dataSource.getRepository(PlayerContract).findOne({ where: { offerId } });
     const contract = contractRow ? await this.contractView(contractRow, offer.toClub.name) : null;
@@ -1169,13 +1492,8 @@ export class TransfersService {
       const club = await this.clubOf(em, offer.toClubId);
       const profile = await this.profileOf(em, offer.playerUserId);
       names = { player: profile.user?.name ?? 'Player', club: club.name };
-      // Club money was paid when the offer was sent, or when a proposal was accepted (scheduled deals).
-      if (offer.paidAt && offer.amountTk > 0) {
-        await this.walletsService.refund(em, this.clubWallet(offer.toClubId), offer.amountTk, { offerId: offer.id, counterparty: names.player });
-      }
       offer.status = 'cancelled';
-      offer.scheduledTournamentId = null;
-      await em.save(offer);
+      await this.refundHold(em, offer, names.player);
     });
     const notice: Notice = {
       code: 'transfer.cancelledByStaff',
@@ -1313,7 +1631,7 @@ export class TransfersService {
 
   private async dispatch(
     offer: TransferOffer,
-    notices: Array<{ to: 'player' | 'clubLeaders' | 'fromClubLeaders' | 'clubMembers' | 'fromClubMembers'; notice: Notice }>,
+    notices: Array<{ to: NoticeTarget; notice: Notice }>,
   ): Promise<void> {
     for (const { to, notice } of notices) {
       const ids =

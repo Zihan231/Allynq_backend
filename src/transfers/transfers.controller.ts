@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
 import {
+  CounterOfferDto,
   CreateOfferDto,
   FreeAgentsQueryDto,
   RespondOfferDto,
@@ -35,6 +36,20 @@ export class TransfersController {
   @Post('offers/:id/respond')
   respond(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
     return this.transfersService.respond(user, id, dto);
+  }
+
+  /** The side whose turn it is answers with a new amount; the turn passes to the other side. */
+  @UseGuards(JwtAuthGuard)
+  @Post('offers/:id/counter')
+  counter(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CounterOfferDto) {
+    return this.transfersService.counter(user, id, dto);
+  }
+
+  /** The negotiation so far: the opening amount and every counter-offer, oldest first. */
+  @UseGuards(JwtAuthGuard)
+  @Get('offers/:id/bids')
+  bids(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.transfersService.bids(user, id);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -23,6 +23,7 @@ import { Report } from '../reports/entities/report.entity.js';
 import { RecycleBinItem } from '../recycle-bin/recycle-bin-item.entity.js';
 import { AppSetting } from '../settings/app-setting.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
+import { TransferOfferBid } from '../transfers/entities/transfer-offer-bid.entity.js';
 import { TransferOffer } from '../transfers/entities/transfer-offer.entity.js';
 import { WalletTransaction } from '../transfers/entities/wallet-transaction.entity.js';
 import { Wallet } from '../transfers/entities/wallet.entity.js';
@@ -61,6 +62,7 @@ export function buildTypeOrmOptions(
       TournamentGameTimeRequest,
       AppSetting,
       TransferOffer,
+      TransferOfferBid,
       PlayerContract,
       Wallet,
       WalletTransaction,

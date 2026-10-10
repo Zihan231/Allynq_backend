@@ -4,7 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import { FileStorageService } from '../common/services/file-storage.service.js';
 import { SettingsService } from '../settings/settings.service.js';
-import { formatContractNo, lockEnd } from '../transfers/contract-fee.js';
+import { startContract } from '../transfers/contracts.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { type BinEntityType, type BinMember, type BinSnapshot, RecycleBinItem } from './recycle-bin-item.entity.js';
 import { JobMonitorService } from '../health/job-monitor.service.js';
@@ -208,14 +208,7 @@ export class RecycleBinService {
       team?.id ?? null,
     ]);
     if (!LEADER_ROLES.includes(member.role ?? '')) {
-      const settings = await this.settings.transfers();
-      const now = new Date();
-      const [{ seq }] = await em.query(`SELECT nextval('contract_no_seq')::int AS seq`);
-      await em.query(
-        `INSERT INTO player_contracts ("contractNo", "userId", "clubId", "frozenTk", "baseTk", "lockDays", "startAt", "lockEndsAt", status)
-         VALUES ($1, $2, $3, 0, $4, $5, $6, $7, 'active')`,
-        [formatContractNo(seq, now), member.userId, clubId, settings.baseFeeTk, settings.lockDays, now, lockEnd(now, settings.lockDays)],
-      );
+      await startContract(em, await this.settings.transfers(), { userId: member.userId, clubId });
     }
     return true;
   }

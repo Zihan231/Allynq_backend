@@ -21,6 +21,8 @@ import { createPaginatedResult } from '../common/interfaces/paginated-result.int
 import { Club } from './entities/club.entity.js';
 import { ClubJoinRequest } from './entities/club-join-request.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
+import { ensureContract } from '../transfers/contracts.js';
+import { SettingsService } from '../settings/settings.service.js';
 import { assertNotFrozen } from '../common/frozen.js';
 
 @Injectable()
@@ -40,7 +42,19 @@ export class ClubsService {
     private readonly fileStorageService: FileStorageService,
     private readonly notificationsService: NotificationsService,
     private readonly recycleBin: RecycleBinService,
+    private readonly settingsService?: SettingsService,
   ) {}
+
+  /**
+   * Every non-leader member is under contract: a member who just stopped being President /
+   * GS (or was never signed) gets a 0 tk contract. Skipped for unit-test repository mocks.
+   */
+  private async ensureContract(profile: EfootballProfile): Promise<void> {
+    const leaders: (ClubRole | null)[] = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
+    const manager = this.contractsRepository?.manager;
+    if (!profile.clubId || leaders.includes(profile.clubRole) || !manager || !this.settingsService) return;
+    await ensureContract(manager, await this.settingsService.transfers(), profile.userId, profile.clubId);
+  }
 
   async create(user: User, dto: CreateClubDto): Promise<Club> {
     const profile = await this.efootballProfilesRepository.findOne({
@@ -300,6 +314,8 @@ export class ClubsService {
     // Promote the target member to Manager
     targetProfile.clubRole = ClubRole.MANAGER;
     const savedTarget = await this.efootballProfilesRepository.save(targetProfile);
+    if (currentManager) await this.ensureContract(currentManager);
+    await this.ensureContract(savedTarget);
 
     const isSelfTransfer =
       callerProfile.clubRole === ClubRole.MANAGER ||
@@ -351,12 +367,14 @@ export class ClubsService {
       if (holder && holder.id !== target.id) {
         holder.clubRole = ClubRole.PLAYER;
         await this.efootballProfilesRepository.save(holder);
+        await this.ensureContract(holder);
         previousHolder = { profileId: holder.id, name: holder.user?.name ?? 'Player' };
       }
     }
 
     target.clubRole = dto.role;
     await this.efootballProfilesRepository.save(target);
+    await this.ensureContract(target);
 
     if (dto.role !== ClubRole.PLAYER && target.userId !== caller.id) {
       void this.notificationsService
@@ -596,9 +614,10 @@ export class ClubsService {
 
     const roleToHandover = callerProfile.clubRole;
 
-    // Demote caller to Player
+    // Demote caller to Player (under contract from now on)
     callerProfile.clubRole = ClubRole.PLAYER;
     await this.efootballProfilesRepository.save(callerProfile);
+    await this.ensureContract(callerProfile);
 
     // Promote target member to the executive role
     targetProfile.clubRole = roleToHandover;

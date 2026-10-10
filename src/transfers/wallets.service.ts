@@ -145,6 +145,21 @@ export class WalletsService {
     await this.record(em, w, 'refund', back, ref);
   }
 
+  /**
+   * Changes the amount held for an offer from `fromTk` to `toTk` (a counter-offer):
+   * holds the extra, or refunds the difference.
+   */
+  async rehold(
+    em: EntityManager,
+    owner: WalletOwner,
+    fromTk: number,
+    toTk: number,
+    ref: { offerId: string; counterparty: string; reference: string | null },
+  ): Promise<void> {
+    if (toTk > fromTk) await this.hold(em, owner, toTk - fromTk, ref);
+    else if (toTk < fromTk) await this.refund(em, owner, fromTk - toTk, ref);
+  }
+
   /** Pays held money out to the payee (transfer completed). */
   async payOut(
     em: EntityManager,

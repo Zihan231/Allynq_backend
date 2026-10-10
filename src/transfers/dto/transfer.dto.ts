@@ -45,6 +45,25 @@ export class RespondOfferDto {
   paymentMethod?: (typeof PAYMENT_METHODS)[number];
 }
 
+/** A counter-offer: the side whose turn it is answers with a new amount. */
+export class CounterOfferDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10_000_000)
+  amountTk!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+
+  /** Required when the club counters with more money than it already holds for the offer. */
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: (typeof PAYMENT_METHODS)[number];
+}
+
 export class FreeAgentsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()

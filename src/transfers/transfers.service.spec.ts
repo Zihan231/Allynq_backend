@@ -6,7 +6,9 @@ import { DEFAULT_TRANSFER_SETTINGS } from '../settings/settings.service.js';
 import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { lockEnd } from './contract-fee.js';
+import { ensureContract } from './contracts.js';
 import { PlayerContract } from './entities/player-contract.entity.js';
+import { TransferOfferBid } from './entities/transfer-offer-bid.entity.js';
 import { TransferOffer } from './entities/transfer-offer.entity.js';
 import { WalletTransaction } from './entities/wallet-transaction.entity.js';
 import { Wallet } from './entities/wallet.entity.js';
@@ -39,6 +41,9 @@ function makeDb() {
   let contractSeq = 0;
   /** Active tournaments a player plays with his club, keyed by profile id. */
   const commitments = new Map<string, Row>();
+  /** His club's tournaments that haven't started, keyed by profile id; and lineups he was taken out of. */
+  const upcoming = new Map<string, Row[]>();
+  const removedFromLineups: Array<{ participantIds: string[]; profileId: string }> = [];
   const walletStart = { club: DEFAULT_TRANSFER_SETTINGS.clubStartingBalanceTk, user: DEFAULT_TRANSFER_SETTINGS.playerStartingBalanceTk };
 
   const repo = (entity: { name: string }) => {
@@ -122,6 +127,32 @@ function makeDb() {
       return [];
     }
     if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    if (sql.includes('INSERT INTO player_contracts')) {
+      const [contractNo, userId, clubId, offerId, frozenTk, baseTk, lockDays, startAt, lockEndsAt] = params as any[];
+      table(PlayerContract).push({
+        id: randomUUID(),
+        contractNo,
+        userId,
+        clubId,
+        offerId,
+        frozenTk,
+        baseTk,
+        lockDays,
+        startAt,
+        lockEndsAt,
+        status: 'active',
+        createdAt: new Date(),
+      });
+      return [];
+    }
+    if (sql.includes('SELECT id FROM player_contracts')) {
+      return table(PlayerContract).filter((c) => c.userId === params[0] && c.status === 'active').map((c) => ({ id: c.id }));
+    }
+    if (sql.includes('FROM tournament_participants p')) return upcoming.get(params[1] as string) ?? [];
+    if (sql.includes('UPDATE tournament_participants')) {
+      removedFromLineups.push({ participantIds: params[0] as string[], profileId: params[1] as string });
+      return [];
+    }
     if (sql.includes('"frozenAt", "frozenReason" FROM "clubs"')) {
       const club = table(Club).find((c) => c.id === params[0]);
       return club ? [{ name: club.name, frozenAt: club.frozenAt ?? null, frozenReason: club.frozenReason ?? null }] : [];
@@ -157,7 +188,7 @@ function makeDb() {
       }
     },
   };
-  return { dataSource, table, commitments };
+  return { dataSource, table, commitments, upcoming, removedFromLineups };
 }
 
 // ------------------------------------------------------------------- setup
@@ -220,7 +251,12 @@ function setup() {
   const activeContract = (u: User) => db.table(PlayerContract).find((c) => c.userId === u.id && c.status === 'active');
   const codesTo = (u: User) =>
     notifications.createNotification.mock.calls.filter(([to]) => to === u.id).map(([, n]) => (n as { code: string }).code);
-  return { db, service, users, communities, offer, wallet, profile, activeContract, codesTo, features };
+  const bids = (offerId: string) =>
+    db
+      .table(TransferOfferBid)
+      .filter((b) => b.offerId === offerId)
+      .map((b) => [b.party, b.amountTk]);
+  return { db, service, users, communities, offer, wallet, profile, activeContract, codesTo, features, bids };
 }
 
 // ------------------------------------------------------------------- tests
@@ -439,5 +475,161 @@ describe('TransfersService', () => {
     await service.respond(users.free, o.id, { accept: true });
     const kinds = db.table(WalletTransaction).filter((x) => x.offerId === o.id).map((x) => x.kind);
     expect(kinds).toEqual(['hold', 'payout_sent', 'received']);
+  });
+
+  // ------------------------------------------------------------ negotiation
+
+  it('negotiates with counter-offers; the agreed amount is paid and frozen into the contract', async () => {
+    const { service, users, offer, wallet, activeContract, codesTo, bids } = t;
+    const o = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'bkash' });
+    expect(offer(o.id)).toMatchObject({ turn: 'player', heldTk: 100 });
+
+    // Not the club's turn.
+    await expect(service.counter(users.padmaPres, o.id, { amountTk: 90 })).rejects.toThrow(ForbiddenException);
+
+    await service.counter(users.free, o.id, { amountTk: 150, message: 'I want more' });
+    expect(offer(o.id)).toMatchObject({ turn: 'club', amountTk: 150, heldTk: 100, clubSignedAt: null });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 4900, heldTk: 100 }); // unchanged until the club answers
+    expect(codesTo(users.padmaPres)).toContain('transfer.counterReceived');
+
+    await expect(service.counter(users.padmaPres, o.id, { amountTk: 120 })).rejects.toThrow('payment method');
+    await service.counter(users.padmaPres, o.id, { amountTk: 120, paymentMethod: 'nagad' });
+    expect(offer(o.id)).toMatchObject({ turn: 'player', amountTk: 120, heldTk: 120 });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 4880, heldTk: 120 });
+
+    await service.respond(users.free, o.id, { accept: true });
+
+    expect(offer(o.id).status).toBe('completed');
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 4880, heldTk: 0 });
+    expect(wallet('user', users.free.id)).toMatchObject({ balanceTk: 120 });
+    expect(activeContract(users.free)).toMatchObject({ clubId: PADMA, frozenTk: 120, baseTk: 120 });
+    expect(bids(o.id)).toEqual([
+      ['club', 100],
+      ['player', 150],
+      ['club', 120],
+    ]);
+  });
+
+  it("the club can accept a player's higher ask, paying the difference", async () => {
+    const { service, users, offer, wallet } = t;
+    const o = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'bkash' });
+    await service.counter(users.free, o.id, { amountTk: 200 });
+    await expect(service.respond(users.padmaPres, o.id, { accept: true })).rejects.toThrow('payment method');
+
+    await service.respond(users.padmaPres, o.id, { accept: true, paymentMethod: 'card' });
+
+    expect(offer(o.id)).toMatchObject({ status: 'completed', amountTk: 200, heldTk: 0 });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 4800, heldTk: 0 });
+    expect(wallet('user', users.free.id)).toMatchObject({ balanceTk: 200 });
+  });
+
+  it('rejecting a counter-offer ends the negotiation, refunds the hold and keeps the bids', async () => {
+    const { service, users, offer, wallet, codesTo, bids } = t;
+    const o = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.free.id, amountTk: 100, paymentMethod: 'bkash' });
+    await service.counter(users.free, o.id, { amountTk: 300 });
+
+    await service.respond(users.padmaPres, o.id, { accept: false });
+
+    expect(offer(o.id)).toMatchObject({ status: 'declined', heldTk: 0 });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
+    expect(codesTo(users.free)).toContain('transfer.declinedByClub');
+    expect(bids(o.id)).toHaveLength(2);
+    await expect(service.counter(users.free, o.id, { amountTk: 200 })).rejects.toThrow('already declined');
+  });
+
+  it("a player's proposal can be countered by the club; then only the club can withdraw", async () => {
+    const { service, users, offer, wallet } = t;
+    const p = await service.createOffer(users.free, { clubId: PADMA, amountTk: 80 });
+    await service.counter(users.padmaPres, p.id, { amountTk: 50, paymentMethod: 'bkash' });
+    expect(offer(p.id)).toMatchObject({ turn: 'player', heldTk: 50 });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 4950, heldTk: 50 });
+
+    await expect(service.cancel(users.free, p.id)).rejects.toThrow(ForbiddenException);
+    await service.cancel(users.padmaPres, p.id);
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
+  });
+
+  it("a buyout can't be countered", async () => {
+    const { service, users } = t;
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 1, paymentMethod: 'nagad' });
+    await expect(service.counter(users.locked, b.id, { amountTk: 500 })).rejects.toThrow("can't be countered");
+  });
+
+  // -------------------------------------------------------- scheduled moves
+
+  it('a player with a scheduled move cannot take up another deal until he has moved', async () => {
+    const { service, users, db } = t;
+    const renewal = await service.createOffer(users.t4Pres, { clubId: T4, playerUserId: users.locked.id, amountTk: 30, paymentMethod: 'bkash' });
+    db.commitments.set('p-locked', { tournamentId: 't-1', tournamentName: 'Night League', startAt: new Date(), endAt: null });
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 0, paymentMethod: 'bkash' });
+    await service.respond(users.locked, b.id, { accept: true });
+
+    await expect(service.respond(users.locked, renewal.id, { accept: true })).rejects.toThrow(/move waiting/);
+    await expect(service.counter(users.locked, renewal.id, { amountTk: 60 })).rejects.toThrow(/move waiting/);
+  });
+
+  it('cancels a scheduled move and refunds the club if the rules no longer allow it when the tournament ends', async () => {
+    const { service, users, offer, wallet, profile, db, codesTo } = t;
+    db.commitments.set('p-locked', { tournamentId: 't-1', tournamentName: 'Night League', startAt: new Date(), endAt: null });
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 0, paymentMethod: 'bkash' });
+    await service.respond(users.locked, b.id, { accept: true });
+    expect(offer(b.id).status).toBe('scheduled');
+
+    Object.assign(db.table(Club).find((c) => c.id === PADMA)!, { frozenAt: new Date(), frozenReason: 'Investigation' });
+    db.commitments.clear();
+    expect(await service.completeScheduled()).toBe(0);
+
+    expect(offer(b.id)).toMatchObject({ status: 'cancelled', heldTk: 0 });
+    expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
+    expect(profile(users.locked).clubId).toBe(T4);
+    expect(codesTo(users.locked)).toContain('transfer.cancelledAtCompletion');
+    expect(codesTo(users.t4Pres)).toContain('transfer.cancelledAtCompletion');
+  });
+
+  it('a closed market makes a scheduled move wait instead of completing', async () => {
+    const { service, users, offer, db, features } = t;
+    db.commitments.set('p-locked', { tournamentId: 't-1', tournamentName: 'Night League', startAt: new Date(), endAt: null });
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 0, paymentMethod: 'bkash' });
+    await service.respond(users.locked, b.id, { accept: true });
+    db.commitments.clear();
+    features.transfersOpen = false;
+
+    expect(await service.completeScheduled()).toBe(0);
+    expect(offer(b.id).status).toBe('scheduled');
+  });
+
+  // ------------------------------------------------------- upcoming lineups
+
+  it("takes a moving player out of his old club's upcoming lineups and tells its leaders", async () => {
+    const { service, users, db, codesTo } = t;
+    db.upcoming.set('p-locked', [
+      { participantId: 'tp-1', tournamentId: 't-9', tournamentName: 'Winter Cup', entry: 'lineup' },
+      { participantId: 'tp-2', tournamentId: 't-10', tournamentName: 'Club Solo Night', entry: 'solo' },
+    ]);
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 0, paymentMethod: 'bkash' });
+    await service.respond(users.locked, b.id, { accept: true });
+
+    expect(db.removedFromLineups).toEqual([{ participantIds: ['tp-1'], profileId: 'p-locked' }]);
+    expect(codesTo(users.t4Pres)).toContain('transfer.lineupRemoved');
+  });
+
+  it('warns the old club when an agreed move waits, so it can pick a replacement for later tournaments', async () => {
+    const { service, users, db, codesTo } = t;
+    db.commitments.set('p-locked', { tournamentId: 't-1', tournamentName: 'Night League', startAt: new Date(), endAt: null });
+    db.upcoming.set('p-locked', [{ participantId: 'tp-1', tournamentId: 't-9', tournamentName: 'Winter Cup', entry: 'lineup' }]);
+    const b = await service.createOffer(users.padmaPres, { clubId: PADMA, playerUserId: users.locked.id, amountTk: 0, paymentMethod: 'bkash' });
+    await service.respond(users.locked, b.id, { accept: true });
+
+    expect(codesTo(users.t4Pres)).toContain('transfer.lineupWarning');
+    expect(db.removedFromLineups).toHaveLength(0); // not until he moves
+  });
+
+  // -------------------------------------------------------------- contracts
+
+  it('gives a member without a contract a 0 tk contract, once', async () => {
+    const { db, users, activeContract } = t;
+    expect(await ensureContract(db.dataSource, DEFAULT_TRANSFER_SETTINGS, users.padmaPres.id, PADMA)).toBe(true);
+    expect(activeContract(users.padmaPres)).toMatchObject({ clubId: PADMA, frozenTk: 0, baseTk: 120, lockDays: 120 });
+    expect(await ensureContract(db.dataSource, DEFAULT_TRANSFER_SETTINGS, users.padmaPres.id, PADMA)).toBe(false);
   });
 });
