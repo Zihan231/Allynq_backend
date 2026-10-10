@@ -535,6 +535,8 @@ export class LoansService {
     await em.getRepository(EfootballProfile).update({ id: profile.id }, { clubId: loan.borrowClubId, clubRole: ClubRole.PLAYER, teamId: null });
     await this.transfers.closeOpenOffers(em, loan.playerUserId, playerName);
 
+    // He can't turn out for the borrowing club in tournaments he was entered in for his own club.
+    loan.cupTiedTournamentIds = [...new Set(entries.filter((e) => e.entry === 'lineup').map((e) => e.tournamentId))];
     loan.status = 'active';
     loan.startedAt = now;
     loan.endsBy = new Date(now.getTime() + loan.maxDays * DAY_MS);

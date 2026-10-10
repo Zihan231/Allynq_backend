@@ -101,6 +101,16 @@ describe('LoansService', () => {
     expect(wallet('club', PADMA)).toMatchObject({ balanceTk: 5000, heldTk: 0 });
   });
 
+  it("records the parent club's upcoming tournaments he can't play in for the borrowing club", async () => {
+    const { loan, db } = t;
+    db.upcoming.set('p-locked', [
+      { participantId: 'tp-1', tournamentId: 't-cup', tournamentName: 'Winter Cup', entry: 'lineup' },
+      { participantId: 'tp-2', tournamentId: 't-solo', tournamentName: 'Club Solo Night', entry: 'solo' },
+    ]);
+    const l = await running();
+    expect(loan(l.id).cupTiedTournamentIds).toEqual(['t-cup']);
+  });
+
   it('waits for a tournament he is playing with the parent club, then starts', async () => {
     const { loans, users, loan, profile, db } = t;
     db.commitments.set('p-locked', { tournamentId: 't-1', tournamentName: 'Night League', startAt: new Date(), endAt: null });

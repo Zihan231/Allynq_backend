@@ -73,6 +73,13 @@ export class PlayerLoan {
   @Column({ type: 'int', default: 0 })
   matchesPlayed!: number;
 
+  /**
+   * Tournaments he was entered in for the parent club when the loan started: he can't
+   * play in them for the borrowing club (his loan matches come from other tournaments).
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  cupTiedTournamentIds!: string[];
+
   /** Who answers next while pending. */
   @Column({ type: 'varchar', length: 8 })
   turn!: LoanParty;

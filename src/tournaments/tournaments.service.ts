@@ -1197,6 +1197,10 @@ export class TournamentsService {
       ...dto.lineup.starters,
       ...dto.lineup.substitutes,
     ]);
+    await this.assertNotCupTied(tournament, club.id, [
+      ...dto.lineup.starters,
+      ...dto.lineup.substitutes,
+    ]);
     await this.assertPlayersAvailable(tournament, dto.lineup);
 
     const participant = this.participantsRepository.create({
@@ -1326,6 +1330,10 @@ export class TournamentsService {
 
     this.assertValidLineup(tournament, club.members ?? [], dto.lineup);
     await this.assertPlatform(tournament, [
+      ...dto.lineup.starters,
+      ...dto.lineup.substitutes,
+    ]);
+    await this.assertNotCupTied(tournament, club.id, [
       ...dto.lineup.starters,
       ...dto.lineup.substitutes,
     ]);
@@ -1484,6 +1492,37 @@ export class TournamentsService {
     if (profileIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException(
         'Every player in the lineup must be a member of the club',
+      );
+    }
+  }
+
+  /**
+   * A player on loan can't play for the borrowing club in a tournament he was entered in
+   * for his own (parent) club when the loan started.
+   */
+  private async assertNotCupTied(
+    tournament: Tournament,
+    clubId: string | null | undefined,
+    players: Array<{ profileId: string }>,
+  ): Promise<void> {
+    if (!clubId || !players.length) return;
+    const rows: Array<{ name: string; parent: string }> = await this.participantsRepository.query(
+      `SELECT u.name, pc.name AS parent
+         FROM player_loans l
+         JOIN efootball_profiles ep ON ep."userId" = l."playerUserId"
+         JOIN users u ON u.id = l."playerUserId"
+         JOIN clubs pc ON pc.id = l."parentClubId"
+        WHERE l.status IN ('active', 'returning')
+          AND l."borrowClubId" = $1
+          AND ep.id = ANY($2)
+          AND l."cupTiedTournamentIds" @> to_jsonb(ARRAY[$3::text])`,
+      [clubId, players.map((p) => p.profileId), tournament.id],
+    );
+    if (rows.length) {
+      throw new BadRequestException(
+        `On loan and already entered in this tournament for their own club, so they can't play in it for yours: ${rows
+          .map((r) => `${r.name} (${r.parent})`)
+          .join(', ')}`,
       );
     }
   }
@@ -1649,6 +1688,10 @@ export class TournamentsService {
 
       this.assertValidLineup(tournament, club?.members ?? [], dto);
       await this.assertPlatform(tournament, [
+        ...dto.starters,
+        ...dto.substitutes,
+      ]);
+      await this.assertNotCupTied(tournament, participant.clubId, [
         ...dto.starters,
         ...dto.substitutes,
       ]);

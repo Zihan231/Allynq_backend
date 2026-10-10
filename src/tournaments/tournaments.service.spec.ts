@@ -750,7 +750,8 @@ describe('TournamentsService.join (CvC team submission)', () => {
       findOne: vi.fn().mockResolvedValue(null),
       create: vi.fn((p) => p),
       save: vi.fn((p) => Promise.resolve(p)),
-      query: vi.fn().mockResolvedValue(commitments),
+      // Only the "already in another tournament" lookup returns these rows.
+      query: vi.fn(async (sql: string) => (sql.includes('DISTINCT ON') ? commitments : [])),
     };
     const clubsRepository = {
       findOne: vi.fn().mockResolvedValue({
@@ -876,6 +877,21 @@ describe('TournamentsService.join (CvC team submission)', () => {
         },
       }),
     ).rejects.toThrow(/don't play on console: Rakib/);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it("refuses a loaned player in a tournament he was entered in for his own club", async () => {
+    const { service, participantsRepository } = setup();
+    participantsRepository.query.mockImplementation(async (sql: string) =>
+      sql.includes('cupTiedTournamentIds') ? [{ name: 'Rakib', parent: 'Padma' }] : [],
+    );
+
+    await expect(
+      service.join('user-id', 'tournament-id', {
+        clubId: 'club-id',
+        lineup: { starters: [player(presidentProfileId), player('p2')], substitutes: [player('p3')] },
+      }),
+    ).rejects.toThrow(/can't play in it for yours: Rakib \(Padma\)/);
     expect(participantsRepository.save).not.toHaveBeenCalled();
   });
 });
