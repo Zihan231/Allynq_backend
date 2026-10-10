@@ -3,6 +3,8 @@ import type { StatsPeriod } from './stats.sql.js';
 /** One confirmed game from the player's side (a PLAYER_GAMES_SQL row). */
 export interface PlayerGame {
   gameId: string;
+  tournamentId: string;
+  tournamentName?: string;
   playedAt: Date;
   opponentUserId: string | null;
   opponentName: string;

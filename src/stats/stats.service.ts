@@ -73,6 +73,18 @@ export interface PlayerProfileStats {
   topOpponents: TopOpponents;
   load: { monthly: LoadPoint[]; weekly: LoadPoint[] };
   rankTrend: { monthly: TrendPoint[]; weekly: TrendPoint[] };
+  recentGames: Array<{
+    gameId: string;
+    tournamentId: string;
+    tournamentName: string;
+    playedAt: string;
+    opponentUserId: string | null;
+    opponentName: string;
+    myGoals: number;
+    opponentGoals: number;
+    result: 'W' | 'D' | 'L';
+  }>;
+  tournamentsPlayed: number;
 }
 
 const TREND_BUCKETS = 12;
@@ -163,7 +175,11 @@ export class StatsService {
 
     const games = (
       await this.run<PlayerGame & { playedAt: Date | string }>(
-        (param) => `SELECT * FROM (${PLAYER_GAMES_SQL}) pg WHERE "userId" = ${param(userId)} ORDER BY "playedAt", "gameId"`,
+        (param) => `SELECT pg.*, t.name AS "tournamentName"
+                      FROM (${PLAYER_GAMES_SQL}) pg
+                      JOIN tournaments t ON t.id = pg."tournamentId"
+                     WHERE pg."userId" = ${param(userId)}
+                     ORDER BY pg."playedAt", pg."gameId"`,
       )
     ).map((g) => ({ ...g, playedAt: new Date(g.playedAt) }));
 
@@ -188,6 +204,21 @@ export class StatsService {
       topOpponents: topOpponents(games),
       load: { monthly: matchLoad(games, 'month', TREND_BUCKETS, now), weekly: matchLoad(games, 'week', TREND_BUCKETS, now) },
       rankTrend: { monthly: monthlyTrend, weekly: weeklyTrend },
+      recentGames: [...games]
+        .sort((a, b) => b.playedAt.getTime() - a.playedAt.getTime())
+        .slice(0, 10)
+        .map((game) => ({
+          gameId: game.gameId,
+          tournamentId: game.tournamentId,
+          tournamentName: game.tournamentName ?? 'Tournament',
+          playedAt: game.playedAt.toISOString(),
+          opponentUserId: game.opponentUserId,
+          opponentName: game.opponentName,
+          myGoals: game.myGoals,
+          opponentGoals: game.oppGoals,
+          result: game.result,
+        })),
+      tournamentsPlayed: new Set(games.map((game) => game.tournamentId)).size,
     };
   }
 
