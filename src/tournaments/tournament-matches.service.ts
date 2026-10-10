@@ -151,6 +151,8 @@ export const AUTO_GENERATE_BEFORE_START_MS = 2 * 60 * 60 * 1000;
 @Injectable()
 export class TournamentMatchesService {
   private readonly logger = new Logger(TournamentMatchesService.name);
+  /** Last auto-generation failure per tournament, so a retry failing for the same reason isn't logged every minute. */
+  private readonly lastAutoFailure = new Map<string, string>();
 
   constructor(
     @InjectRepository(TournamentMatch)
@@ -356,14 +358,20 @@ export class TournamentMatchesService {
       ],
     );
     let generated = 0;
+    const dueIds = new Set(due.map((t) => t.id));
+    for (const id of this.lastAutoFailure.keys()) if (!dueIds.has(id)) this.lastAutoFailure.delete(id);
     for (const { id } of due) {
       try {
         await this.generateStructure(null, id);
+        this.lastAutoFailure.delete(id);
         generated++;
       } catch (err) {
-        this.logger.warn(
-          `Auto-generating fixtures for ${id} failed: ${err instanceof Error ? err.message : err}`,
-        );
+        // Retried every minute; log only when the reason changes.
+        const reason = err instanceof Error ? err.message : String(err);
+        if (this.lastAutoFailure.get(id) !== reason) {
+          this.lastAutoFailure.set(id, reason);
+          this.logger.warn(`Auto-generating fixtures for ${id} failed (retrying every minute): ${reason}`);
+        }
       }
     }
     return generated;
