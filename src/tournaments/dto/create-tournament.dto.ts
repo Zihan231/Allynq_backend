@@ -13,6 +13,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { GamingPlatform } from '../../users/enums/user-attributes.enum.js';
 import { TournamentPreset, TournamentType } from '../enums/tournament.enum.js';
 
 export const MAX_MATCH_OFFICIALS = 10;
@@ -28,6 +29,11 @@ export class CreateTournamentDto {
 
   @IsEnum(TournamentType)
   type!: TournamentType;
+
+  /** Mobile (default) or console; a console tournament takes console players only. */
+  @IsOptional()
+  @IsEnum(GamingPlatform)
+  platform?: GamingPlatform;
 
   /** Hosting community. Exactly one of `communityId` / `hostClubId` is required. */
   @IsOptional()

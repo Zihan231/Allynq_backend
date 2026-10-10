@@ -11,6 +11,7 @@ import { Club } from '../clubs/entities/club.entity.js';
 import {
   ClubRole,
   CommunityRole,
+  GamingPlatform,
 } from '../users/enums/user-attributes.enum.js';
 import { Community } from '../communities/entities/community.entity.js';
 import { CommunityMember } from '../communities/entities/community-member.entity.js';
@@ -177,6 +178,7 @@ export class TournamentsService {
       name: dto.name,
       description: dto.description ?? null,
       type: dto.type,
+      platform: dto.platform ?? GamingPlatform.MOBILE,
       status: TournamentStatus.REGISTRATION_OPEN,
       preset,
       startersCount,
@@ -359,7 +361,7 @@ export class TournamentsService {
       .createQueryBuilder('t')
       .select(
         [
-          'id', 'name', 'description', 'type', 'status', 'preset', 'startersCount', 'subsCount',
+          'id', 'name', 'description', 'type', 'platform', 'status', 'preset', 'startersCount', 'subsCount',
           'maxParticipants', 'entryFeeBdt', 'prizePoolBdt', 'registrationDeadline',
           'teamSubmissionDeadline', 'startAt', 'endAt', 'communityId', 'hostClubId', 'creatorId', 'createdAt',
           'updatedAt',
@@ -388,6 +390,10 @@ export class TournamentsService {
 
     if (query.type) {
       qb.andWhere('t.type = :type', { type: query.type });
+    }
+
+    if (query.platform) {
+      qb.andWhere('t.platform = :platform', { platform: query.platform });
     }
 
     if (query.communityId) {
@@ -922,6 +928,7 @@ export class TournamentsService {
     }
 
     this.assertValidLineup(tournament, club.members ?? [], dto.lineup);
+    await this.assertPlatform(tournament, [...dto.lineup.starters, ...dto.lineup.substitutes]);
     await this.assertPlayersAvailable(tournament, dto.lineup);
 
     const participant = this.participantsRepository.create({
@@ -951,6 +958,15 @@ export class TournamentsService {
     });
     if (existing) {
       throw new BadRequestException('You are already registered for this tournament');
+    }
+
+    if (tournament.platform === GamingPlatform.CONSOLE) {
+      const [player] = await this.participantsRepository.query(`SELECT "gamingPlatform" FROM users WHERE id = $1`, [userId]);
+      if (player?.gamingPlatform !== GamingPlatform.CONSOLE) {
+        throw new BadRequestException(
+          'This is a console tournament. Set your gaming platform to Console in your profile to join.',
+        );
+      }
     }
 
     const [commitment] = await this.findPlayerCommitments([callerProfile.id], tournament.id);
@@ -998,6 +1014,21 @@ export class TournamentsService {
     const memberIds = new Set(clubMembers.map((m) => m.id));
     if (profileIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException('Every player in the lineup must be a member of the club');
+    }
+  }
+
+  /** A console tournament's lineup may only have console players (PC counts as console). */
+  private async assertPlatform(tournament: Tournament, players: Array<{ profileId: string; name?: string }>): Promise<void> {
+    if (tournament.platform !== GamingPlatform.CONSOLE || !players.length) return;
+    const rows: Array<{ profileId: string; name: string }> = await this.participantsRepository.query(
+      `SELECT ep.id AS "profileId", u.name FROM efootball_profiles ep JOIN users u ON u.id = ep."userId"
+        WHERE ep.id = ANY($1) AND u."gamingPlatform" IS DISTINCT FROM $2`,
+      [players.map((p) => p.profileId), GamingPlatform.CONSOLE],
+    );
+    if (rows.length) {
+      throw new BadRequestException(
+        `This is a console tournament; these players don't play on console: ${rows.map((r) => r.name).join(', ')}`,
+      );
     }
   }
 
@@ -1121,6 +1152,7 @@ export class TournamentsService {
       }
 
       this.assertValidLineup(tournament, club?.members ?? [], dto);
+      await this.assertPlatform(tournament, [...dto.starters, ...dto.substitutes]);
       await this.assertPlayersAvailable(tournament, dto);
     }
 

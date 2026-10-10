@@ -1,4 +1,5 @@
 import { IsEnum, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { GamingPlatform } from '../../users/enums/user-attributes.enum.js';
 import { TournamentType } from '../enums/tournament.enum.js';
 
 export class TournamentQueryDto {
@@ -9,6 +10,10 @@ export class TournamentQueryDto {
   @IsOptional()
   @IsEnum(TournamentType)
   type?: TournamentType;
+
+  @IsOptional()
+  @IsEnum(GamingPlatform)
+  platform?: GamingPlatform;
 
   @IsOptional()
   @IsUUID()

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { ClubRole, CommunityRole } from '../users/enums/user-attributes.enum.js';
+import { ClubRole, CommunityRole, GamingPlatform } from '../users/enums/user-attributes.enum.js';
 import { TournamentsService } from './tournaments.service.js';
 import { TournamentStatus, TournamentType } from './enums/tournament.enum.js';
 
@@ -296,6 +296,25 @@ describe('TournamentsService club-hosted tournaments', () => {
     await expect(service.join('player', tournamentId, {})).rejects.toThrow(/Community Cup/);
     expect(participantsRepository.save).not.toHaveBeenCalled();
   });
+
+  it('creates a console tournament, and only console players can join it', async () => {
+    const { service, tournamentsRepository, participantsRepository } = setup();
+    const created = await service.create('president', { ...dto, platform: GamingPlatform.CONSOLE });
+    expect(created).toMatchObject({ platform: 'console' });
+    expect(await service.create('president', dto)).toMatchObject({ platform: 'mobile' });
+
+    tournamentsRepository.findOne.mockResolvedValue({ ...(await tournamentsRepository.findOne()), platform: GamingPlatform.CONSOLE });
+    let platform = 'mobile';
+    participantsRepository.query.mockImplementation(async (sql: string) =>
+      sql.includes('"gamingPlatform" FROM users') ? [{ gamingPlatform: platform }] : [],
+    );
+    await expect(service.join('player', tournamentId, {})).rejects.toThrow(/console tournament/);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
+
+    platform = 'console';
+    await service.join('player', tournamentId, {});
+    expect(participantsRepository.save).toHaveBeenCalled();
+  });
 });
 
 describe('TournamentsService.update / remove', () => {
@@ -547,6 +566,25 @@ describe('TournamentsService.join (CvC team submission)', () => {
       'tournament-id',
       [presidentProfileId, 'p2', 'p3'],
     ]);
+  });
+
+  it('a console tournament refuses a lineup with players who are not on console', async () => {
+    const { service, participantsRepository } = setup();
+    (service as any).tournamentsRepository.findOne.mockResolvedValue({
+      ...(await (service as any).tournamentsRepository.findOne()),
+      platform: GamingPlatform.CONSOLE,
+    });
+    participantsRepository.query.mockImplementation(async (sql: string) =>
+      sql.includes('"gamingPlatform" IS DISTINCT FROM') ? [{ profileId: 'p2', name: 'Rakib' }] : [],
+    );
+
+    await expect(
+      service.join('user-id', 'tournament-id', {
+        clubId: 'club-id',
+        lineup: { starters: [player(presidentProfileId), player('p2')], substitutes: [player('p3')] },
+      }),
+    ).rejects.toThrow(/don't play on console: Rakib/);
+    expect(participantsRepository.save).not.toHaveBeenCalled();
   });
 });
 

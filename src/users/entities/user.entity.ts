@@ -10,6 +10,7 @@ import {
 import {
   BloodGroup,
   DocumentType,
+  GamingPlatform,
   SystemRole,
   VerificationLevel,
   type VerificationStatus,
@@ -70,6 +71,10 @@ export class User {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   deviceModel!: string | null;
+
+  /** Mobile or console (PC counts as console); console tournaments take console players only. */
+  @Column({ type: 'varchar', length: 8, default: GamingPlatform.MOBILE })
+  gamingPlatform!: GamingPlatform;
 
   @Column({ type: 'varchar', length: 32, nullable: true })
   phoneNumber!: string | null;

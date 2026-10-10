@@ -51,7 +51,7 @@ export class UsersService {
       .select(
         [
           'id', 'name', 'dpUrl', 'coverUrl', 'bio', 'facebookUrl', 'facebookProfileName', 'instagramUrl',
-          'discordUrl', 'inGameId', 'deviceName', 'deviceModel', 'birthday', 'bloodGroup', 'country',
+          'discordUrl', 'inGameId', 'deviceName', 'deviceModel', 'gamingPlatform', 'birthday', 'bloodGroup', 'country',
           'division', 'district', 'education', 'verificationLevel', 'ownedCosmeticIds', 'equippedBadgeId',
           'equippedTitleId', 'equippedFrameId', 'equippedThemeId', 'createdAt', 'updatedAt',
         ].map((column) => `user.${column}`),

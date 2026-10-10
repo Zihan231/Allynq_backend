@@ -19,6 +19,7 @@ import {
   TournamentStatus,
   TournamentType,
 } from '../enums/tournament.enum.js';
+import { GamingPlatform } from '../../users/enums/user-attributes.enum.js';
 import type { TournamentFormat } from '../bracket/format.js';
 import { TournamentParticipant } from './tournament-participant.entity.js';
 
@@ -56,6 +57,11 @@ export class Tournament {
   @Index()
   @Column({ type: 'enum', enum: TournamentType })
   type!: TournamentType;
+
+  /** Mobile or console. A console tournament takes console players only. Fixed at creation. */
+  @Index()
+  @Column({ type: 'varchar', length: 8, default: GamingPlatform.MOBILE })
+  platform!: GamingPlatform;
 
   @Column({ type: 'enum', enum: TournamentStatus, default: TournamentStatus.REGISTRATION_OPEN })
   status!: TournamentStatus;

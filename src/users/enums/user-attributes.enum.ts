@@ -57,6 +57,16 @@ export enum LineupStatus {
 }
 
 /** System-wide staff roles, above any club or community role. */
+/**
+ * Which eFootball version someone plays: mobile, or console (PlayStation / Xbox,
+ * and PC, which plays together with console). Console tournaments take console
+ * players only.
+ */
+export enum GamingPlatform {
+  MOBILE = 'mobile',
+  CONSOLE = 'console',
+}
+
 export enum SystemRole {
   MODERATOR = 'moderator',
   ADMIN = 'admin',

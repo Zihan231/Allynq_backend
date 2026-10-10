@@ -8,7 +8,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-import { BloodGroup, DocumentType, VerificationLevel } from '../enums/user-attributes.enum.js';
+import { BloodGroup, DocumentType, GamingPlatform, VerificationLevel } from '../enums/user-attributes.enum.js';
 import { EducationEntryDto } from './education-entry.dto.js';
 import { LatLngDto } from './lat-lng.dto.js';
 import { WorkExperienceEntryDto } from './work-experience.dto.js';
@@ -61,6 +61,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   deviceModel?: string;
+
+  @IsOptional()
+  @IsEnum(GamingPlatform)
+  gamingPlatform?: GamingPlatform;
 
   @IsOptional()
   @IsString()
