@@ -15,6 +15,12 @@ export interface TransferSettings {
   playerStartingBalanceTk: number;
   /** "Add demo funds" top-up amount. */
   demoTopUpTk: number;
+  /** Loans a club can have running at once (borrowed players, scheduled or on loan). */
+  maxLoansPerClub: number;
+  /** Most matches a loan can be agreed for. */
+  maxLoanMatches: number;
+  /** Most days a loan can last, whatever the matches played. */
+  maxLoanDays: number;
 }
 
 export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
@@ -24,6 +30,9 @@ export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
   clubStartingBalanceTk: 5000,
   playerStartingBalanceTk: 0,
   demoTopUpTk: 1000,
+  maxLoansPerClub: 3,
+  maxLoanMatches: 10,
+  maxLoanDays: 60,
 };
 
 /** Admin and moderation settings (`app_settings` key "admin"). */

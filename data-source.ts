@@ -33,6 +33,8 @@ import { SecurityBan } from './src/security/security-ban.entity.js';
 import { AppSetting } from './src/settings/app-setting.entity.js';
 import { PlayerContract } from './src/transfers/entities/player-contract.entity.js';
 import { TransferOfferBid } from './src/transfers/entities/transfer-offer-bid.entity.js';
+import { PlayerLoan } from './src/transfers/entities/player-loan.entity.js';
+import { PlayerLoanBid } from './src/transfers/entities/player-loan-bid.entity.js';
 import { TransferOffer } from './src/transfers/entities/transfer-offer.entity.js';
 import { WalletTransaction } from './src/transfers/entities/wallet-transaction.entity.js';
 import { Wallet } from './src/transfers/entities/wallet.entity.js';
@@ -76,6 +78,8 @@ export default new DataSource({
     PlayerContract,
     TransferOffer,
     TransferOfferBid,
+    PlayerLoan,
+    PlayerLoanBid,
     Wallet,
     WalletTransaction,
   ],

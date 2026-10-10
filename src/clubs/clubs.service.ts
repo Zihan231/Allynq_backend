@@ -654,6 +654,12 @@ export class ClubsService {
         `You're under contract until ${contract.lockEndsAt.toISOString().slice(0, 10)} and can't leave before then. Another club can buy you out in the meantime.`,
       );
     }
+    // A player on loan stays until the loan ends (skipped for unit-test repository mocks).
+    const [loan] = (await this.contractsRepository.manager?.query(
+      `SELECT 1 FROM player_loans WHERE "playerUserId" = $1 AND status IN ('scheduled', 'active', 'returning') LIMIT 1`,
+      [user.id],
+    )) ?? [];
+    if (loan) throw new BadRequestException("You're on loan and can't leave until the loan ends.");
 
     profile.clubId = null;
     profile.clubRole = null;

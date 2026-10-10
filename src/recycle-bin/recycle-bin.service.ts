@@ -60,6 +60,14 @@ export class RecycleBinService {
         if (open.n > 0) {
           throw new BadRequestException('This club has open transfer offers. Cancel or finish them first.');
         }
+        const [loans] = await em.query(
+          `SELECT count(*)::int AS n FROM player_loans
+            WHERE status IN ('pending', 'scheduled', 'active', 'returning') AND ("parentClubId" = $1 OR "borrowClubId" = $1)`,
+          [id],
+        );
+        if (loans.n > 0) {
+          throw new BadRequestException('This club has open or running loans. End them first.');
+        }
         members = await em.query(
           `SELECT id AS "profileId", "userId", "clubRole" AS role, "teamId" FROM efootball_profiles WHERE "clubId" = $1`,
           [id],

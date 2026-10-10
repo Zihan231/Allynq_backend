@@ -7,6 +7,7 @@ import { DataSource, LessThanOrEqual, Repository } from 'typeorm';
 import { JobMonitorService } from '../health/job-monitor.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { SettingsService, type SettingsSection } from '../settings/settings.service.js';
+import { LoansService } from '../transfers/loans.service.js';
 import { TransfersService } from '../transfers/transfers.service.js';
 import { WalletsService } from '../transfers/wallets.service.js';
 import type { Actor, ActionContext } from './admin-users.service.js';
@@ -29,6 +30,7 @@ export class AdminPlatformService {
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Announcement) private readonly announcements: Repository<Announcement>,
     private readonly transfers: TransfersService,
+    private readonly loans: LoansService,
     private readonly wallets: WalletsService,
     private readonly settings: SettingsService,
     private readonly notifications: NotificationsService,
@@ -121,6 +123,20 @@ export class AdminPlatformService {
       ip: ctx.ip,
     });
     return contract;
+  }
+
+  async endLoan(actor: Actor, loanId: string, reason: string, ctx: ActionContext = {}) {
+    const loan = await this.loans.staffEnd(loanId, reason);
+    await this.audit.record(actor, {
+      action: 'loan.end',
+      targetType: 'loan',
+      targetId: loanId,
+      targetName: `${loan.player.name}: ${loan.parentClub.name} → ${loan.borrowClub.name}`,
+      after: { status: loan.status, matchesPlayed: loan.matchesPlayed },
+      reason,
+      ip: ctx.ip,
+    });
+    return loan;
   }
 
   async ledger(query: LedgerQueryDto) {

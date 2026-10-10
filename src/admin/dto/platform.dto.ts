@@ -132,6 +132,9 @@ export class TransferSettingsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(1000000) clubStartingBalanceTk?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(1000000) playerStartingBalanceTk?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(1000000) demoTopUpTk?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(50) maxLoansPerClub?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) maxLoanMatches?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(7) @Max(365) maxLoanDays?: number;
 }
 
 export class AdminSettingsDto {

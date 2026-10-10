@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JobMonitorService } from '../health/job-monitor.service.js';
+import { LoansService } from './loans.service.js';
 import { TransfersService } from './transfers.service.js';
 
-/** Every minute: expire 3-day-old offers (refunding holds), finish scheduled transfers, send lock reminders. */
+/**
+ * Every minute: expire 3-day-old offers (refunding holds), finish scheduled transfers,
+ * send lock reminders; and for loans: expire proposals, start waiting loans, bring players back.
+ */
 @Injectable()
 export class TransfersJobsService {
   private readonly logger = new Logger(TransfersJobsService.name);
@@ -11,6 +15,7 @@ export class TransfersJobsService {
 
   constructor(
     private readonly transfersService: TransfersService,
+    private readonly loansService: LoansService,
     private readonly monitor: JobMonitorService,
   ) {}
 
@@ -24,6 +29,12 @@ export class TransfersJobsService {
       );
       if (expired || completed || reminders) {
         this.logger.log(`Expired ${expired} offer(s), completed ${completed} scheduled transfer(s), sent ${reminders} reminder(s)`);
+      }
+      const loans = await this.monitor.run('loans.tick', () => this.loansService.tick(), (r) =>
+        `${r.expired} expired, ${r.started} started, ${r.returned} returned`,
+      );
+      if (loans.expired || loans.started || loans.returned) {
+        this.logger.log(`Loans: expired ${loans.expired}, started ${loans.started}, returned ${loans.returned}`);
       }
     } catch (err) {
       this.logger.error(`Transfer job failed: ${(err as Error).message}`);

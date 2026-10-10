@@ -4,6 +4,12 @@ import { SettingsService } from '../settings/settings.service.js';
 import { Wallet, type WalletOwnerType } from './entities/wallet.entity.js';
 import { WalletTransaction, type WalletTransactionKind } from './entities/wallet-transaction.entity.js';
 
+/** The deal a wallet movement belongs to: a transfer offer or a loan. */
+export interface DealRef {
+  offerId?: string | null;
+  loanId?: string | null;
+}
+
 export interface WalletOwner {
   type: WalletOwnerType;
   id: string;
@@ -114,7 +120,7 @@ export class WalletsService {
     em: EntityManager,
     owner: WalletOwner,
     amountTk: number,
-    ref: { offerId: string; counterparty: string; reference: string | null },
+    ref: DealRef & { counterparty: string; reference: string | null },
   ): Promise<void> {
     if (amountTk <= 0) return;
     const w = await this.lock(em, owner);
@@ -134,7 +140,7 @@ export class WalletsService {
     em: EntityManager,
     owner: WalletOwner,
     amountTk: number,
-    ref: { offerId: string; counterparty: string },
+    ref: DealRef & { counterparty: string },
   ): Promise<void> {
     if (amountTk <= 0) return;
     const w = await this.lock(em, owner);
@@ -154,7 +160,7 @@ export class WalletsService {
     owner: WalletOwner,
     fromTk: number,
     toTk: number,
-    ref: { offerId: string; counterparty: string; reference: string | null },
+    ref: DealRef & { counterparty: string; reference: string | null },
   ): Promise<void> {
     if (toTk > fromTk) await this.hold(em, owner, toTk - fromTk, ref);
     else if (toTk < fromTk) await this.refund(em, owner, fromTk - toTk, ref);
@@ -166,7 +172,7 @@ export class WalletsService {
     from: WalletOwner,
     to: WalletOwner,
     amountTk: number,
-    ref: { offerId: string; fromName: string; toName: string; reference: string | null },
+    ref: DealRef & { fromName: string; toName: string; reference: string | null },
   ): Promise<void> {
     if (amountTk <= 0) return;
     const payer = await this.lock(em, from);
@@ -174,6 +180,7 @@ export class WalletsService {
     await em.save(payer);
     await this.record(em, payer, 'payout_sent', amountTk, {
       offerId: ref.offerId,
+      loanId: ref.loanId,
       counterparty: ref.toName,
       reference: ref.reference,
     });
@@ -183,6 +190,7 @@ export class WalletsService {
     await em.save(payee);
     await this.record(em, payee, 'received', amountTk, {
       offerId: ref.offerId,
+      loanId: ref.loanId,
       counterparty: ref.fromName,
       reference: ref.reference,
     });
@@ -214,13 +222,14 @@ export class WalletsService {
     wallet: Wallet,
     kind: WalletTransactionKind,
     amountTk: number,
-    ref: { offerId?: string | null; counterparty?: string | null; reference?: string | null },
+    ref: { offerId?: string | null; loanId?: string | null; counterparty?: string | null; reference?: string | null },
   ): Promise<void> {
     await em.getRepository(WalletTransaction).insert({
       walletId: wallet.id,
       kind,
       amountTk,
       offerId: ref.offerId ?? null,
+      loanId: ref.loanId ?? null,
       counterparty: ref.counterparty ?? null,
       reference: ref.reference ?? null,
     });

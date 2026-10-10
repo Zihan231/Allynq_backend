@@ -128,7 +128,7 @@ export interface OfferView {
   contractNo: string | null;
 }
 
-interface Notice {
+export interface Notice {
   code: string;
   title: string;
   message: string;
@@ -154,38 +154,39 @@ export class TransfersService {
   ) {}
 
   // ------------------------------------------------------------------ helpers
+  // (Several are public: the loan service shares them.)
 
-  private async profileOf(em: EntityManager, userId: string): Promise<EfootballProfile & { user?: User }> {
+  async profileOf(em: EntityManager, userId: string): Promise<EfootballProfile & { user?: User }> {
     const profile = await em.getRepository(EfootballProfile).findOne({ where: { userId }, relations: { user: true } });
     if (!profile) throw new NotFoundException('Player profile not found');
     return profile;
   }
 
-  private async clubOf(em: EntityManager, clubId: string): Promise<Club> {
+  async clubOf(em: EntityManager, clubId: string): Promise<Club> {
     const club = await em.getRepository(Club).findOne({ where: { id: clubId } });
     if (!club) throw new NotFoundException('Club not found');
     return club;
   }
 
-  private async activeContract(em: EntityManager, userId: string): Promise<PlayerContract | null> {
+  async activeContract(em: EntityManager, userId: string): Promise<PlayerContract | null> {
     return em.getRepository(PlayerContract).findOne({ where: { userId, status: 'active' } });
   }
 
   /** The caller must be the club's President or General Secretary. */
-  private async assertClubLeader(em: EntityManager, clubId: string, userId: string): Promise<void> {
+  async assertClubLeader(em: EntityManager, clubId: string, userId: string): Promise<void> {
     const profile = await em.getRepository(EfootballProfile).findOne({ where: { userId } });
     if (!profile || profile.clubId !== clubId || !LEADER_ROLES.includes(profile.clubRole ?? '')) {
       throw new ForbiddenException('Only the club President or General Secretary can manage transfers');
     }
   }
 
-  private async isClubLeader(em: EntityManager, clubId: string, userId: string): Promise<boolean> {
+  async isClubLeader(em: EntityManager, clubId: string, userId: string): Promise<boolean> {
     const profile = await em.getRepository(EfootballProfile).findOne({ where: { userId } });
     return Boolean(profile && profile.clubId === clubId && LEADER_ROLES.includes(profile.clubRole ?? ''));
   }
 
   /** A player who can be part of a transfer: not a club leader, not a community leader. */
-  private async assertTransferable(profile: EfootballProfile, who: 'you' | 'player'): Promise<void> {
+  async assertTransferable(profile: EfootballProfile, who: 'you' | 'player'): Promise<void> {
     const subject = who === 'you' ? 'You' : 'This player';
     if (LEADER_ROLES.includes(profile.clubRole ?? '')) {
       throw new BadRequestException(
@@ -261,7 +262,7 @@ export class TransfersService {
   }
 
   /** Takes the player out of the given club lineups (starters and substitutes). */
-  private async removeFromLineups(em: EntityManager, participantIds: string[], profileId: string): Promise<void> {
+  async removeFromLineups(em: EntityManager, participantIds: string[], profileId: string): Promise<void> {
     if (!participantIds.length) return;
     await em.query(
       `UPDATE tournament_participants p
@@ -337,6 +338,7 @@ export class TransfersService {
         await this.assertTransferable(profile, 'player');
       }
 
+      await this.assertNotOnLoan(em, playerUserId);
       // A deal already waiting for a tournament blocks new offers.
       const scheduled = await em.getRepository(TransferOffer).findOne({ where: { playerUserId, status: 'scheduled' } });
       if (scheduled) {
@@ -539,6 +541,7 @@ export class TransfersService {
 
       // Accepting signs the contract.
       await this.assertNoScheduledMove(em, offer.playerUserId, offer.id);
+      await this.assertNotOnLoan(em, offer.playerUserId);
       await this.assertTransferable(profile, 'player');
       const now = new Date();
       if (byClub) {
@@ -864,14 +867,27 @@ export class TransfersService {
     await em.save(offer);
 
     // His other open deals no longer fit (he's now locked at a new club): close and refund them.
-    const others = await em.getRepository(TransferOffer).find({
-      where: { playerUserId: offer.playerUserId, status: 'pending' },
-    });
-    for (const other of others) {
+    await this.closeOpenOffers(em, offer.playerUserId, playerName);
+    return entries;
+  }
+
+  /** Cancels the player's pending offers, refunding any club money held for them. */
+  async closeOpenOffers(em: EntityManager, playerUserId: string, playerName: string): Promise<void> {
+    const open = await em.getRepository(TransferOffer).find({ where: { playerUserId, status: 'pending' } });
+    for (const other of open) {
       other.status = 'cancelled';
       await this.refundHold(em, other, playerName);
     }
-    return entries;
+  }
+
+  /** A player on loan (or about to go on loan) can't take part in transfers until it's over. */
+  async assertNotOnLoan(em: EntityManager | DataSource, playerUserId: string): Promise<void> {
+    const [loan] = await em.query(
+      `SELECT c.name FROM player_loans l JOIN clubs c ON c.id = l."borrowClubId"
+        WHERE l."playerUserId" = $1 AND l.status IN ('scheduled', 'active', 'returning') LIMIT 1`,
+      [playerUserId],
+    );
+    if (loan) throw new BadRequestException(`This player is on loan at ${loan.name}. Transfers are possible again after the loan.`);
   }
 
   /**
@@ -1273,7 +1289,13 @@ export class TransfersService {
       profile ? this.clubCommitment(this.dataSource, profile) : Promise.resolve(null),
     ]);
     return {
-      settings: { baseFeeTk: settings.baseFeeTk, lockDays: settings.lockDays, offerExpiryDays: settings.offerExpiryDays },
+      settings: {
+        baseFeeTk: settings.baseFeeTk,
+        lockDays: settings.lockDays,
+        offerExpiryDays: settings.offerExpiryDays,
+        maxLoanMatches: settings.maxLoanMatches,
+        maxLoanDays: settings.maxLoanDays,
+      },
       clubId: profile?.clubId ?? null,
       clubName: profile?.clubId
         ? ((await this.dataSource.getRepository(Club).findOne({ where: { id: profile.clubId } }))?.name ?? null)
@@ -1292,11 +1314,17 @@ export class TransfersService {
     const club = await this.clubOf(this.dataSource.manager, clubId);
     const leader = caller ? await this.isClubLeader(this.dataSource.manager, clubId, caller.id) : false;
     const now = new Date();
+    // Players here on loan show their contract with the parent club.
     const members: Array<Record<string, any>> = await this.dataSource.query(
-      `SELECT ep."userId", u.name, u."dpUrl", ep."clubRole", ep."gamePosition", ep.points, c.id AS "contractId"
+      `SELECT ep."userId", u.name, u."dpUrl", ep."clubRole", ep."gamePosition", ep.points, c.id AS "contractId",
+              l.id AS "loanId", l."parentClubId", pc.name AS "parentClubName", l.matches, l."matchesPlayed", l."endsBy"
          FROM efootball_profiles ep
          JOIN users u ON u.id = ep."userId"
-         LEFT JOIN player_contracts c ON c."userId" = ep."userId" AND c.status = 'active' AND c."clubId" = ep."clubId"
+         LEFT JOIN player_loans l ON l."playerUserId" = ep."userId" AND l."borrowClubId" = ep."clubId"
+                                 AND l.status IN ('active', 'returning')
+         LEFT JOIN clubs pc ON pc.id = l."parentClubId"
+         LEFT JOIN player_contracts c ON c."userId" = ep."userId" AND c.status = 'active'
+                                     AND (c."clubId" = ep."clubId" OR c."clubId" = l."parentClubId")
         WHERE ep."clubId" = $1
         ORDER BY u.name`,
       [clubId],
@@ -1313,7 +1341,17 @@ export class TransfersService {
         clubRole: m.clubRole,
         gamePosition: m.gamePosition,
         points: m.points,
-        contract: m.contractId ? await this.contractView(byId.get(m.contractId)!, club.name, now) : null,
+        contract: m.contractId ? await this.contractView(byId.get(m.contractId)!, m.parentClubName ?? club.name, now) : null,
+        onLoanFrom: m.loanId
+          ? {
+              loanId: m.loanId,
+              clubId: m.parentClubId,
+              clubName: m.parentClubName,
+              matches: m.matches,
+              matchesPlayed: m.matchesPlayed,
+              endsBy: m.endsBy ? new Date(m.endsBy).toISOString() : null,
+            }
+          : null,
       })),
     );
     const [incoming, outgoing, wallet] = leader
@@ -1352,6 +1390,7 @@ export class TransfersService {
        AND NOT EXISTS (SELECT 1 FROM communities co WHERE co."creatorId" = ep."userId")
        AND NOT EXISTS (SELECT 1 FROM community_members cm WHERE cm."profileId" = ep.id AND cm.role IN ('President', 'Vice President'))
        AND NOT EXISTS (SELECT 1 FROM transfer_offers s WHERE s."playerUserId" = ep."userId" AND s.status = 'scheduled')
+       AND NOT EXISTS (SELECT 1 FROM player_loans l WHERE l."playerUserId" = ep."userId" AND l.status IN ('scheduled', 'active', 'returning'))
        ${search}`;
     const [rows, [{ total }]] = await Promise.all([
       this.dataSource.query(
@@ -1450,18 +1489,37 @@ export class TransfersService {
       ? await this.dataSource.getRepository(PlayerContract).findOne({ where: { userId, status: 'active' } })
       : null;
     const scheduled = await this.dataSource.getRepository(TransferOffer).findOne({ where: { playerUserId: userId, status: 'scheduled' } });
-    const [commitment, leader] = await Promise.all([
+    const [commitment, leader, [loan]] = await Promise.all([
       this.clubCommitment(this.dataSource, profile),
       this.communitiesService.isCommunityLeader(userId),
+      this.dataSource.query(
+        `SELECT l.id, l.status, l."parentClubId", pc.name AS "parentClubName", l."borrowClubId", bc.name AS "borrowClubName",
+                l.matches, l."matchesPlayed", l."endsBy"
+           FROM player_loans l JOIN clubs pc ON pc.id = l."parentClubId" JOIN clubs bc ON bc.id = l."borrowClubId"
+          WHERE l."playerUserId" = $1 AND l.status IN ('scheduled', 'active', 'returning') LIMIT 1`,
+        [userId],
+      ) as Promise<Array<Record<string, any>>>,
     ]);
     return {
       userId,
       clubId: profile.clubId,
       clubRole: profile.clubRole,
       contract: contract ? await this.contractView(contract) : null,
-      transferable: !LEADER_ROLES.includes(profile.clubRole ?? '') && !leader && !scheduled,
+      transferable: !LEADER_ROLES.includes(profile.clubRole ?? '') && !leader && !scheduled && !loan,
       scheduled: Boolean(scheduled),
       commitment,
+      /** His current loan (scheduled, running or about to return), if any. */
+      loan: loan
+        ? {
+            id: loan.id,
+            status: loan.status,
+            parentClub: { id: loan.parentClubId, name: loan.parentClubName },
+            borrowClub: { id: loan.borrowClubId, name: loan.borrowClubName },
+            matches: loan.matches,
+            matchesPlayed: loan.matchesPlayed,
+            endsBy: loan.endsBy ? new Date(loan.endsBy).toISOString() : null,
+          }
+        : null,
     };
   }
 
@@ -1491,7 +1549,7 @@ export class TransfersService {
   // ------------------------------------------------------------ staff tools
 
   /** Throws when staff have closed the transfer market. */
-  private async assertMarketOpen(): Promise<void> {
+  async assertMarketOpen(): Promise<void> {
     if (!(await this.settingsService.features()).transfersOpen) {
       throw new ForbiddenException('The transfer market is closed for now. Please try again later.');
     }
@@ -1633,7 +1691,7 @@ export class TransfersService {
     return this.contractView(contract, club?.name);
   }
 
-  private async clubLeaderIds(clubId: string): Promise<string[]> {
+  async clubLeaderIds(clubId: string): Promise<string[]> {
     const rows = await this.dataSource.getRepository(EfootballProfile).find({
       where: { clubId, clubRole: In(LEADER_ROLES as ClubRole[]) },
       select: { userId: true },
@@ -1641,7 +1699,7 @@ export class TransfersService {
     return rows.map((r) => r.userId);
   }
 
-  private async clubMemberIds(clubId: string): Promise<string[]> {
+  async clubMemberIds(clubId: string): Promise<string[]> {
     const rows = await this.dataSource.getRepository(EfootballProfile).find({ where: { clubId }, select: { userId: true } });
     return rows.map((r) => r.userId);
   }
@@ -1667,7 +1725,7 @@ export class TransfersService {
     }
   }
 
-  private async notifyUsers(userIds: string[], notice: Notice): Promise<void> {
+  async notifyUsers(userIds: string[], notice: Notice): Promise<void> {
     await Promise.all(
       [...new Set(userIds)].map((userId) =>
         this.notificationsService

@@ -4,7 +4,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard.js';
 import { User } from '../users/entities/user.entity.js';
 import {
+  BuyLoanDto,
+  CounterLoanDto,
   CounterOfferDto,
+  CreateLoanDto,
   CreateOfferDto,
   FreeAgentsQueryDto,
   RespondOfferDto,
@@ -12,11 +15,15 @@ import {
   TransferHistoryQueryDto,
   WalletHistoryQueryDto,
 } from './dto/transfer.dto.js';
+import { LoansService } from './loans.service.js';
 import { TransfersService } from './transfers.service.js';
 
 @Controller('transfers')
 export class TransfersController {
-  constructor(private readonly transfersService: TransfersService) {}
+  constructor(
+    private readonly transfersService: TransfersService,
+    private readonly loansService: LoansService,
+  ) {}
 
   /** My contract, open offers, wallet and any tournament holding a transfer. */
   @UseGuards(JwtAuthGuard)
@@ -92,6 +99,61 @@ export class TransfersController {
   @Get('wallets/transactions')
   walletHistory(@CurrentUser() user: User, @Query() query: WalletHistoryQueryDto) {
     return this.transfersService.walletHistory(user, query);
+  }
+
+  // ------------------------------------------------------------------ loans
+
+  /** A club leader proposes a loan: borrow another club's player, or lend his own player out. */
+  @UseGuards(JwtAuthGuard)
+  @Post('loans')
+  createLoan(@CurrentUser() user: User, @Body() dto: CreateLoanDto) {
+    return this.loansService.create(user, dto);
+  }
+
+  /** The signed-in player's loans. */
+  @UseGuards(JwtAuthGuard)
+  @Get('loans/me')
+  myLoans(@CurrentUser() user: User) {
+    return this.loansService.mine(user);
+  }
+
+  /** A club's loans in and out (open proposals only for its President / GS). */
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get('loans/clubs/:clubId')
+  clubLoans(@CurrentUser() user: User | null, @Param('clubId', ParseUUIDPipe) clubId: string) {
+    return this.loansService.forClub(user, clubId);
+  }
+
+  /** A loan with its negotiation (the player and both clubs' leaders). */
+  @UseGuards(JwtAuthGuard)
+  @Get('loans/:id')
+  loan(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.loansService.get(user, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('loans/:id/respond')
+  respondLoan(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
+    return this.loansService.respond(user, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('loans/:id/counter')
+  counterLoan(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CounterLoanDto) {
+    return this.loansService.counter(user, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('loans/:id/cancel')
+  cancelLoan(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.loansService.cancel(user, id);
+  }
+
+  /** The borrowing club buys the player on loan at his current transfer fee. */
+  @UseGuards(JwtAuthGuard)
+  @Post('loans/:id/buy')
+  buyLoan(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string, @Body() dto: BuyLoanDto) {
+    return this.loansService.buy(user, id, dto);
   }
 
   /** "Add demo funds" to my wallet, or to a club wallet I lead. */

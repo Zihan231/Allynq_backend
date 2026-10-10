@@ -33,6 +33,10 @@ export class WalletTransaction {
   @Column({ type: 'uuid', nullable: true })
   offerId!: string | null;
 
+  /** The loan it belongs to, for loan fees. */
+  @Column({ type: 'uuid', nullable: true })
+  loanId!: string | null;
+
   /** Who the money went to / came from (display name). */
   @Column({ type: 'varchar', length: 255, nullable: true })
   counterparty!: string | null;

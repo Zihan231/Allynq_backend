@@ -188,6 +188,17 @@ export class AdminController {
   }
 
   @RequireSystemRole(SystemRole.ADMIN)
+  @Post('transfers/loans/:id/end')
+  endLoan(
+    @CurrentUser() actor: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+    @Req() req: Request,
+  ) {
+    return this.platform.endLoan(actor, id, dto.reason, ctx(req));
+  }
+
+  @RequireSystemRole(SystemRole.ADMIN)
   @Get('wallets/ledger')
   ledger(@Query() query: LedgerQueryDto) {
     return this.platform.ledger(query);

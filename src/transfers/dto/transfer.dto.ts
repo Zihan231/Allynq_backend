@@ -64,6 +64,78 @@ export class CounterOfferDto {
   paymentMethod?: (typeof PAYMENT_METHODS)[number];
 }
 
+/**
+ * A loan proposal from a club you lead (`clubId`): a borrow request for another club's
+ * player, or (`otherClubId` set, player in your club) lending your player out.
+ * The borrowing club pays the fee; matches / days are capped by the transfer settings.
+ */
+export class CreateLoanDto {
+  @IsUUID()
+  clubId!: string;
+
+  @IsUUID()
+  playerUserId!: string;
+
+  /** Lending out: the club that would borrow him. */
+  @IsOptional()
+  @IsUUID()
+  otherClubId?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10_000_000)
+  feeTk!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  matches!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(7)
+  @Max(365)
+  maxDays!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+
+  /** Required when the borrowing club proposes a fee: it's held from its wallet at once. */
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: (typeof PAYMENT_METHODS)[number];
+}
+
+/** A counter-offer on a loan: a new fee from the club whose turn it is. */
+export class CounterLoanDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10_000_000)
+  feeTk!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+
+  /** Required when the borrowing club counters with more than it already holds. */
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: (typeof PAYMENT_METHODS)[number];
+}
+
+/** The borrowing club buys the player on loan at his current transfer fee. */
+export class BuyLoanDto {
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod?: (typeof PAYMENT_METHODS)[number];
+}
+
 export class FreeAgentsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
