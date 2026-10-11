@@ -32,6 +32,7 @@ import { type EvidenceFiles, evidenceUploadOptions, MAX_SCREENSHOTS } from './ev
 import { type ReviewDecision, TournamentResultsService } from './tournament-results.service.js';
 import { TournamentMatchesService } from './tournament-matches.service.js';
 import { TournamentsService } from './tournaments.service.js';
+import { stripPrivateUsers } from '../users/serializers/user.serializer.js';
 
 @Controller('tournaments')
 export class TournamentsController {
@@ -87,9 +88,10 @@ export class TournamentsController {
     return this.myGamesService.getMyGames(user.id, query);
   }
 
+  // Public: the organizer's and players' contact and account details are stripped.
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.tournamentsService.findOne(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return stripPrivateUsers(await this.tournamentsService.findOne(id));
   }
 
   @UseGuards(JwtAuthGuard)

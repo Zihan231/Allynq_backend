@@ -23,6 +23,7 @@ import { AddTeamPlayerDto } from './dto/add-team-player.dto.js';
 import { ApplyFormationDto } from './dto/apply-formation.dto.js';
 import { ClubRoleGuard } from './guards/club-role.guard.js';
 import { TeamsService } from './teams.service.js';
+import { stripPrivateUsers } from '../users/serializers/user.serializer.js';
 
 @Controller('clubs/:id/teams')
 export class TeamsController {
@@ -39,8 +40,8 @@ export class TeamsController {
   }
 
   @Get('free-players')
-  getFreeClubPlayers(@Param('id', ParseUUIDPipe) clubId: string) {
-    return this.teamsService.getFreeClubPlayers(clubId);
+  async getFreeClubPlayers(@Param('id', ParseUUIDPipe) clubId: string) {
+    return stripPrivateUsers(await this.teamsService.getFreeClubPlayers(clubId));
   }
 
   @Get()

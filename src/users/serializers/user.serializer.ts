@@ -82,3 +82,51 @@ export function serializeUsers(
     serializeUser(u, Boolean(currentUserId && u.id === currentUserId)),
   );
 }
+
+/** Fields of a user that only the user (or staff) may see. */
+const PRIVATE_USER_FIELDS = [
+  'email',
+  'phoneNumber',
+  'permanentAddress',
+  'documentDataUrl',
+  'documentType',
+  'password',
+  'tokenVersion',
+  'twoFactorSecretEncrypted',
+  'twoFactorEnabledAt',
+  'twoFactorLastCounter',
+  'twoFactorFailedAttempts',
+  'twoFactorLockedUntil',
+  'authContext',
+  'suspendReason',
+  'banReason',
+  'warningsCount',
+  'reportStrikes',
+  'verificationNote',
+  'verificationReviewedById',
+  'verificationReviewedAt',
+  'lastLoginAt',
+  'bannedAt',
+  'suspendedUntil',
+] as const;
+
+/** A user record (entity or raw row): it carries account-only fields. */
+const looksLikeUser = (o: Record<string, unknown>) =>
+  'tokenVersion' in o || 'twoFactorLastCounter' in o || 'documentDataUrl' in o || ('email' in o && 'name' in o);
+
+/**
+ * For public responses that embed users anywhere (a club's members, a tournament's creator
+ * and players...): a copy with every nested user's private fields removed.
+ */
+export function stripPrivateUsers<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => stripPrivateUsers(v)) as T;
+  if (!value || typeof value !== 'object' || value instanceof Date) return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const isUser = looksLikeUser(source);
+  for (const [key, v] of Object.entries(source)) {
+    if (isUser && (PRIVATE_USER_FIELDS as readonly string[]).includes(key)) continue;
+    out[key] = stripPrivateUsers(v);
+  }
+  return out as T;
+}

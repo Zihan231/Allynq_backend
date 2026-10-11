@@ -17,6 +17,7 @@ import { User } from '../users/entities/user.entity.js';
 import { ProfileRequirementsGuard, RequireCompleteProfile } from '../users/profile-requirements.guard.js';
 import { ClubRole } from '../users/enums/user-attributes.enum.js';
 import { ClubsService } from './clubs.service.js';
+import { stripPrivateUsers } from '../users/serializers/user.serializer.js';
 import { RequireClubRoles } from './decorators/require-club-roles.decorator.js';
 import { AssignPositionDto } from './dto/assign-position.dto.js';
 import { ChangeManagerDto } from './dto/change-manager.dto.js';
@@ -45,9 +46,10 @@ export class ClubsController {
     return this.clubsService.findAll(query);
   }
 
+  // Public: members' contact and account details are stripped.
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.clubsService.findOne(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return stripPrivateUsers(await this.clubsService.findOne(id));
   }
 
   @UseGuards(JwtAuthGuard, ClubRoleGuard)
@@ -65,16 +67,16 @@ export class ClubsController {
   }
 
   @Get(':id/members')
-  getMembers(
+  async getMembers(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ClubMembersQueryDto,
   ) {
-    return this.clubsService.getMembers(id, query);
+    return stripPrivateUsers(await this.clubsService.getMembers(id, query));
   }
 
   @Get(':id/manager')
-  getManager(@Param('id', ParseUUIDPipe) id: string) {
-    return this.clubsService.getManager(id);
+  async getManager(@Param('id', ParseUUIDPipe) id: string) {
+    return stripPrivateUsers(await this.clubsService.getManager(id));
   }
 
   @UseGuards(JwtAuthGuard, ClubRoleGuard)

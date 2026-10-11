@@ -185,6 +185,18 @@ export class TransfersService {
     return Boolean(profile && profile.clubId === clubId && LEADER_ROLES.includes(profile.clubRole ?? ''));
   }
 
+  /** A club already at its maximum roster can't take in another player (signing or loan). */
+  async assertRosterRoom(em: EntityManager | DataSource, clubId: string): Promise<void> {
+    const club = await em.getRepository(Club).findOne({ where: { id: clubId } });
+    if (!club?.maxRoster) return;
+    const members = await em.getRepository(EfootballProfile).count({ where: { clubId } });
+    if (members >= club.maxRoster) {
+      throw new BadRequestException(
+        `${club.name} is full (${members} of ${club.maxRoster} players). Free a spot or raise the roster limit first.`,
+      );
+    }
+  }
+
   /** A player who can be part of a transfer: not a club leader, not a community leader. */
   async assertTransferable(profile: EfootballProfile, who: 'you' | 'player'): Promise<void> {
     const subject = who === 'you' ? 'You' : 'This player';
@@ -379,6 +391,8 @@ export class TransfersService {
         kind = 'club_offer';
       }
 
+      // Renewals keep him where he is; everything else brings in a new player.
+      if (kind !== 'renewal') await this.assertRosterRoom(em, club.id);
       const clubPays = !isPlayerProposal && amountTk > 0;
       if (clubPays && !dto.paymentMethod) throw new BadRequestException('Choose a payment method');
 
@@ -577,6 +591,7 @@ export class TransfersService {
       });
 
       const moving = profile.clubId !== offer.toClubId;
+      if (moving) await this.assertRosterRoom(em, offer.toClubId);
       const commitment = moving ? await this.clubCommitment(em, profile) : null;
       if (commitment) {
         offer.status = 'scheduled';
@@ -1119,6 +1134,7 @@ export class TransfersService {
     try {
       await assertNotFrozen(em, 'club', offer.toClubId);
       await this.assertTransferable(profile, 'player');
+      await this.assertRosterRoom(em, offer.toClubId);
     } catch (err) {
       return (err as Error).message;
     }

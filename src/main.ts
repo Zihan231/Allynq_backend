@@ -86,6 +86,12 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
+  // The frontend proxies /api/* here and reuses keep-alive sockets. Node's 5 s default
+  // closes idle sockets while the proxy may be reusing them (ECONNRESET → a 500 in the
+  // app), so keep them open longer than the proxy does.
+  const server = app.getHttpServer() as import('node:http').Server;
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
   console.log(`Backend server is running on port ${port}`);
 }
 await bootstrap();

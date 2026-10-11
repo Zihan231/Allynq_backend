@@ -154,6 +154,7 @@ export class LoansService {
     if (running.filter((l) => l.id !== loanId).length >= settings.maxLoansPerClub) {
       throw new BadRequestException(`A club can have at most ${settings.maxLoansPerClub} players on loan at once`);
     }
+    await this.transfers.assertRosterRoom(em, borrowClubId);
   }
 
   /** Brings the borrowing club's hold up (or down) to the fee on the table. */
