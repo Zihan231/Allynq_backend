@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import type { StoreItemCategory } from '../admin/entities/store-item.entity.js';
+import type { PlayerItemCategory } from '../admin/entities/store-item.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { StoreService } from './store.service.js';
 
@@ -21,7 +21,7 @@ export class PurchaseDto {
 
 export class EquipDto {
   @IsIn(CATEGORIES)
-  category!: StoreItemCategory;
+  category!: PlayerItemCategory;
 
   /** The owned item to wear, or null to take this category off. */
   @ValidateIf((dto: EquipDto) => dto.sku !== null)

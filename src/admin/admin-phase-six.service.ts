@@ -511,7 +511,8 @@ export class AdminPhaseSixService {
 
   storeCatalog(includeInactive = true) {
     return this.storeItems.find({
-      where: includeInactive ? {} : { active: true },
+      // Public lists show only what's on sale: active and (creator designs) approved.
+      where: includeInactive ? {} : { active: true, reviewStatus: 'approved' },
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
   }

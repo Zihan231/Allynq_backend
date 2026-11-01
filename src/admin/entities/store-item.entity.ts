@@ -7,7 +7,28 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export type StoreItemCategory = 'badge' | 'title' | 'frame' | 'theme';
+/** Player cosmetics (owned and equipped by a user). */
+export type PlayerItemCategory = 'badge' | 'title' | 'frame' | 'theme';
+/** Everything the store sells: player cosmetics, club themes, tournament banners and sticker packs. */
+export type StoreItemCategory = PlayerItemCategory | 'club_theme' | 'tournament_banner' | 'sticker_pack';
+export const PLAYER_CATEGORIES: PlayerItemCategory[] = ['badge', 'title', 'frame', 'theme'];
+
+/**
+ * Review state of a creator's design (staff items are always approved). Pausing sales is
+ * `active = false`; a change to an approved design waits in `pendingAssets`.
+ */
+export type DesignStatus = 'pending' | 'approved' | 'rejected';
+/** Who an item is for: a player, a club (bought by its leaders) or a tournament (by its organizer). */
+export type StoreItemTarget = 'player' | 'club' | 'tournament';
+
+/** A creator design's files and colours (uploaded images are served from /uploads/creators). */
+export interface DesignAssets {
+  imageUrl?: string;
+  bannerUrl?: string;
+  frameUrl?: string;
+  colors?: { primary: string; secondary: string };
+  stickers?: string[];
+}
 
 @Entity('store_items')
 export class StoreItem {
@@ -24,7 +45,7 @@ export class StoreItem {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'varchar', length: 16 })
+  @Column({ type: 'varchar', length: 24 })
   category!: StoreItemCategory;
 
   @Column({ type: 'int' })
@@ -41,6 +62,40 @@ export class StoreItem {
 
   @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
   metadata!: Record<string, unknown>;
+
+  /** The creator who designed it (null for ALLYNQ's own items). */
+  @Column({ type: 'uuid', nullable: true })
+  creatorUserId!: string | null;
+
+  @Column({ type: 'varchar', length: 16, default: 'approved' })
+  reviewStatus!: DesignStatus;
+
+  @Column({ type: 'varchar', length: 16, default: 'player' })
+  target!: StoreItemTarget;
+
+  /** The approved design (creator items). */
+  @Column({ type: 'jsonb', nullable: true })
+  assets!: DesignAssets | null;
+
+  /** A design change waiting for review; the approved one keeps selling meanwhile. */
+  @Column({ type: 'jsonb', nullable: true })
+  pendingAssets!: DesignAssets | null;
+
+  @Column({ type: 'text', nullable: true })
+  rejectReason!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  reviewedById!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  reviewedAt!: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  salesCount!: number;
+
+  /** What buyers paid in all (before the platform's cut). */
+  @Column({ type: 'int', default: 0 })
+  revenueTk!: number;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

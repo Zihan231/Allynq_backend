@@ -189,6 +189,33 @@ export class WalletsService {
     await this.record(em, w, 'purchase', -amountTk, ref);
   }
 
+  /**
+   * A creator's design sold in the store: the buyer pays the full price, the creator is
+   * credited the price minus the platform's cut, and the cut goes to the platform wallet.
+   */
+  async sale(
+    em: EntityManager,
+    buyer: WalletOwner,
+    creator: WalletOwner,
+    amountTk: number,
+    commissionTk: number,
+    ref: { storeItemId: string; itemName: string; creatorName: string; reference: string | null },
+  ): Promise<void> {
+    if (amountTk <= 0) return;
+    const cut = Math.min(Math.max(0, commissionTk), amountTk);
+    await this.spend(em, buyer, amountTk, { storeItemId: ref.storeItemId, counterparty: `${ref.itemName} by ${ref.creatorName}`, reference: ref.reference });
+    const payee = await this.lock(em, creator);
+    payee.balanceTk += amountTk - cut;
+    await em.save(payee);
+    await this.record(em, payee, 'sale', amountTk - cut, { storeItemId: ref.storeItemId, counterparty: ref.itemName, reference: ref.reference });
+    if (cut > 0) {
+      const platform = await this.lock(em, { type: 'platform', id: PLATFORM_WALLET_ID });
+      platform.balanceTk += cut;
+      await em.save(platform);
+      await this.record(em, platform, 'commission', cut, { storeItemId: ref.storeItemId, counterparty: ref.itemName, reference: ref.reference });
+    }
+  }
+
   /** Pays held money out to the payee (transfer completed). */
   async payOut(
     em: EntityManager,

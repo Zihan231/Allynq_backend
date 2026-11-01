@@ -17,14 +17,14 @@ describe('StoreService', () => {
   beforeEach(() => {
     db = makeDb();
     const settings = { transfers: vi.fn().mockResolvedValue(DEFAULT_TRANSFER_SETTINGS) };
-    store = new StoreService(db.dataSource as never, new WalletsService(db.dataSource as never, settings as never));
+    store = new StoreService(db.dataSource as never, new WalletsService(db.dataSource as never, settings as never), settings as never);
     db.table(User).push({ id: 'u-1', name: 'Rakib', ownedCosmeticIds: null, equippedThemeId: null, equippedBadgeId: null });
     db.table(Wallet).push({ id: 'w-1', ownerType: 'user', ownerId: 'u-1', balanceTk: 700, heldTk: 0 });
     db.table(StoreItem).push(
-      { id: 'i-free', sku: 'badge-rookie', name: 'Rookie', category: 'badge', priceTk: 0, active: true },
-      { id: 'i-epic', sku: 'theme-crimson', name: 'Crimson', category: 'theme', priceTk: 500, active: true },
-      { id: 'i-myth', sku: 'theme-nebula', name: 'Nebula', category: 'theme', priceTk: 2000, active: true },
-      { id: 'i-hidden', sku: 'theme-old', name: 'Old', category: 'theme', priceTk: 10, active: false },
+      { id: 'i-free', sku: 'badge-rookie', name: 'Rookie', category: 'badge', priceTk: 0, active: true, reviewStatus: 'approved', target: 'player' },
+      { id: 'i-epic', sku: 'theme-crimson', name: 'Crimson', category: 'theme', priceTk: 500, active: true, reviewStatus: 'approved', target: 'player' },
+      { id: 'i-myth', sku: 'theme-nebula', name: 'Nebula', category: 'theme', priceTk: 2000, active: true, reviewStatus: 'approved', target: 'player' },
+      { id: 'i-hidden', sku: 'theme-old', name: 'Old', category: 'theme', priceTk: 10, active: false, reviewStatus: 'approved', target: 'player' },
     );
   });
 

@@ -1,0 +1,160 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StoreItem } from '../admin/entities/store-item.entity.js';
+import { DEFAULT_TRANSFER_SETTINGS } from '../settings/settings.service.js';
+import { StoreService } from '../store/store.service.js';
+import { PLATFORM_WALLET_ID, Wallet } from '../transfers/entities/wallet.entity.js';
+import { WalletTransaction } from '../transfers/entities/wallet-transaction.entity.js';
+import { makeDb } from '../transfers/test/in-memory-db.js';
+import { WalletsService } from '../transfers/wallets.service.js';
+import { User } from '../users/entities/user.entity.js';
+import { assetsFromFiles } from './creators-upload.js';
+import { assertNeutralName, CreatorsService } from './creators.service.js';
+
+vi.mock('./creators-upload.js', async (orig) => ({
+  ...(await orig<typeof import('./creators-upload.js')>()),
+  // Nothing is written to disk in tests.
+  removeDesignFiles: vi.fn().mockResolvedValue(undefined),
+}));
+
+const file = (name: string, size = 1000, mimetype = 'image/png') => ({ filename: name, size, mimetype }) as Express.Multer.File;
+const CUT = DEFAULT_TRANSFER_SETTINGS.creatorCommissionPct;
+
+describe('design names', () => {
+  it('may not claim a rank, award or official status', () => {
+    for (const name of ['King Badge', 'MVP frame', 'Official Theme', 'the GOAT', 'Champion aura', 'Allynq Gold']) {
+      expect(() => assertNeutralName(name), name).toThrow(/can't be in a design's name/);
+    }
+    for (const name of ['Neon Wave', 'Crimson Ember', 'Kingfisher Blue', 'Proton Pulse']) {
+      expect(() => assertNeutralName(name), name).not.toThrow();
+    }
+  });
+});
+
+describe('design files', () => {
+  it('each kind takes its own files, within its limits', () => {
+    expect(assetsFromFiles('badge', { image: [file('b.png')] })).toEqual({ imageUrl: '/uploads/creators/b.png' });
+    expect(() => assetsFromFiles('badge', {})).toThrow(/Upload the badge image/);
+    expect(() => assetsFromFiles('badge', { image: [file('b.png', 2 * 1024 * 1024)] })).toThrow(/1024 KB or smaller/);
+    expect(() => assetsFromFiles('frame', { frame: [file('f.jpg', 1000, 'image/jpeg')] })).toThrow(/transparent PNG/);
+    expect(() => assetsFromFiles('theme', { image: [file('x.png')], banner: [file('t.png')] })).toThrow(/doesn't take a image/);
+    expect(() => assetsFromFiles('sticker_pack', { stickers: [file('1.png'), file('2.png')] })).toThrow(/4 to 12 stickers/);
+    expect(assetsFromFiles('sticker_pack', { stickers: ['1', '2', '3', '4'].map((n) => file(`${n}.png`)) }).stickers).toHaveLength(4);
+  });
+});
+
+describe('CreatorsService + StoreService', () => {
+  let db: ReturnType<typeof makeDb>;
+  let creators: CreatorsService;
+  let store: StoreService;
+  const users = {
+    creator: { id: 'u-creator', name: 'Mitu', roles: ['creative', 'player'], ownedCosmeticIds: null } as unknown as User,
+    buyer: { id: 'u-buyer', name: 'Rakib', roles: ['player'], ownedCosmeticIds: null } as unknown as User,
+    mod: { id: 'u-mod', name: 'Mod', roles: ['player'], systemRole: 'moderator' } as unknown as User,
+    admin: { id: 'u-admin', name: 'Admin', roles: ['player'], systemRole: 'admin' } as unknown as User,
+  };
+  const wallet = (type: string, id: string) => db.table(Wallet).find((w) => w.ownerType === type && w.ownerId === id);
+  const item = (id: string) => db.table(StoreItem).find((i) => i.id === id)!;
+
+  beforeEach(() => {
+    db = makeDb();
+    const settings = { transfers: vi.fn().mockResolvedValue(DEFAULT_TRANSFER_SETTINGS) };
+    const wallets = new WalletsService(db.dataSource as never, settings as never);
+    store = new StoreService(db.dataSource as never, wallets, settings as never);
+    creators = new CreatorsService(
+      db.dataSource as never,
+      settings as never,
+      { createNotification: vi.fn().mockResolvedValue({}) } as never,
+      { record: vi.fn().mockResolvedValue(undefined) } as never,
+    );
+    Object.values(users).forEach((u) => db.table(User).push(u as never));
+    db.table(Wallet).push({ id: 'w-buyer', ownerType: 'user', ownerId: 'u-buyer', balanceTk: 1000, heldTk: 0 });
+  });
+
+  const submitBadge = (priceTk = 200) =>
+    creators.create(users.creator, { category: 'badge', name: 'Neon Wave', priceTk, rarity: 'rare' }, { image: [file('neon.png')] });
+
+  it('only creators can submit; a new design waits for review and is not for sale', async () => {
+    await expect(creators.create(users.buyer, { category: 'badge', name: 'Neon', priceTk: 10 }, { image: [file('x.png')] })).rejects.toThrow(
+      /Creative artist role/,
+    );
+    const design = await submitBadge();
+    expect(item(design.id)).toMatchObject({ reviewStatus: 'pending', active: false, target: 'player', creatorUserId: 'u-creator' });
+    await expect(store.purchase('u-buyer', design.sku)).rejects.toThrow(/not on sale/);
+  });
+
+  it('a sale pays the creator the price minus the platform cut', async () => {
+    const design = await submitBadge(200);
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    await store.purchase('u-buyer', design.sku);
+
+    const cut = Math.round((200 * CUT) / 100);
+    expect(wallet('user', 'u-buyer')!.balanceTk).toBe(800);
+    expect(wallet('user', 'u-creator')!.balanceTk).toBe(200 - cut);
+    expect(wallet('platform', PLATFORM_WALLET_ID)!.balanceTk).toBe(cut);
+    expect(db.table(WalletTransaction).map((t) => [t.kind, t.amountTk])).toEqual(
+      expect.arrayContaining([
+        ['purchase', -200],
+        ['sale', 200 - cut],
+        ['commission', cut],
+      ]),
+    );
+    expect(item(design.id)).toMatchObject({ salesCount: 1, revenueTk: 200 });
+  });
+
+  it("creators can't buy their own design; free designs pay nobody", async () => {
+    const paid = await submitBadge(100);
+    await creators.review(users.mod, paid.id, { approve: true }, null);
+    db.table(Wallet).push({ id: 'w-c', ownerType: 'user', ownerId: 'u-creator', balanceTk: 500, heldTk: 0 });
+    await expect(store.purchase('u-creator', paid.sku)).rejects.toThrow(/your own design/);
+
+    const free = await creators.create(users.creator, { category: 'badge', name: 'Free Wave', priceTk: 0 }, { image: [file('f.png')] });
+    await creators.review(users.mod, free.id, { approve: true }, null);
+    await store.purchase('u-buyer', free.sku);
+    expect(wallet('user', 'u-buyer')!.balanceTk).toBe(1000);
+    expect(wallet('user', 'u-creator')!.balanceTk).toBe(500);
+  });
+
+  it('a design change waits for review while the approved look keeps selling', async () => {
+    const design = await submitBadge();
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    await creators.update(users.creator, design.id, { priceTk: 250 }, { image: [file('neon-v2.png')] });
+    expect(item(design.id)).toMatchObject({
+      priceTk: 250,
+      active: true,
+      assets: { imageUrl: '/uploads/creators/neon.png' },
+      pendingAssets: { imageUrl: '/uploads/creators/neon-v2.png' },
+    });
+
+    await creators.review(users.mod, design.id, { approve: false, reason: 'Too blurry' }, null);
+    expect(item(design.id)).toMatchObject({ assets: { imageUrl: '/uploads/creators/neon.png' }, pendingAssets: null, active: true });
+
+    await creators.update(users.creator, design.id, {}, { image: [file('neon-v3.png')] });
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    expect(item(design.id)).toMatchObject({ assets: { imageUrl: '/uploads/creators/neon-v3.png' }, pendingAssets: null });
+  });
+
+  it('only admins can change price or rarity when approving; rejecting needs a reason', async () => {
+    const design = await submitBadge(200);
+    await expect(creators.review(users.mod, design.id, { approve: true, priceTk: 50 }, null)).rejects.toThrow(/Only admins/);
+    await expect(creators.review(users.mod, design.id, { approve: false }, null)).rejects.toThrow(/reason/);
+    await creators.review(users.admin, design.id, { approve: true, priceTk: 150, rarity: 'epic' }, null);
+    expect(item(design.id)).toMatchObject({ priceTk: 150, metadata: { rarity: 'epic' }, reviewStatus: 'approved', active: true });
+  });
+
+  it('pausing works only once approved, and a club theme is not a profile item', async () => {
+    const design = await submitBadge();
+    await expect(creators.update(users.creator, design.id, { active: false }, {})).rejects.toThrow(/once staff approve/);
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    await creators.update(users.creator, design.id, { active: false }, {});
+    await expect(store.purchase('u-buyer', design.sku)).rejects.toThrow(/not on sale/);
+
+    const club = await creators.create(
+      users.creator,
+      { category: 'club_theme', name: 'Night Stadium', priceTk: 300, primaryColor: '#112233', secondaryColor: '#ffcc00' },
+      { banner: [file('stadium.png')] },
+    );
+    expect(item(club.id)).toMatchObject({ target: 'club', assets: { colors: { primary: '#112233', secondary: '#ffcc00' } } });
+    await creators.review(users.mod, club.id, { approve: true }, null);
+    await expect(store.purchase('u-buyer', club.sku)).rejects.toThrow(/clubs or tournaments/);
+  });
+});

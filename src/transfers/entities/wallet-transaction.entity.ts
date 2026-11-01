@@ -10,6 +10,7 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
  * - reversal: money moved back when staff reversed a completed transfer (either sign).
  * - purchase: spent in the store (negative).
  * - commission: the platform's cut of a paid deal (on the platform wallet).
+ * - sale: a creator's income from a design sold in the store (after the platform's cut).
  */
 export type WalletTransactionKind =
   | 'top_up'
@@ -20,7 +21,8 @@ export type WalletTransactionKind =
   | 'adjustment'
   | 'reversal'
   | 'purchase'
-  | 'commission';
+  | 'commission'
+  | 'sale';
 
 @Entity('wallet_transactions')
 export class WalletTransaction {

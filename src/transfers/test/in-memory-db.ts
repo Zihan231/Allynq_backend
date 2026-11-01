@@ -29,6 +29,7 @@ function matches(row: Row, where: Row = {}): boolean {
       if (expected._type === 'in') return (expected._value as unknown[]).includes(row[key]);
       if (expected._type === 'lessThanOrEqual') return row[key] <= expected._value;
       if (expected._type === 'isNull') return row[key] == null;
+      if (expected._type === 'not') return !matches(row, { [key]: expected._value });
       throw new Error(`Unsupported operator ${expected._type}`);
     }
     return row[key] === expected;
@@ -135,6 +136,14 @@ export function makeDb() {
       return [];
     }
     if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    if (sql.includes('UPDATE store_items SET "salesCount"')) {
+      const item = tables.get('StoreItem')?.find((r) => r.id === params[0]);
+      if (item) {
+        item.salesCount = (item.salesCount ?? 0) + 1;
+        item.revenueTk = (item.revenueTk ?? 0) + (params[1] as number);
+      }
+      return [];
+    }
     if (sql.includes('INSERT INTO player_contracts')) {
       const [contractNo, userId, clubId, offerId, frozenTk, baseTk, lockDays, startAt, lockEndsAt] = params as any[];
       table(PlayerContract).push({

@@ -26,6 +26,8 @@ export interface TransferSettings {
   /** Shortest and longest coaching deal, in days. */
   minCoachingDays: number;
   maxCoachingDays: number;
+  /** The platform's cut of a creator design sale, in percent. */
+  creatorCommissionPct: number;
 }
 
 export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
@@ -41,6 +43,7 @@ export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
   coachingCommissionPct: 10,
   minCoachingDays: 7,
   maxCoachingDays: 90,
+  creatorCommissionPct: 30,
 };
 
 /** Admin and moderation settings (`app_settings` key "admin"). */

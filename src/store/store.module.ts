@@ -8,5 +8,6 @@ import { StoreService } from './store.service.js';
   imports: [TransfersModule],
   controllers: [StoreController],
   providers: [StoreService],
+  exports: [StoreService],
 })
 export class StoreModule {}
