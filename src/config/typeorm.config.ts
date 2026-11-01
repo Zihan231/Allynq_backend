@@ -41,6 +41,7 @@ import { SeasonStanding } from '../admin/entities/season-standing.entity.js';
 import { CoachProfile } from '../coaching/entities/coach-profile.entity.js';
 import { CoachPost } from '../coaching/entities/coach-post.entity.js';
 import { CoachingDeal } from '../coaching/entities/coaching-deal.entity.js';
+import { CoachFollow, CoachPostComment, CoachPostLike, CoachPostSave, CoachPostView } from '../coaching/entities/feed.entities.js';
 
 export function buildTypeOrmOptions(
   configService: ConfigService,
@@ -91,6 +92,11 @@ export function buildTypeOrmOptions(
       CoachProfile,
       CoachPost,
       CoachingDeal,
+      CoachPostLike,
+      CoachPostSave,
+      CoachPostView,
+      CoachFollow,
+      CoachPostComment,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

@@ -46,6 +46,16 @@ export class CoachPost {
   @Column({ type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
 
+  /** Kept in step with the likes / comments / saves tables, for ranking the feed. */
+  @Column({ type: 'int', default: 0 })
+  likeCount!: number;
+
+  @Column({ type: 'int', default: 0 })
+  commentCount!: number;
+
+  @Column({ type: 'int', default: 0 })
+  saveCount!: number;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

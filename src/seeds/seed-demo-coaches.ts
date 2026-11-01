@@ -4,8 +4,9 @@ import { DataSource } from 'typeorm';
 
 /**
  * Demo coaches to look around the coaching feature: coach role + coach card, approved
- * tutorial posts (and one waiting for review each), one coach coaching a club, and two
- * coach requests waiting for clubs to answer. Safe to run again (skips what exists).
+ * tutorial posts (and one waiting for review each), one coach coaching a club, two coach
+ * requests waiting for clubs to answer, and feed signals (likes, comments, saves, follows).
+ * Safe to run again (skips what exists).
  *
  *   npm run build && npm run seed:coaches
  *
@@ -161,6 +162,41 @@ async function main() {
         );
         created.push(`${COACHES[coachIndex].name} asks ${club.name} (${fee} tk, 30 days)`);
       }
+    }
+
+    // Feed signals: the demo coaches follow, like and comment on each other's public posts.
+    const [{ n: signals }] = await q(`SELECT count(*)::int AS n FROM coach_post_likes WHERE "userId" = ANY($1)`, [coachIds]);
+    if (signals === 0) {
+      const COMMENTS = ['Great drill, trying it tonight!', 'This fixed my pressing, thanks coach.', 'Can you do one on corners next?', 'Clear and simple, love it.'];
+      const posts: Array<{ id: string; coachUserId: string }> = await q(
+        `SELECT id, "coachUserId" FROM coach_posts WHERE "coachUserId" = ANY($1) AND status = 'approved' ORDER BY "createdAt"`,
+        [coachIds],
+      );
+      for (const [i, post] of posts.entries()) {
+        const others = coachIds.filter((id) => id !== post.coachUserId);
+        // Some posts get more love than others, so the ranking has something to work with.
+        const likers = others.slice(0, 1 + (i % others.length));
+        for (const u of likers) await q(`INSERT INTO coach_post_likes ("postId", "userId") VALUES ($1, $2) ON CONFLICT DO NOTHING`, [post.id, u]);
+        const commenters = others.slice(0, i % 3);
+        for (const [k, u] of commenters.entries()) {
+          await q(`INSERT INTO coach_post_comments ("postId", "userId", body) VALUES ($1, $2, $3)`, [post.id, u, COMMENTS[(i + k) % COMMENTS.length]]);
+        }
+        if (i % 4 === 0) await q(`INSERT INTO coach_post_saves ("postId", "userId") VALUES ($1, $2) ON CONFLICT DO NOTHING`, [post.id, others[0]]);
+        await q(
+          `UPDATE coach_posts SET
+             "likeCount" = (SELECT count(*) FROM coach_post_likes WHERE "postId" = $1),
+             "commentCount" = (SELECT count(*) FROM coach_post_comments WHERE "postId" = $1 AND "deletedAt" IS NULL),
+             "saveCount" = (SELECT count(*) FROM coach_post_saves WHERE "postId" = $1)
+           WHERE id = $1`,
+          [post.id],
+        );
+      }
+      for (const [i, follower] of coachIds.entries()) {
+        for (const coach of [coachIds[(i + 1) % coachIds.length], coachIds[(i + 2) % coachIds.length]]) {
+          await q(`INSERT INTO coach_follows ("coachUserId", "followerUserId") VALUES ($1, $2) ON CONFLICT DO NOTHING`, [coach, follower]);
+        }
+      }
+      created.push(`feed signals: likes, comments, saves and follows on ${posts.length} posts`);
     }
 
     console.log(created.length ? `Added:\n  ${created.join('\n  ')}` : 'Demo coaches already there; nothing added.');
