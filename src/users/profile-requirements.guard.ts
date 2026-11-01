@@ -57,7 +57,7 @@ export class ProfileRequirementsGuard implements CanActivate {
         code: 'PROFILE_INCOMPLETE',
         message: missingFields.length ? `${baseMessage}. Missing: ${missingFields.join(', ')}` : baseMessage,
         missingFields,
-        profileUrl: '/dashboard/efootball/profile',
+        profileUrl: '/dashboard/profile',
       });
     }
     return true;

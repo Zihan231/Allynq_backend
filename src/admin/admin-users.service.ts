@@ -21,7 +21,7 @@ import type {
 import { hasSystemRole } from './system-role.guard.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const USER_LINK = '/dashboard/efootball/profile';
+const USER_LINK = '/dashboard/profile';
 
 /** Level an approved document gives, unless the reviewer picks another. */
 const DOCUMENT_LEVEL: Record<DocumentType, number> = {
