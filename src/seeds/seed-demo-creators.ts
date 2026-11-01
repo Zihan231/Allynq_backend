@@ -5,7 +5,9 @@ import { DataSource } from 'typeorm';
 /**
  * Demo creators to look around the creator marketplace: two creators (Creative artist role)
  * with approved designs on sale (badges, frames, themes, club themes, tournament banners) and one design each waiting for
- * staff review. The artwork lives in uploads/creators/demo-*.png. Safe to run again.
+ * staff review. The artwork lives in uploads/creators/demo-*.png. The second creator also
+ * leads "Demo Creators FC" and organizes "Demo Creators Cup", to try club themes and
+ * tournament banners. Safe to run again.
  *
  *   npm run build && npm run seed:creators
  *
@@ -154,6 +156,28 @@ async function main() {
         );
         created.push(`${d.name} (${d.category}, ${d.pending ? 'waiting for review' : `on sale, ${d.priceTk} tk`}) by ${c.name}`);
       }
+    }
+
+    // A club the second creator leads (club themes) and a general tournament he organizes (banners).
+    const [arif] = await q(`SELECT id FROM users WHERE email = 'demo.creator.2@allync.demo'`);
+    let [club] = await q(`SELECT id FROM clubs WHERE name = 'Demo Creators FC' AND "deletedAt" IS NULL`);
+    if (!club) {
+      [club] = await q(
+        `INSERT INTO clubs (name, color, initials, description, "joinPolicy") VALUES ('Demo Creators FC', '#7c3aed', 'DC', 'Demo club for trying club themes.', 'approval') RETURNING id`,
+      );
+      await q(`UPDATE efootball_profiles SET "clubId" = $1, "clubRole" = 'President' WHERE "userId" = $2`, [club.id, arif.id]);
+      await q(`INSERT INTO wallets ("ownerType", "ownerId", "balanceTk", "heldTk") VALUES ('club', $1, 2000, 0) ON CONFLICT DO NOTHING`, [club.id]);
+      created.push('club Demo Creators FC (President: Arif Hossain, 2000 tk in the club wallet)');
+    }
+    const [cup] = await q(`SELECT id FROM tournaments WHERE name = 'Demo Creators Cup' AND "deletedAt" IS NULL`);
+    if (!cup) {
+      const day = 24 * 3600_000;
+      await q(
+        `INSERT INTO tournaments (name, description, type, "teamSubmissionDeadline", "startAt", "registrationDeadline", "creatorId")
+         VALUES ('Demo Creators Cup', 'Demo tournament for trying banners.', 'pvp', $1, $2, $1, $3)`,
+        [new Date(Date.now() + 10 * day), new Date(Date.now() + 14 * day), arif.id],
+      );
+      created.push('tournament Demo Creators Cup (organizer: Arif Hossain)');
     }
   } finally {
     await dataSource.destroy();

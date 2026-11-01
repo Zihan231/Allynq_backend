@@ -100,7 +100,7 @@ export class ClubsService {
     const qb = this.clubsRepository.createQueryBuilder('club').select('club.id', 'id');
     for (const column of [
       'name', 'color', 'initials', 'dpUrl', 'coverUrl', 'description', 'points', 'joinPolicy',
-      'minRoster', 'maxRoster', 'communityIds', 'stage', 'location', 'motto', 'facebookUrl',
+      'minRoster', 'maxRoster', 'communityIds', 'stage', 'location', 'motto', 'facebookUrl', 'equippedThemeSku',
       'createdAt', 'updatedAt',
     ]) {
       qb.addSelect(`club.${column}`, column);
