@@ -336,8 +336,31 @@ export class CoachingService {
       where: { coachUserId: userId, status: 'active' },
       relations: { club: true },
     });
+    // Clubs he has coached (or is coaching), newest first; deal terms stay private.
+    const past = await this.dataSource.getRepository(CoachingDeal).find({
+      where: { coachUserId: userId, status: In(['active', 'completed', 'ended']) },
+      relations: { club: true },
+      order: { startedAt: 'DESC' },
+    });
     return {
-      user: { id: user.id, name: user.name, dpUrl: user.dpUrl, coverUrl: user.coverUrl, roles: user.roles ?? [] },
+      user: {
+        id: user.id,
+        name: user.name,
+        dpUrl: user.dpUrl,
+        coverUrl: user.coverUrl,
+        roles: user.roles ?? [],
+        country: user.country,
+        joinedAt: user.createdAt ? new Date(user.createdAt).toISOString() : null,
+      },
+      history: past.map((d) => ({
+        clubId: d.clubId,
+        name: d.club?.name ?? 'Club',
+        dpUrl: d.club?.dpUrl ?? null,
+        status: d.status,
+        days: d.days,
+        startedAt: d.startedAt?.toISOString() ?? null,
+        endedAt: (d.endedAt ?? d.endsAt)?.toISOString() ?? null,
+      })),
       profile,
       posts: posts.filter((p) => !p.deletedAt),
       currentClub: active
