@@ -184,8 +184,8 @@ describe('CreatorsService + StoreService', () => {
       versions: [{ version: 1, assets: { imageUrl: '/uploads/creators/neon.png' } }],
     });
 
-    // Follow updates, go back to the old look; versions that don't exist are refused.
-    expect((await store.setDesignVersion('u-buyer', design.sku, null)).versions[design.sku]).toBeUndefined();
+    // Follow updates (0), go back to the old look; versions that don't exist are refused.
+    expect((await store.setDesignVersion('u-buyer', design.sku, null)).versions[design.sku]).toBe(0);
     expect((await store.setDesignVersion('u-buyer', design.sku, 1)).versions[design.sku]).toBe(1);
     await expect(store.setDesignVersion('u-buyer', design.sku, 7)).rejects.toThrow(/no such version/);
     await expect(store.setDesignVersion('u-admin', design.sku, 1)).rejects.toThrow(/don't own/);
@@ -193,6 +193,22 @@ describe('CreatorsService + StoreService', () => {
     // A later buyer gets the new look.
     db.table(Wallet).push({ id: 'w-a', ownerType: 'user', ownerId: 'u-admin', balanceTk: 500, heldTk: 0 });
     expect((await store.purchase('u-admin', design.sku)).versions[design.sku]).toBe(2);
+  });
+
+  it('owners with no recorded look keep theirs when a new one is approved; "latest" owners follow', async () => {
+    const design = await submitBadge();
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    await store.purchase('u-buyer', design.sku);
+    // Bought before looks were recorded.
+    users.buyer.designVersions = {};
+    db.table(Wallet).push({ id: 'w-a2', ownerType: 'user', ownerId: 'u-admin', balanceTk: 500, heldTk: 0 });
+    await store.purchase('u-admin', design.sku);
+    await store.setDesignVersion('u-admin', design.sku, null);
+
+    await creators.update(users.creator, design.id, {}, { image: [file('neon-v2.png')] });
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    expect(users.buyer.designVersions[design.sku]).toBe(1);
+    expect(users.admin.designVersions[design.sku]).toBe(0);
   });
 
   it("club leaders buy club themes from the club wallet and switch them; others can't", async () => {

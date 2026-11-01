@@ -140,6 +140,26 @@ export function makeDb() {
       return [];
     }
     if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    // Owners who never chose a look are pinned to the current one before a new look goes live.
+    if (sql.startsWith('UPDATE users SET "designVersions"')) {
+      const [sku, pin] = params as [string, string];
+      for (const u of tables.get('User') ?? []) {
+        if ((u.ownedCosmeticIds ?? []).includes(sku) && !(sku in (u.designVersions ?? {}))) u.designVersions = { ...u.designVersions, ...JSON.parse(pin) };
+      }
+      return [];
+    }
+    if (sql.startsWith('UPDATE clubs SET "designVersions"')) {
+      const [sku, pin] = params as [string, string];
+      for (const c of tables.get('Club') ?? []) {
+        if ((c.ownedThemeSkus ?? []).includes(sku) && !(sku in (c.designVersions ?? {}))) c.designVersions = { ...c.designVersions, ...JSON.parse(pin) };
+      }
+      return [];
+    }
+    if (sql.startsWith('UPDATE tournaments SET "bannerVersion"')) {
+      const [sku, version] = params as [string, number];
+      for (const t of tables.get('Tournament') ?? []) if (t.bannerSku === sku && t.bannerVersion == null) t.bannerVersion = version;
+      return [];
+    }
     // Owners of a creator design (notified when it gets a new look).
     if (sql.includes('FROM users WHERE "ownedCosmeticIds" ?')) {
       return (tables.get('User') ?? []).filter((u) => (u.ownedCosmeticIds ?? []).includes(params[0])).map((u) => ({ id: u.id }));

@@ -279,8 +279,9 @@ export class CreatorsService {
 
     if (dto.approve) {
       if (isChange) {
-        // The old look stays available to owners who'd rather keep it.
+        // The old look stays available, and owners who haven't chosen keep it until they update.
         if (item.assets) item.versions = [...(item.versions ?? []), { version: item.version, assets: item.assets, approvedAt: item.reviewedAt?.toISOString() ?? null }];
+        await this.pinOwners(item.sku, item.version);
         item.assets = item.pendingAssets;
         item.pendingAssets = null;
         item.version += 1;
@@ -323,6 +324,24 @@ export class CreatorsService {
     );
     if (dto.approve && isChange) await this.notifyOwners(item);
     return item;
+  }
+
+  /**
+   * Before a new look goes live: every owner who hasn't chosen a look (users, clubs, and
+   * tournaments showing it as their banner) is pinned to the current one. Owners who chose
+   * "latest" (stored as 0) follow the update.
+   */
+  private async pinOwners(sku: string, version: number) {
+    const pin = JSON.stringify({ [sku]: version });
+    await this.dataSource.query(
+      `UPDATE users SET "designVersions" = "designVersions" || $2::jsonb WHERE "ownedCosmeticIds" ? $1 AND NOT ("designVersions" ? $1)`,
+      [sku, pin],
+    );
+    await this.dataSource.query(
+      `UPDATE clubs SET "designVersions" = "designVersions" || $2::jsonb WHERE "ownedThemeSkus" ? $1 AND NOT ("designVersions" ? $1)`,
+      [sku, pin],
+    );
+    await this.dataSource.query(`UPDATE tournaments SET "bannerVersion" = $2 WHERE "bannerSku" = $1 AND "bannerVersion" IS NULL`, [sku, version]);
   }
 
   /** A new look was approved: owners keep their look until they choose to update. */

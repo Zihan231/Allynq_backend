@@ -26,7 +26,7 @@ export interface MyStore {
   owned: string[];
   /** Equipped SKU per category (null = none). */
   equipped: Record<PlayerItemCategory, string | null>;
-  /** Creator designs kept on an earlier look: SKU → version (missing = latest). */
+  /** Creator designs' chosen looks: SKU → version (0 = follows the latest). */
   versions: Record<string, number>;
 }
 
@@ -221,7 +221,7 @@ export class StoreService {
       if (!(user?.ownedCosmeticIds ?? []).includes(sku)) throw new BadRequestException("You don't own this banner");
       const item = await this.dataSource.getRepository(StoreItem).findOne({ where: { sku } });
       if (item?.target !== 'tournament') throw new BadRequestException('This item is not a tournament banner');
-      bannerVersion = user?.designVersions?.[sku] ?? null;
+      bannerVersion = user?.designVersions?.[sku] ?? item.version;
     }
     await this.dataSource.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: sku, bannerVersion });
     return { tournamentId, bannerSku: sku };
@@ -239,13 +239,8 @@ export class StoreService {
       if (version !== null && version !== item.version && !(item.versions ?? []).some((v) => v.version === version)) {
         throw new BadRequestException('This design has no such version');
       }
-      // Choosing the latest version is the same as following updates.
-      const pick = (map: Record<string, number> | null | undefined) => {
-        const next = { ...map };
-        if (version === null) delete next[sku];
-        else next[sku] = version;
-        return next;
-      };
+      // null = follow the latest (stored as 0, so later new looks aren't pinned for this owner).
+      const pick = (map: Record<string, number> | null | undefined) => ({ ...map, [sku]: version ?? 0 });
 
       if (clubId) {
         await this.assertClubLeader(em, clubId, userId);
@@ -261,7 +256,7 @@ export class StoreService {
       user.designVersions = pick(user.designVersions);
       await em.getRepository(User).update({ id: userId }, { designVersions: user.designVersions });
       if (item.target === 'tournament') {
-        await em.getRepository(Tournament).update({ bannerSku: sku, creatorId: userId }, { bannerVersion: version });
+        await em.getRepository(Tournament).update({ bannerSku: sku, creatorId: userId }, { bannerVersion: version ?? 0 });
       }
       const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
       return this.view(user, wallet.balanceTk);
