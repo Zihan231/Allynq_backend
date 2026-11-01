@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { PlayerItemCategory } from '../admin/entities/store-item.entity.js';
@@ -17,6 +17,24 @@ export class PurchaseDto {
   @IsOptional()
   @IsBoolean()
   equip?: boolean;
+
+  /** A club theme: the club it's for (paid from the club wallet by its President / GS). */
+  @IsOptional()
+  @IsUUID()
+  clubId?: string;
+
+  /** A tournament banner: the tournament to put it on straight away. */
+  @IsOptional()
+  @IsUUID()
+  tournamentId?: string;
+}
+
+/** A club theme or tournament banner to show, or null for none. */
+export class SetSkuDto {
+  @ValidateIf((dto: SetSkuDto) => dto.sku !== null)
+  @IsString()
+  @MaxLength(64)
+  sku!: string | null;
 }
 
 export class EquipDto {
@@ -52,7 +70,29 @@ export class StoreController {
   @UseGuards(JwtAuthGuard)
   @Post('purchase')
   purchase(@CurrentUser() user: User, @Body() dto: PurchaseDto) {
-    return this.store.purchase(user.id, dto.sku, dto.equip ?? true);
+    if (dto.clubId) return this.store.purchaseForClub(user.id, dto.clubId, dto.sku, dto.equip ?? true);
+    return this.store.purchase(user.id, dto.sku, dto.equip ?? true, dto.tournamentId);
+  }
+
+  /** A club's themes and wallet balance (its President / General Secretary). */
+  @UseGuards(JwtAuthGuard)
+  @Get('clubs/:clubId')
+  club(@CurrentUser() user: User, @Param('clubId', ParseUUIDPipe) clubId: string) {
+    return this.store.club(user.id, clubId);
+  }
+
+  /** Put one of the club's themes on its page, or take it off. */
+  @UseGuards(JwtAuthGuard)
+  @Post('clubs/:clubId/theme')
+  setClubTheme(@CurrentUser() user: User, @Param('clubId', ParseUUIDPipe) clubId: string, @Body() dto: SetSkuDto) {
+    return this.store.setClubTheme(user.id, clubId, dto.sku);
+  }
+
+  /** Put a banner I own on a tournament I manage, or take it off. */
+  @UseGuards(JwtAuthGuard)
+  @Post('tournaments/:tournamentId/banner')
+  setBanner(@CurrentUser() user: User, @Param('tournamentId', ParseUUIDPipe) tournamentId: string, @Body() dto: SetSkuDto) {
+    return this.store.setTournamentBanner(user.id, tournamentId, dto.sku);
   }
 
   /** Wear an item I own, or take a category off. */

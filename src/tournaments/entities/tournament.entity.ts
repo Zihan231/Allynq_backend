@@ -122,6 +122,10 @@ export class Tournament {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   matchOfficialIds!: string[];
 
+  /** The tournament banner (a store item its organizer owns) on its page and card. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  bannerSku!: string | null;
+
   /** Set when fixtures are generated: 'knockout' or 'groups_knockout'. */
   @Column({ type: 'varchar', length: 24, nullable: true })
   format!: TournamentFormat | null;

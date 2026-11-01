@@ -17,7 +17,7 @@ describe('StoreService', () => {
   beforeEach(() => {
     db = makeDb();
     const settings = { transfers: vi.fn().mockResolvedValue(DEFAULT_TRANSFER_SETTINGS) };
-    store = new StoreService(db.dataSource as never, new WalletsService(db.dataSource as never, settings as never), settings as never);
+    store = new StoreService(db.dataSource as never, new WalletsService(db.dataSource as never, settings as never), settings as never, {} as never);
     db.table(User).push({ id: 'u-1', name: 'Rakib', ownedCosmeticIds: null, equippedThemeId: null, equippedBadgeId: null });
     db.table(Wallet).push({ id: 'w-1', ownerType: 'user', ownerId: 'u-1', balanceTk: 700, heldTk: 0 });
     db.table(StoreItem).push(

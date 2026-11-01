@@ -4,7 +4,7 @@ import { DataSource } from 'typeorm';
 
 /**
  * Demo creators to look around the creator marketplace: two creators (Creative artist role)
- * with approved designs on sale (badges, frames, themes) and one design each waiting for
+ * with approved designs on sale (badges, frames, themes, club themes, tournament banners) and one design each waiting for
  * staff review. The artwork lives in uploads/creators/demo-*.png. Safe to run again.
  *
  *   npm run build && npm run seed:creators
@@ -19,7 +19,7 @@ type Design = {
   sku: string;
   name: string;
   description: string;
-  category: 'badge' | 'frame' | 'theme';
+  category: 'badge' | 'frame' | 'theme' | 'club_theme' | 'tournament_banner';
   priceTk: number;
   rarity: string;
   file: string;
@@ -44,6 +44,17 @@ const CREATORS: Array<{ name: string; designs: Design[] }> = [
         file: 'demo-midnight-tide',
         colors: { primary: '#1d4ed8', secondary: '#22d3ee' },
       },
+      {
+        sku: 'cr-demo-night-stadium',
+        name: 'Night Stadium',
+        description: 'Floodlit stands for your club page.',
+        category: 'club_theme',
+        priceTk: 500,
+        rarity: 'epic',
+        file: 'demo-night-stadium',
+        colors: { primary: '#1e293b', secondary: '#facc15' },
+      },
+      { sku: 'cr-demo-ice-arena', name: 'Ice Arena', description: 'A cold blue stage for a winter cup.', category: 'tournament_banner', priceTk: 150, rarity: 'rare', file: 'demo-ice-arena' },
       { sku: 'cr-demo-jade-lotus', name: 'Jade Lotus', description: 'A green star, waiting for review.', category: 'badge', priceTk: 200, rarity: 'rare', file: 'demo-jade-lotus', pending: true },
     ],
   },
@@ -62,6 +73,17 @@ const CREATORS: Array<{ name: string; designs: Design[] }> = [
         file: 'demo-sunset-pitch',
         colors: { primary: '#f97316', secondary: '#facc15' },
       },
+      {
+        sku: 'cr-demo-royal-crest',
+        name: 'Royal Crest',
+        description: 'Purple and pink, for clubs with style.',
+        category: 'club_theme',
+        priceTk: 400,
+        rarity: 'rare',
+        file: 'demo-royal-crest',
+        colors: { primary: '#7c3aed', secondary: '#f472b6' },
+      },
+      { sku: 'cr-demo-golden-final', name: 'Golden Final', description: 'Gold light for the big final.', category: 'tournament_banner', priceTk: 0, rarity: 'common', file: 'demo-golden-final' },
       {
         sku: 'cr-demo-forest-night',
         name: 'Forest Night',
@@ -107,11 +129,12 @@ async function main() {
         const [exists] = await q(`SELECT id FROM store_items WHERE sku = $1`, [d.sku]);
         if (exists) continue;
         const key = d.category === 'badge' ? 'imageUrl' : d.category === 'frame' ? 'frameUrl' : 'bannerUrl';
+        const target = d.category === 'club_theme' ? 'club' : d.category === 'tournament_banner' ? 'tournament' : 'player';
         const assets = { [key]: `${ART}/${d.file}.png`, ...(d.colors ? { colors: d.colors } : {}) };
         await q(
           `INSERT INTO store_items (sku, name, description, category, "priceTk", active, "sortOrder", metadata,
                                     "creatorUserId", "reviewStatus", target, assets, "reviewedAt", "createdAt")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, 'player', $11::jsonb, $12, now() - make_interval(days => $13))`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $14, $11::jsonb, $12, now() - make_interval(days => $13))`,
           [
             d.sku,
             d.name,
@@ -126,6 +149,7 @@ async function main() {
             JSON.stringify(assets),
             d.pending ? null : new Date(),
             c.designs.length - j,
+            target,
           ],
         );
         created.push(`${d.name} (${d.category}, ${d.pending ? 'waiting for review' : `on sale, ${d.priceTk} tk`}) by ${c.name}`);

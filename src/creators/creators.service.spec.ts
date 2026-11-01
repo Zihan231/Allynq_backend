@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
 import { StoreItem } from '../admin/entities/store-item.entity.js';
+import { Club } from '../clubs/entities/club.entity.js';
+import { Tournament } from '../tournaments/entities/tournament.entity.js';
+import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { DEFAULT_TRANSFER_SETTINGS } from '../settings/settings.service.js';
 import { StoreService } from '../store/store.service.js';
 import { PLATFORM_WALLET_ID, Wallet } from '../transfers/entities/wallet.entity.js';
@@ -59,7 +63,13 @@ describe('CreatorsService + StoreService', () => {
     db = makeDb();
     const settings = { transfers: vi.fn().mockResolvedValue(DEFAULT_TRANSFER_SETTINGS) };
     const wallets = new WalletsService(db.dataSource as never, settings as never);
-    store = new StoreService(db.dataSource as never, wallets, settings as never);
+    // Only the buyer manages tournament t1.
+    const tournaments = {
+      assertCanManage: vi.fn(async (userId: string) => {
+        if (userId !== 'u-buyer') throw new ForbiddenException('Only the organizer can change its banner');
+      }),
+    };
+    store = new StoreService(db.dataSource as never, wallets, settings as never, tournaments as never);
     creators = new CreatorsService(
       db.dataSource as never,
       settings as never,
@@ -156,5 +166,49 @@ describe('CreatorsService + StoreService', () => {
     expect(item(club.id)).toMatchObject({ target: 'club', assets: { colors: { primary: '#112233', secondary: '#ffcc00' } } });
     await creators.review(users.mod, club.id, { approve: true }, null);
     await expect(store.purchase('u-buyer', club.sku)).rejects.toThrow(/clubs or tournaments/);
+  });
+
+  it("club leaders buy club themes from the club wallet and switch them; others can't", async () => {
+    db.table(Club).push({ id: 'c1', name: 'Dhaka Kings', ownedThemeSkus: [], equippedThemeSku: null, deletedAt: null } as never);
+    db.table(Wallet).push({ id: 'w-c1', ownerType: 'club', ownerId: 'c1', balanceTk: 1000, heldTk: 0 });
+    db.table(EfootballProfile).push({ id: 'p1', userId: 'u-buyer', clubId: 'c1', clubRole: 'President' } as never);
+    db.table(EfootballProfile).push({ id: 'p2', userId: 'u-admin', clubId: 'c1', clubRole: 'Captain' } as never);
+    const theme = await creators.create(
+      users.creator,
+      { category: 'club_theme', name: 'Night Stadium', priceTk: 300, primaryColor: '#112233', secondaryColor: '#ffcc00' },
+      { banner: [file('stadium.png')] },
+    );
+    await creators.review(users.mod, theme.id, { approve: true }, null);
+
+    await expect(store.purchaseForClub('u-admin', 'c1', theme.sku)).rejects.toThrow(/President or General Secretary/);
+    const after = await store.purchaseForClub('u-buyer', 'c1', theme.sku);
+    const cut = Math.round((300 * CUT) / 100);
+    expect(after).toMatchObject({ balanceTk: 700, owned: [theme.sku], equipped: theme.sku });
+    expect(wallet('user', 'u-buyer')!.balanceTk).toBe(1000);
+    expect(wallet('user', 'u-creator')!.balanceTk).toBe(300 - cut);
+    await expect(store.purchaseForClub('u-buyer', 'c1', theme.sku)).rejects.toThrow(/already owns/);
+
+    expect(await store.setClubTheme('u-buyer', 'c1', null)).toMatchObject({ equipped: null });
+    await expect(store.setClubTheme('u-buyer', 'c1', 'cr-not-owned')).rejects.toThrow(/doesn't own/);
+    const badge = await submitBadge();
+    await creators.review(users.mod, badge.id, { approve: true }, null);
+    await expect(store.purchaseForClub('u-buyer', 'c1', badge.sku)).rejects.toThrow(/Only club themes/);
+  });
+
+  it('organizers buy banners and put them on tournaments they manage', async () => {
+    db.table(Tournament).push({ id: 't1', name: 'Winter Cup', bannerSku: null } as never);
+    const banner = await creators.create(users.creator, { category: 'tournament_banner', name: 'Ice Arena', priceTk: 100 }, { banner: [file('ice.png')] });
+    await creators.review(users.mod, banner.id, { approve: true }, null);
+
+    const mine = await store.purchase('u-buyer', banner.sku, true, 't1');
+    expect(mine.owned).toContain(banner.sku);
+    expect(mine.equipped.theme).toBeFalsy();
+    expect(db.table(Tournament)[0]).toMatchObject({ bannerSku: banner.sku });
+    expect(wallet('user', 'u-buyer')!.balanceTk).toBe(900);
+
+    await store.setTournamentBanner('u-buyer', 't1', null);
+    expect(db.table(Tournament)[0]).toMatchObject({ bannerSku: null });
+    await expect(store.setTournamentBanner('u-creator', 't1', banner.sku)).rejects.toThrow(/Only the organizer/);
+    await expect(store.setTournamentBanner('u-buyer', 't1', 'cr-not-owned')).rejects.toThrow(/don't own/);
   });
 });

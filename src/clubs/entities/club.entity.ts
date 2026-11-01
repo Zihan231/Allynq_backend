@@ -99,4 +99,11 @@ export class Club {
 
   @Column({ type: 'uuid', nullable: true })
   frozenById!: string | null;
+
+  /** Club themes (store items) the club bought, and the one on its page. */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  ownedThemeSkus!: string[];
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  equippedThemeSku!: string | null;
 }

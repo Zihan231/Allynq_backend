@@ -1,11 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { PLAYER_CATEGORIES, StoreItem, type PlayerItemCategory } from '../admin/entities/store-item.entity.js';
+import { Club } from '../clubs/entities/club.entity.js';
 import { SettingsService } from '../settings/settings.service.js';
+import { Tournament } from '../tournaments/entities/tournament.entity.js';
+import { TournamentsService } from '../tournaments/tournaments.service.js';
 import { paymentRef } from '../transfers/contract-fee.js';
 import { WalletsService } from '../transfers/wallets.service.js';
+import { EfootballProfile } from '../users/entities/efootball-profile.entity.js';
 import { User } from '../users/entities/user.entity.js';
+import { ClubRole } from '../users/enums/user-attributes.enum.js';
 
 /** The user column that holds the equipped item of each category. */
 const EQUIPPED_FIELD: Record<PlayerItemCategory, 'equippedBadgeId' | 'equippedTitleId' | 'equippedFrameId' | 'equippedThemeId'> = {
@@ -23,6 +28,17 @@ export interface MyStore {
   equipped: Record<PlayerItemCategory, string | null>;
 }
 
+/** A club's side of the store (for its President / General Secretary). */
+export interface ClubStore {
+  clubId: string;
+  /** The club wallet's balance: club themes are paid from it. */
+  balanceTk: number;
+  owned: string[];
+  equipped: string | null;
+}
+
+const CLUB_LEADERS: Array<string | null> = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
+
 /**
  * The cosmetics store: items (store_items, managed by staff) are bought with the user's
  * wallet and kept in `users.ownedCosmeticIds`; a user can equip only what they own,
@@ -34,6 +50,7 @@ export class StoreService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly wallets: WalletsService,
     private readonly settings: SettingsService,
+    private readonly tournaments: TournamentsService,
   ) {}
 
   /** The items on sale: active, and creator designs only once approved (with their creator's name). */
@@ -64,7 +81,10 @@ export class StoreService {
    * wallet (with a ledger entry); a free one is simply added. The new item is equipped
    * unless `equip` is false.
    */
-  async purchase(userId: string, sku: string, equip = true): Promise<MyStore> {
+  async purchase(userId: string, sku: string, equip = true, tournamentId?: string): Promise<MyStore> {
+    // Tournament banners are the organizer's too, but they go on tournaments, not the profile.
+    const target = (await this.dataSource.getRepository(StoreItem).findOne({ where: { sku } }))?.target;
+    if (target === 'tournament' || tournamentId) return this.purchaseBanner(userId, sku, tournamentId);
     return this.dataSource.transaction(async (em) => {
       const item = await em.getRepository(StoreItem).findOne({ where: { sku } });
       if (!item || !item.active || item.reviewStatus !== 'approved') throw new NotFoundException('This item is not on sale');
@@ -86,6 +106,110 @@ export class StoreService {
       const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
       return this.view(user, wallet.balanceTk);
     });
+  }
+
+  /** The item on sale for `target` (club themes for clubs, banners for tournaments). */
+  private async onSale(em: EntityManager, sku: string, target: StoreItem['target'], buyerUserId: string): Promise<StoreItem> {
+    const item = await em.getRepository(StoreItem).findOne({ where: { sku } });
+    if (!item || !item.active || item.reviewStatus !== 'approved') throw new NotFoundException('This item is not on sale');
+    if (item.target !== target) {
+      throw new BadRequestException(target === 'club' ? 'Only club themes can be bought for a club' : 'Only tournament banners can be bought for a tournament');
+    }
+    if (item.creatorUserId === buyerUserId) throw new BadRequestException("You can't buy your own design");
+    return item;
+  }
+
+  private async assertClubLeader(em: EntityManager, clubId: string, userId: string): Promise<void> {
+    const profile = await em.getRepository(EfootballProfile).findOne({ where: { userId } });
+    if (!profile || profile.clubId !== clubId || !CLUB_LEADERS.includes(profile.clubRole)) {
+      throw new ForbiddenException("Only the club's President or General Secretary can change its theme");
+    }
+  }
+
+  private async lockClub(em: EntityManager, clubId: string): Promise<Club> {
+    const club = await em.getRepository(Club).createQueryBuilder('c').setLock('pessimistic_write').where('c.id = :id', { id: clubId }).getOne();
+    if (!club || club.deletedAt) throw new NotFoundException('Club not found');
+    return club;
+  }
+
+  private async clubView(em: EntityManager, club: Club): Promise<ClubStore> {
+    const wallet = await this.wallets.lock(em, { type: 'club', id: club.id });
+    return { clubId: club.id, balanceTk: wallet.balanceTk, owned: club.ownedThemeSkus ?? [], equipped: club.equippedThemeSku };
+  }
+
+  /** A club's themes and wallet (leaders only). */
+  async club(userId: string, clubId: string): Promise<ClubStore> {
+    return this.dataSource.transaction(async (em) => {
+      await this.assertClubLeader(em, clubId, userId);
+      return this.clubView(em, await this.lockClub(em, clubId));
+    });
+  }
+
+  /** A club leader buys a club theme from the club wallet; it goes on the club page unless `equip` is false. */
+  async purchaseForClub(userId: string, clubId: string, sku: string, equip = true): Promise<ClubStore> {
+    return this.dataSource.transaction(async (em) => {
+      await this.assertClubLeader(em, clubId, userId);
+      const item = await this.onSale(em, sku, 'club', userId);
+      const club = await this.lockClub(em, clubId);
+      const owned = club.ownedThemeSkus ?? [];
+      if (owned.includes(item.sku)) throw new BadRequestException('The club already owns this theme');
+      await this.charge(em, { type: 'club', id: clubId }, item);
+      club.ownedThemeSkus = [...owned, item.sku];
+      if (equip) club.equippedThemeSku = item.sku;
+      await em.getRepository(Club).update({ id: clubId }, { ownedThemeSkus: club.ownedThemeSkus, equippedThemeSku: club.equippedThemeSku });
+      return this.clubView(em, club);
+    });
+  }
+
+  /** Puts one of the club's themes on its page, or (null) goes back to the plain page. */
+  async setClubTheme(userId: string, clubId: string, sku: string | null): Promise<ClubStore> {
+    return this.dataSource.transaction(async (em) => {
+      await this.assertClubLeader(em, clubId, userId);
+      const club = await this.lockClub(em, clubId);
+      if (sku !== null && !(club.ownedThemeSkus ?? []).includes(sku)) throw new BadRequestException("The club doesn't own this theme");
+      club.equippedThemeSku = sku;
+      await em.getRepository(Club).update({ id: clubId }, { equippedThemeSku: sku });
+      return this.clubView(em, club);
+    });
+  }
+
+  /**
+   * An organizer buys a tournament banner from their wallet. It's theirs to use on any
+   * tournament they manage; with `tournamentId` it goes on that tournament straight away.
+   */
+  async purchaseBanner(userId: string, sku: string, tournamentId?: string): Promise<MyStore> {
+    if (tournamentId) await this.assertCanManage(userId, tournamentId);
+    return this.dataSource.transaction(async (em) => {
+      const item = await this.onSale(em, sku, 'tournament', userId);
+      const user = await this.lockUser(em, userId);
+      const owned = user.ownedCosmeticIds ?? [];
+      if (owned.includes(item.sku)) throw new BadRequestException('You already own this banner');
+      await this.charge(em, { type: 'user', id: userId }, item);
+      user.ownedCosmeticIds = [...owned, item.sku];
+      await em.getRepository(User).update({ id: userId }, { ownedCosmeticIds: user.ownedCosmeticIds });
+      if (tournamentId) await em.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: item.sku });
+      const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
+      return this.view(user, wallet.balanceTk);
+    });
+  }
+
+  /** Puts a banner the caller owns on a tournament they manage, or (null) takes it off. */
+  async setTournamentBanner(userId: string, tournamentId: string, sku: string | null): Promise<{ tournamentId: string; bannerSku: string | null }> {
+    await this.assertCanManage(userId, tournamentId);
+    if (sku !== null) {
+      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      if (!(user?.ownedCosmeticIds ?? []).includes(sku)) throw new BadRequestException("You don't own this banner");
+      const item = await this.dataSource.getRepository(StoreItem).findOne({ where: { sku } });
+      if (item?.target !== 'tournament') throw new BadRequestException('This item is not a tournament banner');
+    }
+    await this.dataSource.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: sku });
+    return { tournamentId, bannerSku: sku };
+  }
+
+  private async assertCanManage(userId: string, tournamentId: string): Promise<void> {
+    const tournament = await this.dataSource.getRepository(Tournament).findOne({ where: { id: tournamentId }, relations: { community: true } });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    await this.tournaments.assertCanManage(userId, tournament, 'change its banner');
   }
 
   /** Equips an owned item, or clears the category when `sku` is null. */
