@@ -22,6 +22,13 @@ export type DesignStatus = 'pending' | 'approved' | 'rejected';
 export type StoreItemTarget = 'player' | 'club' | 'tournament';
 
 /** A creator design's files and colours (uploaded images are served from /uploads/creators). */
+/** An earlier approved look of a creator's design. */
+export interface DesignVersion {
+  version: number;
+  assets: DesignAssets;
+  approvedAt: string | null;
+}
+
 export interface DesignAssets {
   imageUrl?: string;
   bannerUrl?: string;
@@ -80,6 +87,14 @@ export class StoreItem {
   /** A design change waiting for review; the approved one keeps selling meanwhile. */
   @Column({ type: 'jsonb', nullable: true })
   pendingAssets!: DesignAssets | null;
+
+  /** The approved look's number (1 = first). Each approved change adds one. */
+  @Column({ type: 'int', default: 1 })
+  version!: number;
+
+  /** Earlier approved looks, kept so owners can stay on the one they had. */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  versions!: DesignVersion[];
 
   @Column({ type: 'text', nullable: true })
   rejectReason!: string | null;

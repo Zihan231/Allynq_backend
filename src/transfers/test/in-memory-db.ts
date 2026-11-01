@@ -78,6 +78,10 @@ export function makeDb() {
       update: async (where: Row, patch: Row) => {
         rows.filter((r) => matches(r, where)).forEach((r) => Object.assign(r, patch));
       },
+      delete: async (where: Row) => {
+        const keep = rows.filter((r) => !matches(r, where));
+        rows.splice(0, rows.length, ...keep);
+      },
       createQueryBuilder: () => {
         let params: Row = {};
         const builder = {
@@ -136,6 +140,10 @@ export function makeDb() {
       return [];
     }
     if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    // Owners of a creator design (notified when it gets a new look).
+    if (sql.includes('FROM users WHERE "ownedCosmeticIds" ?')) {
+      return (tables.get('User') ?? []).filter((u) => (u.ownedCosmeticIds ?? []).includes(params[0])).map((u) => ({ id: u.id }));
+    }
     if (sql.includes('UPDATE store_items SET "salesCount"')) {
       const item = tables.get('StoreItem')?.find((r) => r.id === params[0]);
       if (item) {

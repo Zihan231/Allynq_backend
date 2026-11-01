@@ -106,4 +106,8 @@ export class Club {
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   equippedThemeSku!: string | null;
+
+  /** Club themes the club keeps on an earlier look: SKU → version (missing = latest). */
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  designVersions!: Record<string, number>;
 }

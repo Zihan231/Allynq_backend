@@ -192,6 +192,10 @@ export class User {
   @Column({ type: 'jsonb', nullable: true })
   ownedCosmeticIds!: string[] | null;
 
+  /** Creator designs the user keeps on an earlier look: SKU → version (missing = latest). */
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  designVersions!: Record<string, number>;
+
   @Column({ type: 'varchar', length: 128, nullable: true })
   equippedBadgeId!: string | null;
 

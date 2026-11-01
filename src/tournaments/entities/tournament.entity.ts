@@ -126,6 +126,10 @@ export class Tournament {
   @Column({ type: 'varchar', length: 64, nullable: true })
   bannerSku!: string | null;
 
+  /** The banner's look (an earlier version the organizer kept; null = latest). */
+  @Column({ type: 'int', nullable: true })
+  bannerVersion!: number | null;
+
   /** Set when fixtures are generated: 'knockout' or 'groups_knockout'. */
   @Column({ type: 'varchar', length: 24, nullable: true })
   format!: TournamentFormat | null;

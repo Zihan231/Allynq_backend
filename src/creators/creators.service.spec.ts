@@ -140,7 +140,7 @@ describe('CreatorsService + StoreService', () => {
 
     await creators.update(users.creator, design.id, {}, { image: [file('neon-v3.png')] });
     await creators.review(users.mod, design.id, { approve: true }, null);
-    expect(item(design.id)).toMatchObject({ assets: { imageUrl: '/uploads/creators/neon-v3.png' }, pendingAssets: null });
+    expect(item(design.id)).toMatchObject({ assets: { imageUrl: '/uploads/creators/neon-v3.png' }, pendingAssets: null, version: 2 });
   });
 
   it('only admins can change price or rarity when approving; rejecting needs a reason', async () => {
@@ -151,12 +151,14 @@ describe('CreatorsService + StoreService', () => {
     expect(item(design.id)).toMatchObject({ priceTk: 150, metadata: { rarity: 'epic' }, reviewStatus: 'approved', active: true });
   });
 
-  it('pausing works only once approved, and a club theme is not a profile item', async () => {
+  it("creators can't pause or remove a sold design, and a club theme is not a profile item", async () => {
     const design = await submitBadge();
-    await expect(creators.update(users.creator, design.id, { active: false }, {})).rejects.toThrow(/once staff approve/);
     await creators.review(users.mod, design.id, { approve: true }, null);
-    await creators.update(users.creator, design.id, { active: false }, {});
-    await expect(store.purchase('u-buyer', design.sku)).rejects.toThrow(/not on sale/);
+    await expect(creators.update(users.creator, design.id, { active: false }, {})).rejects.toThrow(/can't be paused/);
+    await store.purchase('u-buyer', design.sku);
+    await expect(creators.remove(users.creator, design.id)).rejects.toThrow(/has sold can't be removed/);
+    const unsold = await creators.create(users.creator, { category: 'badge', name: 'Quiet Wave', priceTk: 10 }, { image: [file('q.png')] });
+    expect(await creators.remove(users.creator, unsold.id)).toEqual({ deleted: true });
 
     const club = await creators.create(
       users.creator,
@@ -166,6 +168,31 @@ describe('CreatorsService + StoreService', () => {
     expect(item(club.id)).toMatchObject({ target: 'club', assets: { colors: { primary: '#112233', secondary: '#ffcc00' } } });
     await creators.review(users.mod, club.id, { approve: true }, null);
     await expect(store.purchase('u-buyer', club.sku)).rejects.toThrow(/clubs or tournaments/);
+  });
+
+  it('an approved new look keeps the old one: buyers stay on theirs until they choose', async () => {
+    const design = await submitBadge();
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    const bought = await store.purchase('u-buyer', design.sku);
+    expect(bought.versions[design.sku]).toBe(1);
+
+    await creators.update(users.creator, design.id, {}, { image: [file('neon-v2.png')] });
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    expect(item(design.id)).toMatchObject({
+      version: 2,
+      assets: { imageUrl: '/uploads/creators/neon-v2.png' },
+      versions: [{ version: 1, assets: { imageUrl: '/uploads/creators/neon.png' } }],
+    });
+
+    // Follow updates, go back to the old look; versions that don't exist are refused.
+    expect((await store.setDesignVersion('u-buyer', design.sku, null)).versions[design.sku]).toBeUndefined();
+    expect((await store.setDesignVersion('u-buyer', design.sku, 1)).versions[design.sku]).toBe(1);
+    await expect(store.setDesignVersion('u-buyer', design.sku, 7)).rejects.toThrow(/no such version/);
+    await expect(store.setDesignVersion('u-admin', design.sku, 1)).rejects.toThrow(/don't own/);
+
+    // A later buyer gets the new look.
+    db.table(Wallet).push({ id: 'w-a', ownerType: 'user', ownerId: 'u-admin', balanceTk: 500, heldTk: 0 });
+    expect((await store.purchase('u-admin', design.sku)).versions[design.sku]).toBe(2);
   });
 
   it("club leaders buy club themes from the club wallet and switch them; others can't", async () => {

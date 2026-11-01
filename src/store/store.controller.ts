@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateIf } from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { PlayerItemCategory } from '../admin/entities/store-item.entity.js';
@@ -27,6 +27,23 @@ export class PurchaseDto {
   @IsOptional()
   @IsUUID()
   tournamentId?: string;
+}
+
+/** Which look of a design to show: a version number, or null to follow the latest. */
+export class DesignVersionDto {
+  @IsString()
+  @MaxLength(64)
+  sku!: string;
+
+  @ValidateIf((dto: DesignVersionDto) => dto.version !== null)
+  @IsInt()
+  @Min(1)
+  version!: number | null;
+
+  /** A club theme: the club whose look changes (its President / GS). */
+  @IsOptional()
+  @IsUUID()
+  clubId?: string;
 }
 
 /** A club theme or tournament banner to show, or null for none. */
@@ -79,6 +96,13 @@ export class StoreController {
   @Get('clubs/:clubId')
   club(@CurrentUser() user: User, @Param('clubId', ParseUUIDPipe) clubId: string) {
     return this.store.club(user.id, clubId);
+  }
+
+  /** Keep an earlier look of a design I (or my club) own, or follow the latest. */
+  @UseGuards(JwtAuthGuard)
+  @Post('version')
+  setVersion(@CurrentUser() user: User, @Body() dto: DesignVersionDto) {
+    return this.store.setDesignVersion(user.id, dto.sku, dto.version, dto.clubId);
   }
 
   /** Put one of the club's themes on its page, or take it off. */

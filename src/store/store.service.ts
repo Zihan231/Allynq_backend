@@ -26,6 +26,8 @@ export interface MyStore {
   owned: string[];
   /** Equipped SKU per category (null = none). */
   equipped: Record<PlayerItemCategory, string | null>;
+  /** Creator designs kept on an earlier look: SKU → version (missing = latest). */
+  versions: Record<string, number>;
 }
 
 /** A club's side of the store (for its President / General Secretary). */
@@ -35,6 +37,7 @@ export interface ClubStore {
   balanceTk: number;
   owned: string[];
   equipped: string | null;
+  versions: Record<string, number>;
 }
 
 const CLUB_LEADERS: Array<string | null> = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
@@ -53,10 +56,13 @@ export class StoreService {
     private readonly tournaments: TournamentsService,
   ) {}
 
-  /** The items on sale: active, and creator designs only once approved (with their creator's name). */
+  /**
+   * The store's items with their looks: approved ones, with the creator's name. `onSale`
+   * tells which can be bought; the rest are listed so their owners keep showing them.
+   */
   async catalog() {
     const items = await this.dataSource.getRepository(StoreItem).find({
-      where: { active: true, reviewStatus: 'approved' },
+      where: { reviewStatus: 'approved' },
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
     const creatorIds = [...new Set(items.map((i) => i.creatorUserId).filter((id): id is string => Boolean(id)))];
@@ -65,6 +71,7 @@ export class StoreService {
       : [];
     return items.map(({ pendingAssets: _p, rejectReason: _r, reviewedById: _rb, revenueTk: _rev, ...item }) => ({
       ...item,
+      onSale: item.active,
       creator: item.creatorUserId ? (creators.find((c) => c.id === item.creatorUserId) ?? null) : null,
     }));
   }
@@ -96,12 +103,13 @@ export class StoreService {
 
       await this.charge(em, { type: 'user', id: userId }, item);
       user.ownedCosmeticIds = [...owned, item.sku];
+      user.designVersions = { ...user.designVersions, [item.sku]: item.version };
       const field = EQUIPPED_FIELD[item.category as PlayerItemCategory] as (typeof EQUIPPED_FIELD)[PlayerItemCategory] | undefined;
       const wear = equip && Boolean(field);
       if (wear) user[field!] = item.sku;
       await em.getRepository(User).update(
         { id: userId },
-        { ownedCosmeticIds: user.ownedCosmeticIds, ...(wear ? { [field!]: item.sku } : {}) },
+        { ownedCosmeticIds: user.ownedCosmeticIds, designVersions: user.designVersions, ...(wear ? { [field!]: item.sku } : {}) },
       );
       const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
       return this.view(user, wallet.balanceTk);
@@ -134,7 +142,13 @@ export class StoreService {
 
   private async clubView(em: EntityManager, club: Club): Promise<ClubStore> {
     const wallet = await this.wallets.lock(em, { type: 'club', id: club.id });
-    return { clubId: club.id, balanceTk: wallet.balanceTk, owned: club.ownedThemeSkus ?? [], equipped: club.equippedThemeSku };
+    return {
+      clubId: club.id,
+      balanceTk: wallet.balanceTk,
+      owned: club.ownedThemeSkus ?? [],
+      equipped: club.equippedThemeSku,
+      versions: club.designVersions ?? {},
+    };
   }
 
   /** A club's themes and wallet (leaders only). */
@@ -155,8 +169,12 @@ export class StoreService {
       if (owned.includes(item.sku)) throw new BadRequestException('The club already owns this theme');
       await this.charge(em, { type: 'club', id: clubId }, item);
       club.ownedThemeSkus = [...owned, item.sku];
+      club.designVersions = { ...club.designVersions, [item.sku]: item.version };
       if (equip) club.equippedThemeSku = item.sku;
-      await em.getRepository(Club).update({ id: clubId }, { ownedThemeSkus: club.ownedThemeSkus, equippedThemeSku: club.equippedThemeSku });
+      await em.getRepository(Club).update(
+        { id: clubId },
+        { ownedThemeSkus: club.ownedThemeSkus, equippedThemeSku: club.equippedThemeSku, designVersions: club.designVersions },
+      );
       return this.clubView(em, club);
     });
   }
@@ -186,8 +204,9 @@ export class StoreService {
       if (owned.includes(item.sku)) throw new BadRequestException('You already own this banner');
       await this.charge(em, { type: 'user', id: userId }, item);
       user.ownedCosmeticIds = [...owned, item.sku];
-      await em.getRepository(User).update({ id: userId }, { ownedCosmeticIds: user.ownedCosmeticIds });
-      if (tournamentId) await em.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: item.sku });
+      user.designVersions = { ...user.designVersions, [item.sku]: item.version };
+      await em.getRepository(User).update({ id: userId }, { ownedCosmeticIds: user.ownedCosmeticIds, designVersions: user.designVersions });
+      if (tournamentId) await em.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: item.sku, bannerVersion: item.version });
       const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
       return this.view(user, wallet.balanceTk);
     });
@@ -196,14 +215,57 @@ export class StoreService {
   /** Puts a banner the caller owns on a tournament they manage, or (null) takes it off. */
   async setTournamentBanner(userId: string, tournamentId: string, sku: string | null): Promise<{ tournamentId: string; bannerSku: string | null }> {
     await this.assertCanManage(userId, tournamentId);
+    let bannerVersion: number | null = null;
     if (sku !== null) {
       const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
       if (!(user?.ownedCosmeticIds ?? []).includes(sku)) throw new BadRequestException("You don't own this banner");
       const item = await this.dataSource.getRepository(StoreItem).findOne({ where: { sku } });
       if (item?.target !== 'tournament') throw new BadRequestException('This item is not a tournament banner');
+      bannerVersion = user?.designVersions?.[sku] ?? null;
     }
-    await this.dataSource.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: sku });
+    await this.dataSource.getRepository(Tournament).update({ id: tournamentId }, { bannerSku: sku, bannerVersion });
     return { tournamentId, bannerSku: sku };
+  }
+
+  /**
+   * Which look of a creator design an owner shows: an earlier version they had, or (null)
+   * always the latest. For a club theme the club's leaders choose. A banner's choice also
+   * applies to the general tournaments the user runs with it.
+   */
+  async setDesignVersion(userId: string, sku: string, version: number | null, clubId?: string): Promise<MyStore | ClubStore> {
+    return this.dataSource.transaction(async (em) => {
+      const item = await em.getRepository(StoreItem).findOne({ where: { sku } });
+      if (!item || item.reviewStatus !== 'approved') throw new NotFoundException('Design not found');
+      if (version !== null && version !== item.version && !(item.versions ?? []).some((v) => v.version === version)) {
+        throw new BadRequestException('This design has no such version');
+      }
+      // Choosing the latest version is the same as following updates.
+      const pick = (map: Record<string, number> | null | undefined) => {
+        const next = { ...map };
+        if (version === null) delete next[sku];
+        else next[sku] = version;
+        return next;
+      };
+
+      if (clubId) {
+        await this.assertClubLeader(em, clubId, userId);
+        const club = await this.lockClub(em, clubId);
+        if (!(club.ownedThemeSkus ?? []).includes(sku)) throw new BadRequestException("The club doesn't own this theme");
+        club.designVersions = pick(club.designVersions);
+        await em.getRepository(Club).update({ id: clubId }, { designVersions: club.designVersions });
+        return this.clubView(em, club);
+      }
+
+      const user = await this.lockUser(em, userId);
+      if (!(user.ownedCosmeticIds ?? []).includes(sku)) throw new BadRequestException("You don't own this design");
+      user.designVersions = pick(user.designVersions);
+      await em.getRepository(User).update({ id: userId }, { designVersions: user.designVersions });
+      if (item.target === 'tournament') {
+        await em.getRepository(Tournament).update({ bannerSku: sku, creatorId: userId }, { bannerVersion: version });
+      }
+      const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
+      return this.view(user, wallet.balanceTk);
+    });
   }
 
   private async assertCanManage(userId: string, tournamentId: string): Promise<void> {
@@ -272,6 +334,7 @@ export class StoreService {
         frame: user.equippedFrameId,
         theme: user.equippedThemeId,
       },
+      versions: user.designVersions ?? {},
     };
   }
 }

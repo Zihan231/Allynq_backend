@@ -62,7 +62,7 @@ export class UsersService {
           'id', 'name', 'dpUrl', 'coverUrl', 'bio', 'facebookUrl', 'facebookProfileName', 'instagramUrl',
           'discordUrl', 'inGameId', 'deviceName', 'deviceModel', 'gamingPlatform', 'birthday', 'bloodGroup', 'country',
           'division', 'district', 'education', 'verificationLevel', 'ownedCosmeticIds', 'equippedBadgeId',
-          'equippedTitleId', 'equippedFrameId', 'equippedThemeId', 'createdAt', 'updatedAt',
+          'equippedTitleId', 'equippedFrameId', 'equippedThemeId', 'designVersions', 'createdAt', 'updatedAt',
         ].map((column) => `user.${column}`),
       )
       .leftJoin('user.efootballProfile', 'efootballProfile')

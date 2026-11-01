@@ -126,6 +126,8 @@ export class CreatorsService {
           target: TARGET[category],
           assets,
           creatorUserId: user.id,
+          version: 1,
+          versions: [],
           metadata: { rarity: input.rarity ?? 'common' },
         }),
       );
@@ -155,10 +157,8 @@ export class CreatorsService {
         item.priceTk = input.priceTk;
       }
       if (input.rarity) item.metadata = { ...item.metadata, rarity: input.rarity };
-      if (input.active !== undefined) {
-        if (item.reviewStatus !== 'approved') throw new BadRequestException('A design goes on sale once staff approve it');
-        item.active = input.active;
-      }
+      // Buyers count on a design staying available: creators can't pause or pull it.
+      if (input.active !== undefined) throw new BadRequestException("Designs stay on sale once approved; they can't be paused");
 
       const fileAssets = assetsFromFiles(item.category, files, true);
       const colors = this.colors(input, item.category, false);
@@ -187,16 +187,11 @@ export class CreatorsService {
     }
   }
 
-  /** Not yet sold: deleted. Approved: taken off sale for good (owners keep it). */
+  /** Only a design nobody owns can be removed; once sold it stays (owners keep using it). */
   async remove(user: User, id: string) {
     this.assertCreator(user);
     const item = await this.own(user, id);
-    if (item.reviewStatus === 'approved' && item.salesCount > 0) {
-      item.active = false;
-      item.metadata = { ...item.metadata, delisted: true };
-      await this.dataSource.getRepository(StoreItem).save(item);
-      return { delisted: true };
-    }
+    if (item.salesCount > 0) throw new BadRequestException("A design that has sold can't be removed: its owners keep using it");
     await this.dataSource.getRepository(StoreItem).delete({ id });
     await removeDesignFiles([...assetUrls(item.assets), ...assetUrls(item.pendingAssets)]);
     return { deleted: true };
@@ -284,9 +279,11 @@ export class CreatorsService {
 
     if (dto.approve) {
       if (isChange) {
-        await removeDesignFiles(assetUrls(item.assets).filter((u) => !assetUrls(item.pendingAssets).includes(u)));
+        // The old look stays available to owners who'd rather keep it.
+        if (item.assets) item.versions = [...(item.versions ?? []), { version: item.version, assets: item.assets, approvedAt: item.reviewedAt?.toISOString() ?? null }];
         item.assets = item.pendingAssets;
         item.pendingAssets = null;
+        item.version += 1;
       } else {
         item.reviewStatus = 'approved';
         item.active = true;
@@ -324,6 +321,31 @@ export class CreatorsService {
         ? `"${item.name}" is ${isChange ? 'updated' : 'on sale'} in the store${adjusted ? ` (price ${item.priceTk} tk, ${String(item.metadata?.rarity)})` : ''}.`
         : `"${item.name}" wasn't approved: ${item.rejectReason}`,
     );
+    if (dto.approve && isChange) await this.notifyOwners(item);
     return item;
+  }
+
+  /** A new look was approved: owners keep their look until they choose to update. */
+  private async notifyOwners(item: StoreItem) {
+    const owners: Array<{ id: string }> =
+      item.target === 'club'
+        ? await this.dataSource.query(
+            `SELECT p."userId" AS id FROM clubs c JOIN efootball_profiles p ON p."clubId" = c.id AND p."clubRole" IN ('President', 'General Secretary')
+              WHERE c."ownedThemeSkus" ? $1 AND c."deletedAt" IS NULL`,
+            [item.sku],
+          )
+        : await this.dataSource.query(`SELECT id FROM users WHERE "ownedCosmeticIds" ? $1 AND "deletedAt" IS NULL`, [item.sku]);
+    for (const { id } of owners) {
+      await this.notifications
+        .createNotification(id, {
+          title: 'New look available',
+          message: `"${item.name}" has a new look. You keep yours until you choose to update it in the store.`,
+          type: 'system',
+          link: '/dashboard/efootball/store?owned=1',
+          code: 'store.designUpdated',
+          params: { name: item.name },
+        })
+        .catch((err) => this.logger.error(`Owner notification failed: ${(err as Error).message}`));
+    }
   }
 }
