@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { SettingsService } from '../settings/settings.service.js';
-import { Wallet, type WalletOwnerType } from './entities/wallet.entity.js';
+import { PLATFORM_WALLET_ID, Wallet, type WalletOwnerType } from './entities/wallet.entity.js';
 import { WalletTransaction, type WalletTransactionKind } from './entities/wallet-transaction.entity.js';
 
 /** The deal a wallet movement belongs to: a transfer offer or a loan. */
@@ -10,6 +10,7 @@ export interface DealRef {
   loanId?: string | null;
   tournamentId?: string | null;
   storeItemId?: string | null;
+  coachingDealId?: string | null;
 }
 
 export interface WalletOwner {
@@ -46,7 +47,8 @@ export class WalletsService {
   /** The owner's wallet, created with the starting balance if missing, locked for update. */
   async lock(em: EntityManager, owner: WalletOwner): Promise<Wallet> {
     const settings = await this.settingsService.transfers();
-    const start = owner.type === 'club' ? settings.clubStartingBalanceTk : settings.playerStartingBalanceTk;
+    const start =
+      owner.type === 'club' ? settings.clubStartingBalanceTk : owner.type === 'user' ? settings.playerStartingBalanceTk : 0;
     await em.query(
       `INSERT INTO wallets ("ownerType", "ownerId", "balanceTk") VALUES ($1, $2, $3)
        ON CONFLICT ("ownerType", "ownerId") DO NOTHING`,
@@ -203,6 +205,7 @@ export class WalletsService {
       offerId: ref.offerId,
       loanId: ref.loanId,
       tournamentId: ref.tournamentId,
+      coachingDealId: ref.coachingDealId,
       counterparty: ref.toName,
       reference: ref.reference,
     });
@@ -214,9 +217,42 @@ export class WalletsService {
       offerId: ref.offerId,
       loanId: ref.loanId,
       tournamentId: ref.tournamentId,
+      coachingDealId: ref.coachingDealId,
       counterparty: ref.fromName,
       reference: ref.reference,
     });
+  }
+
+  /**
+   * Pays held money out with the platform's cut: the payer's hold clears by the full
+   * amount, the payee gets the rest, the platform wallet gets `commissionTk`.
+   */
+  async payOutWithCommission(
+    em: EntityManager,
+    from: WalletOwner,
+    to: WalletOwner,
+    amountTk: number,
+    commissionTk: number,
+    ref: DealRef & { fromName: string; toName: string; reference: string | null },
+  ): Promise<void> {
+    if (amountTk <= 0) return;
+    const cut = Math.min(Math.max(0, commissionTk), amountTk);
+    const payer = await this.lock(em, from);
+    payer.heldTk = Math.max(0, payer.heldTk - amountTk);
+    await em.save(payer);
+    await this.record(em, payer, 'payout_sent', amountTk, { ...ref, counterparty: ref.toName });
+
+    const payee = await this.lock(em, to);
+    payee.balanceTk += amountTk - cut;
+    await em.save(payee);
+    await this.record(em, payee, 'received', amountTk - cut, { ...ref, counterparty: ref.fromName });
+
+    if (cut > 0) {
+      const platform = await this.lock(em, { type: 'platform', id: PLATFORM_WALLET_ID });
+      platform.balanceTk += cut;
+      await em.save(platform);
+      await this.record(em, platform, 'commission', cut, { ...ref, counterparty: ref.fromName });
+    }
   }
 
   /**
@@ -255,6 +291,7 @@ export class WalletsService {
       loanId: ref.loanId ?? null,
       tournamentId: ref.tournamentId ?? null,
       storeItemId: ref.storeItemId ?? null,
+      coachingDealId: ref.coachingDealId ?? null,
       counterparty: ref.counterparty ?? null,
       reference: ref.reference ?? null,
     });

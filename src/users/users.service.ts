@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
@@ -6,6 +6,7 @@ import { CreateEfootballProfileDto } from './dto/create-efootball-profile.dto.js
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateEfootballProfileDto } from './dto/update-efootball-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { SetRolesDto } from './dto/set-roles.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { EfootballProfile } from './entities/efootball-profile.entity.js';
 import { User } from './entities/user.entity.js';
@@ -135,6 +136,18 @@ export class UsersService {
       throw new NotFoundException(`User ${id} not found`);
     }
     return user;
+  }
+
+  /** Sets the user's roles (from the role picker or the profile); the default must be one of them. */
+  async setRoles(userId: string, dto: SetRolesDto): Promise<User> {
+    if (!dto.roles.includes(dto.primaryRole)) {
+      throw new BadRequestException('Your default role must be one of the roles you picked');
+    }
+    const user = await this.findOne(userId);
+    user.roles = dto.roles;
+    user.primaryRole = dto.primaryRole;
+    user.rolesChosenAt = user.rolesChosenAt ?? new Date();
+    return this.usersRepository.save(user);
   }
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {

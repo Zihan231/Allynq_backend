@@ -1,6 +1,9 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
 
-export type WalletOwnerType = 'user' | 'club';
+export type WalletOwnerType = 'user' | 'club' | 'platform';
+
+/** The single Allynq wallet that collects platform commission. */
+export const PLATFORM_WALLET_ID = '00000000-0000-0000-0000-00000000a11e';
 
 /**
  * Demo wallet for a player or a club. `balanceTk` is what can be spent;

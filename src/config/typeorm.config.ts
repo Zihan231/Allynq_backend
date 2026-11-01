@@ -38,6 +38,9 @@ import { StoreItem } from '../admin/entities/store-item.entity.js';
 import { NotificationTemplate } from '../notifications/entities/notification-template.entity.js';
 import { SecurityBan } from '../security/security-ban.entity.js';
 import { SeasonStanding } from '../admin/entities/season-standing.entity.js';
+import { CoachProfile } from '../coaching/entities/coach-profile.entity.js';
+import { CoachPost } from '../coaching/entities/coach-post.entity.js';
+import { CoachingDeal } from '../coaching/entities/coaching-deal.entity.js';
 
 export function buildTypeOrmOptions(
   configService: ConfigService,
@@ -85,6 +88,9 @@ export function buildTypeOrmOptions(
       Season,
       StoreItem,
       SecurityBan,
+      CoachProfile,
+      CoachPost,
+      CoachingDeal,
     ],
     migrations: ['dist/migrations/*.js'],
     synchronize: false,

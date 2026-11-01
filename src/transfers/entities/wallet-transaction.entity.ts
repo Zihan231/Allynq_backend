@@ -9,6 +9,7 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
  * - adjustment: a correction made by ALLYNQ staff (either sign);
  * - reversal: money moved back when staff reversed a completed transfer (either sign).
  * - purchase: spent in the store (negative).
+ * - commission: the platform's cut of a paid deal (on the platform wallet).
  */
 export type WalletTransactionKind =
   | 'top_up'
@@ -18,7 +19,8 @@ export type WalletTransactionKind =
   | 'received'
   | 'adjustment'
   | 'reversal'
-  | 'purchase';
+  | 'purchase'
+  | 'commission';
 
 @Entity('wallet_transactions')
 export class WalletTransaction {
@@ -53,6 +55,10 @@ export class WalletTransaction {
   /** The store item it paid for (purchases). */
   @Column({ type: 'uuid', nullable: true })
   storeItemId!: string | null;
+
+  /** The coaching deal it belongs to (coach fees). */
+  @Column({ type: 'uuid', nullable: true })
+  coachingDealId!: string | null;
 
   /** Who the money went to / came from (display name). */
   @Column({ type: 'varchar', length: 255, nullable: true })

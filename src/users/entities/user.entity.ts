@@ -204,6 +204,18 @@ export class User {
   @Column({ type: 'varchar', length: 128, nullable: true })
   equippedThemeId!: string | null;
 
+  /** What the user does on Allynq (player, organizer, coach, ...); see USER_ROLES. */
+  @Column({ type: 'jsonb', default: () => `'["player"]'::jsonb` })
+  roles!: string[];
+
+  /** The role the dashboard opens in: the first one picked. */
+  @Column({ type: 'varchar', length: 16, default: 'player' })
+  primaryRole!: string;
+
+  /** When the "What suits you best?" picker was answered; null shows it (once). */
+  @Column({ type: 'timestamptz', nullable: true })
+  rolesChosenAt!: Date | null;
+
   @OneToOne(() => EfootballProfile, (profile) => profile.user)
   efootballProfile?: Relation<EfootballProfile>;
 

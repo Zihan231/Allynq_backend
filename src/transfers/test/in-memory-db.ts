@@ -28,6 +28,7 @@ function matches(row: Row, where: Row = {}): boolean {
     if (expected && typeof expected === 'object' && '_type' in expected) {
       if (expected._type === 'in') return (expected._value as unknown[]).includes(row[key]);
       if (expected._type === 'lessThanOrEqual') return row[key] <= expected._value;
+      if (expected._type === 'isNull') return row[key] == null;
       throw new Error(`Unsupported operator ${expected._type}`);
     }
     return row[key] === expected;
@@ -48,7 +49,7 @@ export function makeDb() {
   const removedFromLineups: Array<{ participantIds: string[]; profileId: string }> = [];
   /** Matches each player (by profile id) has played for his loan club. */
   const played = new Map<string, number>();
-  const walletStart = { club: DEFAULT_TRANSFER_SETTINGS.clubStartingBalanceTk, user: DEFAULT_TRANSFER_SETTINGS.playerStartingBalanceTk };
+  const walletStart = { club: DEFAULT_TRANSFER_SETTINGS.clubStartingBalanceTk, user: DEFAULT_TRANSFER_SETTINGS.playerStartingBalanceTk, platform: 0 };
 
   const repo = (entity: { name: string }) => {
     const rows = table(entity);
@@ -104,6 +105,7 @@ export function makeDb() {
     if (params.loanId) return rows.find((r) => r.id === params.loanId) ?? null;
     if (params.userId) return rows.find((r) => r.id === params.userId) ?? null;
     if (params.type && params.id) return rows.find((r) => r.ownerType === params.type && r.ownerId === params.id) ?? null;
+    if (params.id) return rows.find((r) => r.id === params.id) ?? null;
     return null;
   };
 
@@ -128,7 +130,7 @@ export function makeDb() {
       const [ownerType, ownerId] = params as [string, string];
       const wallets = table(Wallet);
       if (!wallets.some((w) => w.ownerType === ownerType && w.ownerId === ownerId)) {
-        wallets.push({ id: randomUUID(), ownerType, ownerId, balanceTk: walletStart[ownerType as 'club' | 'user'], heldTk: 0 });
+        wallets.push({ id: randomUUID(), ownerType, ownerId, balanceTk: walletStart[ownerType as 'club' | 'user' | 'platform'], heldTk: 0 });
       }
       return [];
     }

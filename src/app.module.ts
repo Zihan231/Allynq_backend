@@ -14,6 +14,7 @@ import { buildTypeOrmOptions } from './config/typeorm.config.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { RecycleBinModule } from './recycle-bin/recycle-bin.module.js';
 import { ReportsModule } from './reports/reports.module.js';
+import { CoachingModule } from './coaching/coaching.module.js';
 import { TournamentsModule } from './tournaments/tournaments.module.js';
 import { StatsModule } from './stats/stats.module.js';
 import { SettingsModule } from './settings/settings.module.js';
@@ -49,6 +50,7 @@ import { SecurityModule } from './security/security.module.js';
     StoreModule,
     AdminModule,
     ReportsModule,
+    CoachingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

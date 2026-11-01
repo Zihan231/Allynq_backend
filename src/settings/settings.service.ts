@@ -21,6 +21,11 @@ export interface TransferSettings {
   maxLoanMatches: number;
   /** Most days a loan can last, whatever the matches played. */
   maxLoanDays: number;
+  /** The platform's cut of a coaching fee, in percent. */
+  coachingCommissionPct: number;
+  /** Shortest and longest coaching deal, in days. */
+  minCoachingDays: number;
+  maxCoachingDays: number;
 }
 
 export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
@@ -33,6 +38,9 @@ export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
   maxLoansPerClub: 3,
   maxLoanMatches: 10,
   maxLoanDays: 60,
+  coachingCommissionPct: 10,
+  minCoachingDays: 7,
+  maxCoachingDays: 90,
 };
 
 /** Admin and moderation settings (`app_settings` key "admin"). */

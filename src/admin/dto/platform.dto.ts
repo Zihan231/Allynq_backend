@@ -135,6 +135,9 @@ export class TransferSettingsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(50) maxLoansPerClub?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) maxLoanMatches?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(7) @Max(365) maxLoanDays?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(50) coachingCommissionPct?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(365) minCoachingDays?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(365) maxCoachingDays?: number;
 }
 
 export class AdminSettingsDto {

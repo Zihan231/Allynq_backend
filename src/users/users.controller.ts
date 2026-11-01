@@ -19,6 +19,7 @@ import { CreateEfootballProfileDto } from './dto/create-efootball-profile.dto.js
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateEfootballProfileDto } from './dto/update-efootball-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { SetRolesDto } from './dto/set-roles.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { createPaginatedResult } from '../common/interfaces/paginated-result.interface.js';
 import { User } from './entities/user.entity.js';
@@ -54,6 +55,14 @@ export class UsersController {
     @CurrentUser() caller: User,
   ) {
     const user = await this.usersService.update(caller.id, dto);
+    return serializeUser(user, true);
+  }
+
+  /** "What suits you best?": the roles a user takes on, and the one the dashboard opens in. */
+  @UseGuards(JwtAuthGuard)
+  @Put('me/roles')
+  async setMyRoles(@Body() dto: SetRolesDto, @CurrentUser() caller: User) {
+    const user = await this.usersService.setRoles(caller.id, dto);
     return serializeUser(user, true);
   }
 
