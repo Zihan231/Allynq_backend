@@ -333,8 +333,8 @@ export class SponsorsService {
     if (query.verified === 'true') qb.andWhere('sp."verifiedAt" IS NOT NULL');
     if (query.search?.trim()) qb.andWhere('(sp."brandName" ILIKE :q OR sp.tagline ILIKE :q OR sp.industry ILIKE :q)', { q: `%${query.search.trim()}%` });
     const [rows, total] = await qb
-      .orderBy('sp."verifiedAt" IS NULL', 'ASC')
-      .addOrderBy('sp."updatedAt"', 'DESC')
+      .orderBy('sp.verifiedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('sp.updatedAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
