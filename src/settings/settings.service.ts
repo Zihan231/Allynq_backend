@@ -26,6 +26,8 @@ export interface TransferSettings {
   /** Shortest and longest coaching deal, in days. */
   minCoachingDays: number;
   maxCoachingDays: number;
+  /** Platform's cut of each sponsorship, in percent. */
+  sponsorCommissionPct: number;
   /** The platform's cut of a creator design sale, in percent. */
   creatorCommissionPct: number;
 }
@@ -43,6 +45,7 @@ export const DEFAULT_TRANSFER_SETTINGS: TransferSettings = {
   coachingCommissionPct: 10,
   minCoachingDays: 7,
   maxCoachingDays: 90,
+  sponsorCommissionPct: 10,
   creatorCommissionPct: 30,
 };
 

@@ -20,6 +20,7 @@ export type NotificationType =
   | 'tournament_update'
   | 'transfer'
   | 'coaching'
+  | 'sponsorship'
   | 'system';
 
 @Entity('notifications')

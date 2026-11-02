@@ -62,5 +62,8 @@ uploads/evidence/
 # Creator designs (badges, frames, themes, stickers)
 uploads/creators/
 
+# Sponsor logos and banners
+uploads/sponsors/
+
 # Encrypted database snapshots
 backups/

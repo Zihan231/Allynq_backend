@@ -27,7 +27,7 @@ function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([key, expected]) => {
     if (expected && typeof expected === 'object' && '_type' in expected) {
       if (expected._type === 'in') return (expected._value as unknown[]).includes(row[key]);
-      if (expected._type === 'lessThanOrEqual') return row[key] <= expected._value;
+      if (expected._type === 'lessThanOrEqual') return row[key] != null && row[key] <= expected._value;
       if (expected._type === 'isNull') return row[key] == null;
       if (expected._type === 'not') return !matches(row, { [key]: expected._value });
       throw new Error(`Unsupported operator ${expected._type}`);
@@ -63,6 +63,7 @@ export function makeDb() {
       // Remember which table a created object belongs to, for em.save().
       create: (data: Row) => Object.defineProperty({ ...data }, '__entity', { value: entity.name, enumerable: false }),
       findOne: async ({ where }: { where: Row }) => rows.find((r) => matches(r, where)) ?? null,
+      count: async ({ where }: { where?: Row } = {}) => rows.filter((r) => matches(r, where)).length,
       findOneOrFail: async ({ where }: { where: Row }) => {
         const row = rows.find((r) => matches(r, where));
         if (!row) throw new Error(`${entity.name} not found`);
@@ -140,6 +141,13 @@ export function makeDb() {
       return [];
     }
     if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    // Sponsorships of tournaments that are over (SponsorsService.tick).
+    if (sql.includes('FROM sponsorships s JOIN tournaments t')) {
+      const tournaments = tables.get('Tournament') ?? [];
+      return (tables.get('Sponsorship') ?? [])
+        .filter((d) => d.status === 'active' && ['completed', 'cancelled'].includes(tournaments.find((t) => t.id === d.tournamentId)?.status))
+        .map((d) => ({ id: d.id }));
+    }
     // Owners who never chose a look are pinned to the current one before a new look goes live.
     if (sql.startsWith('UPDATE users SET "designVersions"')) {
       const [sku, pin] = params as [string, string];

@@ -62,6 +62,10 @@ export class WalletTransaction {
   @Column({ type: 'uuid', nullable: true })
   coachingDealId!: string | null;
 
+  /** The sponsorship it belongs to (sponsor payments). */
+  @Column({ type: 'uuid', nullable: true })
+  sponsorshipId!: string | null;
+
   /** Who the money went to / came from (display name). */
   @Column({ type: 'varchar', length: 255, nullable: true })
   counterparty!: string | null;

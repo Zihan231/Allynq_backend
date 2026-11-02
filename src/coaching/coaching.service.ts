@@ -236,7 +236,7 @@ export class CoachingService {
     const em = this.dataSource.manager;
     const profile = await em.getRepository(CoachProfile).findOne({ where: { userId } });
     const posts = await em.getRepository(CoachPost).find({
-      where: { coachUserId: userId, deletedAt: IsNull() },
+      where: { coachUserId: userId, authorRole: 'coach', deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
     });
     const deals = await em.getRepository(CoachingDeal).find({
@@ -295,7 +295,7 @@ export class CoachingService {
       : [];
     const postCounts: Array<{ coachUserId: string; n: number }> = ids.length
       ? await this.dataSource.query(
-          `SELECT "coachUserId", count(*)::int AS n FROM coach_posts WHERE status = 'approved' AND "deletedAt" IS NULL AND "coachUserId" = ANY($1) GROUP BY 1`,
+          `SELECT "coachUserId", count(*)::int AS n FROM coach_posts WHERE status = 'approved' AND "authorRole" = 'coach' AND "deletedAt" IS NULL AND "coachUserId" = ANY($1) GROUP BY 1`,
           [ids],
         )
       : [];
@@ -329,7 +329,9 @@ export class CoachingService {
     if (!profile) throw new NotFoundException('Coach not found');
     const own = viewerId === userId;
     const posts = await this.dataSource.getRepository(CoachPost).find({
-      where: own ? { coachUserId: userId, deletedAt: IsNull() } : { coachUserId: userId, status: 'approved', deletedAt: IsNull() },
+      where: own
+        ? { coachUserId: userId, authorRole: 'coach', deletedAt: IsNull() }
+        : { coachUserId: userId, authorRole: 'coach', status: 'approved', deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
     });
     const active = await this.dataSource.getRepository(CoachingDeal).findOne({
@@ -380,7 +382,7 @@ export class CoachingService {
       const links = parseLinks(dto.links);
       const body = (dto.body ?? '').trim();
       if (!body && !links.length && !media.length) throw new BadRequestException('Write something, add a link or upload a photo or video');
-      const post = this.dataSource.getRepository(CoachPost).create({ coachUserId: caller.id, body, links, media, status: 'pending' });
+      const post = this.dataSource.getRepository(CoachPost).create({ coachUserId: caller.id, authorRole: 'coach', body, links, media, status: 'pending' });
       return await this.dataSource.getRepository(CoachPost).save(post);
     } catch (err) {
       await removeCoachingFiles(files.map((f) => `/uploads/coaching/${f.filename}`));
@@ -404,14 +406,15 @@ export class CoachingService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const [rows, total] = await this.dataSource.getRepository(CoachPost).findAndCount({
-      where: { status: query.status ?? 'pending', deletedAt: IsNull() },
+      where: { status: query.status ?? 'pending', deletedAt: IsNull(), ...(query.author ? { authorRole: query.author } : {}) },
       relations: { coach: true },
       order: { createdAt: query.status === 'pending' || !query.status ? 'ASC' : 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
     const counts: Array<{ status: string; n: number }> = await this.dataSource.query(
-      `SELECT status, count(*)::int AS n FROM coach_posts WHERE "deletedAt" IS NULL GROUP BY 1`,
+      `SELECT status, count(*)::int AS n FROM coach_posts WHERE "deletedAt" IS NULL AND ($1::text IS NULL OR "authorRole" = $1) GROUP BY 1`,
+      [query.author ?? null],
     );
     return {
       ...createPaginatedResult(
@@ -451,8 +454,10 @@ export class CoachingService {
       [post.coachUserId],
       dto.approve ? 'coaching.postApproved' : 'coaching.postRejected',
       dto.approve ? 'Post approved' : 'Post not approved',
-      dto.approve ? 'Your coaching post is now public.' : `Your coaching post wasn't approved: ${post.rejectReason}`,
-      COACH_LINK,
+      dto.approve
+        ? post.authorRole === 'sponsor' ? 'Your sponsored post is now in the feed.' : 'Your coaching post is now public.'
+        : `Your ${post.authorRole === 'sponsor' ? 'sponsored' : 'coaching'} post wasn't approved: ${post.rejectReason}`,
+      post.authorRole === 'sponsor' ? '/dashboard/sponsor/posts' : COACH_LINK,
       { reason: post.rejectReason },
     );
     return post;

@@ -29,7 +29,12 @@ export interface FeedItem {
   saveCount: number;
   likedByMe: boolean;
   savedByMe: boolean;
+  /** The author (a coach, or a sponsor: then `role` is 'sponsor' and `brand` is set). */
   coach: { id: string; name: string; dpUrl: string | null; headline: string; specialities: string[]; followedByMe: boolean };
+  author: {
+    role: 'coach' | 'sponsor';
+    brand: { name: string; logoUrl: string | null; verified: boolean } | null;
+  };
   comments: FeedCommentView[];
 }
 
@@ -58,12 +63,13 @@ function decodeCursor(raw: string | undefined): Cursor {
 }
 
 /**
- * The coaching feed: approved coach posts, ranked per viewer.
+ * The feed: approved coach posts and sponsor posts ("Sponsored"), ranked per viewer.
  *
  * "For you" score = engagement ÷ age, then personal boosts:
  *   (1 + likes + 2·comments + 3·saves) / (hours old + 2)^1.2
  *   × 3 for coaches you follow, × 2.5 for your club's coach,
  *   × 1.5 for coaches whose specialities match posts you liked or saved,
+ *   × 2 for sponsors of your community or of tournaments you're in,
  *   × 0.25 for posts you've already seen, × 0.5 for your own.
  * Pages are ranked as of the moment the feed was opened (in the cursor), so the order
  * holds while scrolling; "Following" and "Saved" are newest first.
@@ -86,8 +92,10 @@ export class FeedService {
     const base = `
       FROM coach_posts p
       JOIN users u ON u.id = p."coachUserId" AND u."deletedAt" IS NULL AND u."bannedAt" IS NULL
-      JOIN coach_profiles cp ON cp."userId" = p."coachUserId"
-      WHERE p.status = 'approved' AND p."deletedAt" IS NULL AND p."createdAt" <= $2::timestamptz`;
+      LEFT JOIN coach_profiles cp ON cp."userId" = p."coachUserId" AND p."authorRole" = 'coach'
+      LEFT JOIN sponsor_profiles spp ON spp."userId" = p."coachUserId" AND p."authorRole" = 'sponsor'
+      WHERE p.status = 'approved' AND p."deletedAt" IS NULL AND p."createdAt" <= $2::timestamptz
+        AND (cp."userId" IS NOT NULL OR spp."userId" IS NOT NULL)`;
 
     let sql: string;
     if (tab === 'following') {
@@ -104,6 +112,11 @@ export class FeedService {
                SELECT d."coachUserId" FROM coaching_deals d
                 JOIN efootball_profiles ep ON ep."clubId" = d."clubId" AND ep."userId" = $1
                WHERE d.status = 'active'),
+             my_sponsors AS (
+               SELECT s."sponsorUserId" FROM sponsorships s
+                WHERE s.status = 'active' AND (
+                  s."communityId" IN (SELECT "communityId" FROM efootball_profiles WHERE "userId" = $1)
+                  OR s."tournamentId" IN (SELECT "tournamentId" FROM tournament_participants WHERE "userId" = $1))),
              liked_specs AS (
                SELECT DISTINCT jsonb_array_elements_text(cp2.specialities) AS spec
                  FROM coach_posts p2
@@ -116,8 +129,9 @@ export class FeedService {
             * (CASE WHEN p."coachUserId" IN (SELECT "coachUserId" FROM followed) THEN 3 ELSE 1 END)
             * (CASE WHEN p."coachUserId" IN (SELECT "coachUserId" FROM club_coach) THEN 2.5 ELSE 1 END)
             * (CASE WHEN EXISTS (
-                 SELECT 1 FROM jsonb_array_elements_text(cp.specialities) sp WHERE sp IN (SELECT spec FROM liked_specs)
+                 SELECT 1 FROM jsonb_array_elements_text(COALESCE(cp.specialities, '[]'::jsonb)) sp WHERE sp IN (SELECT spec FROM liked_specs)
                ) THEN 1.5 ELSE 1 END)
+            * (CASE WHEN p."authorRole" = 'sponsor' AND p."coachUserId" IN (SELECT "sponsorUserId" FROM my_sponsors) THEN 2 ELSE 1 END)
             * (CASE WHEN EXISTS (
                  SELECT 1 FROM coach_post_views v WHERE v."postId" = p.id AND v."userId" = $1 AND v."seenAt" < $2::timestamptz
                ) THEN 0.25 ELSE 1 END)
@@ -142,6 +156,10 @@ export class FeedService {
     const posts = await this.dataSource.getRepository(CoachPost).find({ where: ids.map((id) => ({ id })), relations: { coach: true } });
     const coachIds = [...new Set(posts.map((p) => p.coachUserId))];
     const profiles = await this.dataSource.getRepository(CoachProfile).find({ where: coachIds.map((userId) => ({ userId })) });
+    const brands: Array<{ userId: string; brandName: string; logoUrl: string | null; verifiedAt: Date | null; tagline: string }> = await this.dataSource.query(
+      `SELECT "userId", "brandName", "logoUrl", "verifiedAt", tagline FROM sponsor_profiles WHERE "userId" = ANY($1)`,
+      [coachIds],
+    );
     const [likes, saves, follows]: Array<Array<{ id: string }>> = viewerId
       ? await Promise.all([
           this.dataSource.query(`SELECT "postId" AS id FROM coach_post_likes WHERE "userId" = $1 AND "postId" = ANY($2)`, [viewerId, ids]),
@@ -171,6 +189,7 @@ export class FeedService {
       .filter((p): p is CoachPost => Boolean(p))
       .map((p) => {
         const profile = profiles.find((pr) => pr.userId === p.coachUserId);
+        const brand = p.authorRole === 'sponsor' ? brands.find((b) => b.userId === p.coachUserId) : undefined;
         return {
           id: p.id,
           body: p.body,
@@ -186,9 +205,13 @@ export class FeedService {
             id: p.coachUserId,
             name: p.coach?.name ?? 'Coach',
             dpUrl: p.coach?.dpUrl ?? null,
-            headline: profile?.headline ?? '',
+            headline: brand ? brand.tagline : (profile?.headline ?? ''),
             specialities: profile?.specialities ?? [],
             followedByMe: followed.has(p.coachUserId),
+          },
+          author: {
+            role: p.authorRole,
+            brand: brand ? { name: brand.brandName, logoUrl: brand.logoUrl, verified: Boolean(brand.verifiedAt) } : null,
           },
           comments: comments
             .filter((c) => c.postId === p.id)
@@ -292,11 +315,14 @@ export class FeedService {
     return { deleted: true };
   }
 
-  /** Follow / unfollow a coach. */
+  /** Follow / unfollow a coach or a sponsor. */
   async follow(user: User, coachUserId: string, on: boolean) {
     if (coachUserId === user.id) throw new BadRequestException("You can't follow yourself");
-    const profile = await this.dataSource.getRepository(CoachProfile).findOne({ where: { userId: coachUserId } });
-    if (!profile) throw new NotFoundException('Coach not found');
+    const [author]: Array<{ ok: boolean }> = await this.dataSource.query(
+      `SELECT EXISTS (SELECT 1 FROM coach_profiles WHERE "userId" = $1) OR EXISTS (SELECT 1 FROM sponsor_profiles WHERE "userId" = $1) AS ok`,
+      [coachUserId],
+    );
+    if (!author?.ok) throw new NotFoundException('Not found');
     const rows: unknown[] = on
       ? await this.dataSource.query(
           `INSERT INTO coach_follows ("coachUserId", "followerUserId") VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING "coachUserId"`,

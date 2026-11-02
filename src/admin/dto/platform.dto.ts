@@ -138,6 +138,7 @@ export class TransferSettingsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(50) coachingCommissionPct?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(365) minCoachingDays?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(365) maxCoachingDays?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(50) sponsorCommissionPct?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(90) creatorCommissionPct?: number;
 }
 

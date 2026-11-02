@@ -8,7 +8,12 @@ export interface CoachPostMedia {
   url: string;
 }
 
-/** A coach's tutorial post: text, YouTube links and uploads. Shown to others only once staff approve it. */
+export type PostAuthorRole = 'coach' | 'sponsor';
+
+/**
+ * A feed post by a coach (tutorials) or a sponsor (brand posts): text, links and uploads.
+ * Shown to others only once staff approve it. (`coachUserId` is the author, either role.)
+ */
 @Entity('coach_posts')
 export class CoachPost {
   @PrimaryGeneratedColumn('uuid')
@@ -20,6 +25,10 @@ export class CoachPost {
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'coachUserId' })
   coach?: Relation<User>;
+
+  /** Who posted it: a coach, or a sponsor (shown as "Sponsored"). */
+  @Column({ type: 'varchar', length: 16, default: 'coach' })
+  authorRole!: PostAuthorRole;
 
   @Column({ type: 'text', default: '' })
   body!: string;

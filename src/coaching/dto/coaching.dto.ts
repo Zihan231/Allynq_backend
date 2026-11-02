@@ -69,4 +69,6 @@ export class ReviewCoachPostDto {
 
 export class AdminCoachPostsQueryDto extends PaginationQueryDto {
   @IsOptional() @IsIn(['pending', 'approved', 'rejected']) status?: 'pending' | 'approved' | 'rejected';
+  /** Coach posts or sponsor posts (all when not set). */
+  @IsOptional() @IsIn(['coach', 'sponsor']) author?: 'coach' | 'sponsor';
 }

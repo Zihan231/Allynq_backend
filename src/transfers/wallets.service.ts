@@ -11,6 +11,7 @@ export interface DealRef {
   tournamentId?: string | null;
   storeItemId?: string | null;
   coachingDealId?: string | null;
+  sponsorshipId?: string | null;
 }
 
 export interface WalletOwner {
@@ -319,6 +320,7 @@ export class WalletsService {
       tournamentId: ref.tournamentId ?? null,
       storeItemId: ref.storeItemId ?? null,
       coachingDealId: ref.coachingDealId ?? null,
+      sponsorshipId: ref.sponsorshipId ?? null,
       counterparty: ref.counterparty ?? null,
       reference: ref.reference ?? null,
     });

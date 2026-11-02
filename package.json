@@ -34,6 +34,7 @@
     "seed:club-members": "node dist/seeds/seed-club-members.js",
     "seed:coaches": "node dist/seeds/seed-demo-coaches.js",
     "seed:creators": "node dist/seeds/seed-demo-creators.js",
+    "seed:sponsors": "node dist/seeds/seed-demo-sponsors.js",
     "admin:grant": "node dist/seeds/grant-admin.js"
   },
   "dependencies": {
