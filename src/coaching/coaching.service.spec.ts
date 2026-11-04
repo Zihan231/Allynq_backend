@@ -91,6 +91,21 @@ describe('coaching deals: money', () => {
   });
 });
 
+describe('coaching deals: privacy', () => {
+  it("only the deal's coach, the club's leaders and staff can read it; anyone else gets a 404", async () => {
+    const { coaching, coach, users } = world();
+    const req = await coaching.create(coach, { clubId: PADMA, feeTk: 100, days: 10, message: 'private' });
+
+    await expect(coaching.getDeal(coach, req.id)).resolves.toMatchObject({ id: req.id });
+    await expect(coaching.getDeal(users.padmaPres, req.id)).resolves.toMatchObject({ id: req.id });
+    await expect(coaching.getDeal({ ...users.locked, systemRole: 'moderator' } as never, req.id)).resolves.toMatchObject({ id: req.id });
+
+    await expect(coaching.getDeal(users.t4Pres, req.id)).rejects.toThrow(/not found/);
+    await expect(coaching.getDeal(users.locked, req.id)).rejects.toThrow(/not found/);
+    await expect(coaching.getDeal(coach, '00000000-0000-4000-8000-000000000000')).rejects.toThrow(/not found/);
+  });
+});
+
 describe('coaching deals: rules', () => {
   it('only coaches can be signed, and only by club leaders', async () => {
     const { coaching, coach, users } = world();

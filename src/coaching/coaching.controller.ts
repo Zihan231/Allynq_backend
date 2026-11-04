@@ -98,8 +98,8 @@ export class CoachingController {
 
   @UseGuards(JwtAuthGuard)
   @Get('deals/:id')
-  deal(@Param('id', ParseUUIDPipe) id: string) {
-    return this.coaching.dealView(id);
+  deal(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.coaching.getDeal(user, id);
   }
 
   @UseGuards(JwtAuthGuard)

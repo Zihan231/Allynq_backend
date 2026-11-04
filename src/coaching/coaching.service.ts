@@ -189,6 +189,16 @@ export class CoachingService {
     else await this.notify(await this.transfers.clubLeaderIds(deal.clubId), code, title, message, clubLink(deal.clubId), params);
   }
 
+  /** A deal's terms are private: only its coach, the club's leaders and staff may read them (others get a 404). */
+  async getDeal(caller: User, id: string): Promise<CoachingDealView> {
+    const deal = await this.dataSource.getRepository(CoachingDeal).findOne({ where: { id } });
+    if (!deal) throw new NotFoundException('Coaching deal not found');
+    const allowed =
+      deal.coachUserId === caller.id || Boolean(caller.systemRole) || (await this.transfers.isClubLeader(this.dataSource.manager, deal.clubId, caller.id));
+    if (!allowed) throw new NotFoundException('Coaching deal not found');
+    return this.dealView(id);
+  }
+
   async dealView(id: string): Promise<CoachingDealView> {
     const deal = await this.dataSource.getRepository(CoachingDeal).findOne({ where: { id }, relations: { coach: true, club: true } });
     if (!deal) throw new NotFoundException('Coaching deal not found');
