@@ -1,8 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { PLAYER_CATEGORIES, StoreItem, type PlayerItemCategory } from '../admin/entities/store-item.entity.js';
 import { Club } from '../clubs/entities/club.entity.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { SettingsService } from '../settings/settings.service.js';
 import { Tournament } from '../tournaments/entities/tournament.entity.js';
 import { TournamentsService } from '../tournaments/tournaments.service.js';
@@ -42,6 +43,14 @@ export interface ClubStore {
 
 const CLUB_LEADERS: Array<string | null> = [ClubRole.PRESIDENT, ClubRole.GENERAL_SECRETARY];
 
+/** What a creator's design earned in one sale (null for the store's own items and free designs). */
+export interface DesignSale {
+  creatorUserId: string;
+  itemName: string;
+  priceTk: number;
+  netTk: number;
+}
+
 /**
  * The cosmetics store: items (store_items, managed by staff) are bought with the user's
  * wallet and kept in `users.ownedCosmeticIds`; a user can equip only what they own,
@@ -49,12 +58,30 @@ const CLUB_LEADERS: Array<string | null> = [ClubRole.PRESIDENT, ClubRole.GENERAL
  */
 @Injectable()
 export class StoreService {
+  private readonly logger = new Logger(StoreService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly wallets: WalletsService,
     private readonly settings: SettingsService,
     private readonly tournaments: TournamentsService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  /** Tells a creator their design sold (after the purchase committed; the buyer isn't named). */
+  private async notifySale(sale: DesignSale | null): Promise<void> {
+    if (!sale) return;
+    await this.notifications
+      .createNotification(sale.creatorUserId, {
+        title: 'Design sold',
+        message: `"${sale.itemName}" sold for ${sale.priceTk} tk: ${sale.netTk} tk is yours after the platform's cut.`,
+        type: 'system',
+        link: '/dashboard/creator/designs',
+        code: 'creator.designSold',
+        params: { name: sale.itemName, price: sale.priceTk, net: sale.netTk },
+      })
+      .catch((err) => this.logger.error(`Sale notification failed: ${(err as Error).message}`));
+  }
 
   /**
    * The store's items with their looks: approved ones, with the creator's name. `onSale`
@@ -92,7 +119,8 @@ export class StoreService {
     // Tournament banners are the organizer's too, but they go on tournaments, not the profile.
     const target = (await this.dataSource.getRepository(StoreItem).findOne({ where: { sku } }))?.target;
     if (target === 'tournament' || tournamentId) return this.purchaseBanner(userId, sku, tournamentId);
-    return this.dataSource.transaction(async (em) => {
+    const sold: { sale: DesignSale | null } = { sale: null };
+    const view = await this.dataSource.transaction(async (em) => {
       const item = await em.getRepository(StoreItem).findOne({ where: { sku } });
       if (!item || !item.active || item.reviewStatus !== 'approved') throw new NotFoundException('This item is not on sale');
       if (item.target !== 'player') throw new BadRequestException('This item is for clubs or tournaments, not for your profile');
@@ -101,7 +129,7 @@ export class StoreService {
       const owned = user.ownedCosmeticIds ?? [];
       if (owned.includes(item.sku)) throw new BadRequestException('You already own this item');
 
-      await this.charge(em, { type: 'user', id: userId }, item);
+      sold.sale = await this.charge(em, { type: 'user', id: userId }, item);
       user.ownedCosmeticIds = [...owned, item.sku];
       user.designVersions = { ...user.designVersions, [item.sku]: item.version };
       const field = EQUIPPED_FIELD[item.category as PlayerItemCategory] as (typeof EQUIPPED_FIELD)[PlayerItemCategory] | undefined;
@@ -114,6 +142,8 @@ export class StoreService {
       const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
       return this.view(user, wallet.balanceTk);
     });
+    await this.notifySale(sold.sale);
+    return view;
   }
 
   /** The item on sale for `target` (club themes for clubs, banners for tournaments). */
@@ -161,13 +191,14 @@ export class StoreService {
 
   /** A club leader buys a club theme from the club wallet; it goes on the club page unless `equip` is false. */
   async purchaseForClub(userId: string, clubId: string, sku: string, equip = true): Promise<ClubStore> {
-    return this.dataSource.transaction(async (em) => {
+    const sold: { sale: DesignSale | null } = { sale: null };
+    const view = await this.dataSource.transaction(async (em) => {
       await this.assertClubLeader(em, clubId, userId);
       const item = await this.onSale(em, sku, 'club', userId);
       const club = await this.lockClub(em, clubId);
       const owned = club.ownedThemeSkus ?? [];
       if (owned.includes(item.sku)) throw new BadRequestException('The club already owns this theme');
-      await this.charge(em, { type: 'club', id: clubId }, item);
+      sold.sale = await this.charge(em, { type: 'club', id: clubId }, item);
       club.ownedThemeSkus = [...owned, item.sku];
       club.designVersions = { ...club.designVersions, [item.sku]: item.version };
       if (equip) club.equippedThemeSku = item.sku;
@@ -177,6 +208,8 @@ export class StoreService {
       );
       return this.clubView(em, club);
     });
+    await this.notifySale(sold.sale);
+    return view;
   }
 
   /** Puts one of the club's themes on its page, or (null) goes back to the plain page. */
@@ -197,12 +230,13 @@ export class StoreService {
    */
   async purchaseBanner(userId: string, sku: string, tournamentId?: string): Promise<MyStore> {
     if (tournamentId) await this.assertCanManage(userId, tournamentId);
-    return this.dataSource.transaction(async (em) => {
+    const sold: { sale: DesignSale | null } = { sale: null };
+    const view = await this.dataSource.transaction(async (em) => {
       const item = await this.onSale(em, sku, 'tournament', userId);
       const user = await this.lockUser(em, userId);
       const owned = user.ownedCosmeticIds ?? [];
       if (owned.includes(item.sku)) throw new BadRequestException('You already own this banner');
-      await this.charge(em, { type: 'user', id: userId }, item);
+      sold.sale = await this.charge(em, { type: 'user', id: userId }, item);
       user.ownedCosmeticIds = [...owned, item.sku];
       user.designVersions = { ...user.designVersions, [item.sku]: item.version };
       await em.getRepository(User).update({ id: userId }, { ownedCosmeticIds: user.ownedCosmeticIds, designVersions: user.designVersions });
@@ -210,6 +244,8 @@ export class StoreService {
       const wallet = await this.wallets.lock(em, { type: 'user', id: userId });
       return this.view(user, wallet.balanceTk);
     });
+    await this.notifySale(sold.sale);
+    return view;
   }
 
   /** Puts a banner the caller owns on a tournament they manage, or (null) takes it off. */
@@ -289,14 +325,18 @@ export class StoreService {
 
   /**
    * Charges the buyer for an item. ALLYNQ's own items are a plain purchase; a creator's
-   * design pays the creator the price minus the platform's cut. Also counts the sale.
+   * design pays the creator the price minus the platform's cut. Also counts the sale. Returns
+   * what the creator earned (to tell them once the purchase has committed), or null.
    */
-  async charge(em: EntityManager, buyer: { type: 'user' | 'club'; id: string }, item: StoreItem): Promise<void> {
+  async charge(em: EntityManager, buyer: { type: 'user' | 'club'; id: string }, item: StoreItem): Promise<DesignSale | null> {
     const reference = item.priceTk > 0 ? paymentRef() : null;
+    let sale: DesignSale | null = null;
     if (item.creatorUserId && item.priceTk > 0) {
       const { creatorCommissionPct } = await this.settings.transfers();
+      const cut = Math.round((item.priceTk * creatorCommissionPct) / 100);
+      sale = { creatorUserId: item.creatorUserId, itemName: item.name, priceTk: item.priceTk, netTk: item.priceTk - cut };
       const creator = await em.getRepository(User).findOne({ where: { id: item.creatorUserId } });
-      await this.wallets.sale(em, buyer, { type: 'user', id: item.creatorUserId }, item.priceTk, Math.round((item.priceTk * creatorCommissionPct) / 100), {
+      await this.wallets.sale(em, buyer, { type: 'user', id: item.creatorUserId }, item.priceTk, cut, {
         storeItemId: item.id,
         itemName: item.name,
         creatorName: creator?.name ?? 'Creator',
@@ -306,6 +346,7 @@ export class StoreService {
       await this.wallets.spend(em, buyer, item.priceTk, { storeItemId: item.id, counterparty: `Store: ${item.name}`, reference });
     }
     await em.query(`UPDATE store_items SET "salesCount" = "salesCount" + 1, "revenueTk" = "revenueTk" + $2 WHERE id = $1`, [item.id, item.priceTk]);
+    return sale;
   }
 
   private async lockUser(em: EntityManager, userId: string): Promise<User> {

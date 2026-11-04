@@ -50,6 +50,9 @@ describe('CreatorsService + StoreService', () => {
   let db: ReturnType<typeof makeDb>;
   let creators: CreatorsService;
   let store: StoreService;
+  let notifications: { createNotification: ReturnType<typeof vi.fn> };
+  /** The notifications sent with this code, as [user id, payload]. */
+  const sent = (code: string) => notifications.createNotification.mock.calls.filter(([, n]) => n.code === code);
   const users = {
     creator: { id: 'u-creator', name: 'Mitu', roles: ['creative', 'player'], ownedCosmeticIds: null } as unknown as User,
     buyer: { id: 'u-buyer', name: 'Rakib', roles: ['player'], ownedCosmeticIds: null } as unknown as User,
@@ -69,13 +72,9 @@ describe('CreatorsService + StoreService', () => {
         if (userId !== 'u-buyer') throw new ForbiddenException('Only the organizer can change its banner');
       }),
     };
-    store = new StoreService(db.dataSource as never, wallets, settings as never, tournaments as never);
-    creators = new CreatorsService(
-      db.dataSource as never,
-      settings as never,
-      { createNotification: vi.fn().mockResolvedValue({}) } as never,
-      { record: vi.fn().mockResolvedValue(undefined) } as never,
-    );
+    notifications = { createNotification: vi.fn().mockResolvedValue({}) };
+    store = new StoreService(db.dataSource as never, wallets, settings as never, tournaments as never, notifications as never);
+    creators = new CreatorsService(db.dataSource as never, settings as never, notifications as never, { record: vi.fn().mockResolvedValue(undefined) } as never);
     Object.values(users).forEach((u) => db.table(User).push(u as never));
     db.table(Wallet).push({ id: 'w-buyer', ownerType: 'user', ownerId: 'u-buyer', balanceTk: 1000, heldTk: 0 });
   });
@@ -90,6 +89,49 @@ describe('CreatorsService + StoreService', () => {
     const design = await submitBadge();
     expect(item(design.id)).toMatchObject({ reviewStatus: 'pending', active: false, target: 'player', creatorUserId: 'u-creator' });
     await expect(store.purchase('u-buyer', design.sku)).rejects.toThrow(/not on sale/);
+  });
+
+  it('every staff member is told when a design is waiting for review', async () => {
+    const design = await submitBadge();
+    expect(sent('creator.designSubmitted').map(([to]) => to).sort()).toEqual(['u-admin', 'u-mod']);
+    expect(sent('creator.designSubmitted')[0][1]).toMatchObject({ link: '/dashboard/admin/creators', message: expect.stringContaining('Neon Wave') });
+
+    // A change to a live design goes to review too, and staff hear about it again.
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    notifications.createNotification.mockClear();
+    await creators.update(users.creator, design.id, {}, { image: [file('neon-2.png')] });
+    expect(sent('creator.designSubmitted').map(([to]) => to).sort()).toEqual(['u-admin', 'u-mod']);
+
+    // A price-only edit is not a review.
+    notifications.createNotification.mockClear();
+    await creators.update(users.creator, design.id, { priceTk: 300 }, {});
+    expect(sent('creator.designSubmitted')).toHaveLength(0);
+  });
+
+  it('the creator is told when a design sells, but not for a free one, and the buyer is not named', async () => {
+    const design = await submitBadge(200);
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    await store.purchase('u-buyer', design.sku);
+
+    const cut = Math.round((200 * CUT) / 100);
+    const sold = sent('creator.designSold');
+    expect(sold).toHaveLength(1);
+    expect(sold[0][0]).toBe('u-creator');
+    expect(sold[0][1].message).toContain(`${200 - cut} tk`);
+    expect(JSON.stringify(sold[0][1])).not.toContain('Rakib');
+
+    notifications.createNotification.mockClear();
+    const free = await submitBadge(0);
+    await creators.review(users.mod, free.id, { approve: true }, null);
+    await store.purchase('u-buyer', free.sku);
+    expect(sent('creator.designSold')).toHaveLength(0);
+  });
+
+  it('a sale that fails tells nobody', async () => {
+    const design = await submitBadge(5000);
+    await creators.review(users.mod, design.id, { approve: true }, null);
+    await expect(store.purchase('u-buyer', design.sku)).rejects.toThrow(/Not enough money/);
+    expect(sent('creator.designSold')).toHaveLength(0);
   });
 
   it('a sale pays the creator the price minus the platform cut', async () => {

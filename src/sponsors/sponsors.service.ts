@@ -578,12 +578,23 @@ export class SponsorsService {
       if (deal.status !== 'pending') throw new BadRequestException('This sponsorship is no longer open');
       const t = this.targetOf(deal);
       const target = await this.target(em, t.type, t.id);
-      await this.partyOf(em, deal, target, caller.id);
+      const party = await this.partyOf(em, deal, target, caller.id);
       await this.wallets.refund(em, { type: 'user', id: deal.sponsorUserId }, deal.heldTk, this.ref(deal, `Sponsorship: ${target.name}`));
       deal.heldTk = 0;
       deal.status = 'cancelled';
       deal.endedAt = new Date();
-      return em.getRepository(Sponsorship).save(deal);
+      const saved = await em.getRepository(Sponsorship).save(deal);
+      // The other side is told the request is gone (the host leaders, or the sponsor).
+      const brand = await this.sponsorName(em, deal.sponsorUserId);
+      await this.notify(
+        (party === 'host' ? [deal.sponsorUserId] : await this.hostLeaders(em, target)).filter((uid) => uid !== caller.id),
+        'sponsorship.cancelled',
+        'Sponsorship request withdrawn',
+        party === 'host' ? `${target.name} withdrew its sponsorship request to ${brand}.` : `${brand} withdrew its sponsorship request for ${target.name}.`,
+        party === 'host' ? '/dashboard/sponsor/deals' : target.link,
+        { name: target.name, brand },
+      );
+      return saved;
     });
     return (await this.views([deal], caller.id))[0];
   }

@@ -21,6 +21,9 @@ const CUT = DEFAULT_TRANSFER_SETTINGS.sponsorCommissionPct;
 describe('SponsorsService', () => {
   let db: ReturnType<typeof makeDb>;
   let sponsors: SponsorsService;
+  let notifications: { createNotification: ReturnType<typeof vi.fn> };
+  /** The notifications sent with this code, as [user id, payload]. */
+  const sent = (code: string) => notifications.createNotification.mock.calls.filter(([, n]) => n.code === code);
   const users = {
     brand: { id: 'u-brand', name: 'Rahim', roles: ['sponsor', 'player'] } as unknown as User,
     brand2: { id: 'u-brand2', name: 'Karim', roles: ['sponsor', 'player'] } as unknown as User,
@@ -41,12 +44,13 @@ describe('SponsorsService', () => {
         if (userId !== 'u-org') throw new ForbiddenException('Only the organizer can manage sponsors');
       }),
     };
+    notifications = { createNotification: vi.fn().mockResolvedValue({}) };
     sponsors = new SponsorsService(
       db.dataSource as never,
       settings as never,
       new WalletsService(db.dataSource as never, settings as never),
       tournaments as never,
-      { createNotification: vi.fn().mockResolvedValue({}) } as never,
+      notifications as never,
       { record: vi.fn().mockResolvedValue(undefined) } as never,
     );
     Object.values(users).forEach((u) => db.table(User).push(u as never));
@@ -73,6 +77,20 @@ describe('SponsorsService', () => {
     expect(db.table(WalletTransaction).filter((t) => t.sponsorshipId === d.id).map((t) => t.kind)).toEqual(
       expect.arrayContaining(['hold', 'payout_sent', 'received', 'commission']),
     );
+  });
+
+  it('withdrawing a request tells the other side, and not the one who withdrew it', async () => {
+    const d = await sponsors.create(users.brand, offer(300));
+    await sponsors.cancel(users.brand, d.id);
+    const toHost = sent('sponsorship.cancelled');
+    expect(toHost.map(([to]) => to)).toEqual(['u-org']);
+    expect(toHost[0][1].message).toContain('Gamer Cola');
+
+    notifications.createNotification.mockClear();
+    const d2 = await sponsors.create(users.brand, offer(200));
+    notifications.createNotification.mockClear();
+    await sponsors.cancel(users.organizer, d2.id);
+    expect(sent('sponsorship.cancelled').map(([to]) => to)).toEqual(['u-brand']);
   });
 
   it('declining or cancelling refunds the hold; only sponsors can offer, and not on what they run', async () => {

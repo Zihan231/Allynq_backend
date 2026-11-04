@@ -100,6 +100,30 @@ export class CreatorsService {
       .catch((err) => this.logger.error(`Creator notification failed: ${(err as Error).message}`));
   }
 
+  /** Tells every staff member a design is waiting for review (a new design, or a change to a live one). */
+  private async notifyStaff(creator: User, item: StoreItem, change: boolean) {
+    try {
+      const staff = await this.dataSource.getRepository(User).find({ where: { systemRole: Not(IsNull()) } });
+      const title = change ? 'Design change waiting for review' : 'Design waiting for review';
+      await Promise.all(
+        staff.map((s) =>
+          this.notifications
+            .createNotification(s.id, {
+              title,
+              message: `${creator.name} sent "${item.name}" for review.`,
+              type: 'system',
+              link: '/dashboard/admin/creators',
+              code: 'creator.designSubmitted',
+              params: { name: item.name, creator: creator.name },
+            })
+            .catch((err) => this.logger.error(`Staff notification failed: ${(err as Error).message}`)),
+        ),
+      );
+    } catch (err) {
+      this.logger.error(`Staff notification failed: ${(err as Error).message}`);
+    }
+  }
+
   // ------------------------------------------------------------------ creator
 
   async create(user: User, input: DesignInput, files: DesignFiles) {
@@ -114,7 +138,7 @@ export class CreatorsService {
       const assets: DesignAssets = { ...assetsFromFiles(category, files), colors: this.colors(input, category, true) };
       const repo = this.dataSource.getRepository(StoreItem);
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'design';
-      return await repo.save(
+      const saved = await repo.save(
         repo.create({
           sku: `cr-${slug}-${randomBytes(3).toString('hex')}`,
           name,
@@ -131,6 +155,8 @@ export class CreatorsService {
           metadata: { rarity: input.rarity ?? 'common' },
         }),
       );
+      await this.notifyStaff(user, saved, false);
+      return saved;
     } catch (err) {
       await removeDesignFiles(files);
       throw err;
@@ -163,7 +189,10 @@ export class CreatorsService {
       const fileAssets = assetsFromFiles(item.category, files, true);
       const colors = this.colors(input, item.category, false);
       const changesDesign = Object.keys(fileAssets).length > 0 || Boolean(colors);
+      const wasLive = item.reviewStatus === 'approved';
+      let sentToReview = false;
       if (changesDesign) {
+        sentToReview = true;
         const base = item.reviewStatus === 'approved' ? { ...item.assets, ...item.pendingAssets } : { ...item.assets };
         const next: DesignAssets = { ...base, ...fileAssets, ...(colors ? { colors } : {}) };
         if (item.reviewStatus === 'approved') {
@@ -179,8 +208,11 @@ export class CreatorsService {
       } else if (item.reviewStatus === 'rejected' && input.resubmit) {
         item.reviewStatus = 'pending';
         item.rejectReason = null;
+        sentToReview = true;
       }
-      return await this.dataSource.getRepository(StoreItem).save(item);
+      const saved = await this.dataSource.getRepository(StoreItem).save(item);
+      if (sentToReview) await this.notifyStaff(user, saved, wasLive);
+      return saved;
     } catch (err) {
       await removeDesignFiles(files);
       throw err;
