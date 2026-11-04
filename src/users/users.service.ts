@@ -143,6 +143,9 @@ export class UsersService {
     if (!dto.roles.includes(dto.primaryRole)) {
       throw new BadRequestException('Your default role must be one of the roles you picked');
     }
+    if (dto.primaryRole === ESPORTS_PRO_ROLE) {
+      throw new BadRequestException('Your default role must be coach, creative artist or social media expert, not the group itself');
+    }
     const isPro = dto.roles.includes(ESPORTS_PRO_ROLE);
     const hasSubRole = dto.roles.some((role) => ESPORTS_PRO_SUBROLES.includes(role));
     if (isPro && !hasSubRole) {

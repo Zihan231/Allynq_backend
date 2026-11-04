@@ -25,7 +25,8 @@ describe('UsersService.setRoles', () => {
   });
 
   it.each<[string, SetRolesDto]>([
-    ['esports professional without a sub-role', { roles: ['esports_professional'], primaryRole: 'esports_professional' }],
+    ['esports professional without a sub-role', { roles: ['player', 'esports_professional'], primaryRole: 'player' }],
+    ['esports professional as the default role', { roles: ['esports_professional', 'coach'], primaryRole: 'esports_professional' }],
     ['a sub-role without esports professional', { roles: ['coach'], primaryRole: 'coach' }],
     ['a default role that was not picked', { roles: ['player'], primaryRole: 'organizer' }],
   ])('rejects %s', async (_name, dto) => {
