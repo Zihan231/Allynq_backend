@@ -6,7 +6,7 @@ import { CreateEfootballProfileDto } from './dto/create-efootball-profile.dto.js
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateEfootballProfileDto } from './dto/update-efootball-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
-import { SetRolesDto } from './dto/set-roles.dto.js';
+import { ESPORTS_PRO_ROLE, ESPORTS_PRO_SUBROLES, SetRolesDto } from './dto/set-roles.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { EfootballProfile } from './entities/efootball-profile.entity.js';
 import { User } from './entities/user.entity.js';
@@ -142,6 +142,14 @@ export class UsersService {
   async setRoles(userId: string, dto: SetRolesDto): Promise<User> {
     if (!dto.roles.includes(dto.primaryRole)) {
       throw new BadRequestException('Your default role must be one of the roles you picked');
+    }
+    const isPro = dto.roles.includes(ESPORTS_PRO_ROLE);
+    const hasSubRole = dto.roles.some((role) => ESPORTS_PRO_SUBROLES.includes(role));
+    if (isPro && !hasSubRole) {
+      throw new BadRequestException('Pick at least one esports professional role: coach, creative artist or social media expert');
+    }
+    if (hasSubRole && !isPro) {
+      throw new BadRequestException('Coach, creative artist and social media expert are esports professional roles');
     }
     const user = await this.findOne(userId);
     user.roles = dto.roles;

@@ -213,7 +213,7 @@ export class User {
   roles!: string[];
 
   /** The role the dashboard opens in: the first one picked. */
-  @Column({ type: 'varchar', length: 16, default: 'player' })
+  @Column({ type: 'varchar', length: 32, default: 'player' })
   primaryRole!: string;
 
   /** When the "What suits you best?" picker was answered; null shows it (once). */

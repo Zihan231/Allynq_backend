@@ -120,7 +120,7 @@ async function main() {
       if (!user) {
         [user] = await q(
           `INSERT INTO users (name, email, password, roles, "primaryRole", "rolesChosenAt", country, "gamingPlatform")
-           VALUES ($1, $2, $3, '["creative","player"]'::jsonb, 'creative', now(), 'Bangladesh', 'mobile') RETURNING id`,
+           VALUES ($1, $2, $3, '["esports_professional","creative","player"]'::jsonb, 'creative', now(), 'Bangladesh', 'mobile') RETURNING id`,
           [c.name, email, hash],
         );
         await q(`INSERT INTO efootball_profiles ("userId", points) VALUES ($1, 0)`, [user.id]);
