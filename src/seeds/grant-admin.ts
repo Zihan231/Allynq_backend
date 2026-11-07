@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
 /**
  * Gives (or removes) an Allync staff role. The only way to create the first super admin;
@@ -14,11 +15,7 @@ async function main() {
   if (!email || !ROLES.includes(roleArg)) {
     throw new Error(`Usage: admin:grant <email> [${ROLES.join('|')}]`);
   }
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
   try {
     const role = roleArg === 'none' ? null : roleArg;

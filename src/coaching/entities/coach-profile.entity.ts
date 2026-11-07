@@ -22,7 +22,7 @@ export class CoachProfile {
   youtubeChannelUrl!: string | null;
 
   /** e.g. "Attacking play", "Set pieces". */
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   specialities!: string[];
 
   /** What he usually charges for a coaching deal (a guide; each deal sets its own fee). */
@@ -33,9 +33,9 @@ export class CoachProfile {
   @Column({ type: 'boolean', default: true })
   available!: boolean;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

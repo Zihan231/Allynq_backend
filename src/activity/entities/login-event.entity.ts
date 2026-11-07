@@ -37,6 +37,6 @@ export class LoginEvent {
   @Column({ type: 'varchar', length: 128, nullable: true })
   deviceHint!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

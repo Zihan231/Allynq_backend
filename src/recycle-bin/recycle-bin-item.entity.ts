@@ -36,12 +36,12 @@ export class RecycleBinItem {
   @Column({ type: 'text', nullable: true })
   reason!: string | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   snapshot!: BinSnapshot | null;
 
-  @Column({ type: 'timestamptz', default: () => 'now()' })
+  @Column({ type: 'datetime', precision: 3, default: () => 'CURRENT_TIMESTAMP(3)' })
   deletedAt!: Date;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   purgeAfter!: Date;
 }

@@ -88,11 +88,11 @@ export class Community {
   updatedAt!: Date;
 
   /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
-  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  @DeleteDateColumn({ type: 'datetime', precision: 3, nullable: true })
   deletedAt!: Date | null;
 
   /** Set while ALLYNQ staff have frozen it: visible, but its activity is paused. */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   frozenAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })

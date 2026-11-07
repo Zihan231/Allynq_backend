@@ -2,6 +2,7 @@ import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 import { EfootballPosition } from '../users/enums/efootball-position.enum.js';
 import { ClubRole, CommunityRole, LineupStatus } from '../users/enums/user-attributes.enum.js';
 
@@ -47,12 +48,7 @@ async function main() {
   const [communityId] = process.argv.slice(2);
   if (!communityId) throw new Error('Usage: seed-demo-cvc-tournament <communityId>');
 
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
   const runner = dataSource.createQueryRunner();
 

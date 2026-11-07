@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
 /**
  * Gives notifications saved before message codes existed (plain English text)
@@ -212,12 +213,7 @@ function rules(clubNames: Set<string>): Rule[] {
 }
 
 async function main() {
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
 
   try {

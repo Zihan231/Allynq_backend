@@ -75,16 +75,16 @@ export class TransferOffer {
   @Column({ type: 'uuid', nullable: true })
   respondedByUserId!: string | null;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   expiresAt!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   playerSignedAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   clubSignedByUserId!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   clubSignedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -93,7 +93,7 @@ export class TransferOffer {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   paidAt!: Date | null;
 
   /**
@@ -108,12 +108,12 @@ export class TransferOffer {
   @Column({ type: 'uuid', nullable: true })
   scheduledTournamentId!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   completedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

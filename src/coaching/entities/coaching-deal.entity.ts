@@ -78,13 +78,13 @@ export class CoachingDeal {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   bids!: CoachingBid[];
 
   @Column({ type: 'uuid' })
   createdByUserId!: string;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   expiresAt!: Date;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -93,24 +93,24 @@ export class CoachingDeal {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   paidAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   startedAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endsAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
   endReason!: 'time' | 'coach' | 'club' | 'staff' | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

@@ -1,12 +1,8 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
-const dataSource = new DataSource({
-  type: 'postgres',
-  url: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  synchronize: false,
-});
+const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
 
 const communities = [
   { name: 'Dhaka Elite Community', tier: 'Featured', joinPolicy: 'approval', points: 3200, color: '#4c8dff', initials: 'DE', location: 'Dhaka', motto: 'One community, every club held to the same standard.' },

@@ -28,10 +28,10 @@ export class AdminAuditLog {
   @Column({ type: 'varchar', length: 255, nullable: true })
   targetName!: string | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   before!: Record<string, unknown> | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   after!: Record<string, unknown> | null;
 
   @Column({ type: 'text', nullable: true })
@@ -40,6 +40,6 @@ export class AdminAuditLog {
   @Column({ type: 'varchar', length: 64, nullable: true })
   ip!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

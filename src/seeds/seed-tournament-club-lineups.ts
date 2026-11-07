@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
 /**
  * Registers a community's clubs in an existing CvC tournament and submits a
@@ -46,12 +47,7 @@ async function main(): Promise<void> {
   }
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not configured');
 
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
   const runner = dataSource.createQueryRunner();
 

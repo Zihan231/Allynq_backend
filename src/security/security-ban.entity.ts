@@ -31,15 +31,15 @@ export class SecurityBan {
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   expiresAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   revokedAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   revokedById!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

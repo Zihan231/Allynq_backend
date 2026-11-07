@@ -21,12 +21,12 @@ export class ActivityEvent {
   @Column({ type: 'text' })
   summary!: string;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   meta!: Record<string, unknown> | null;
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   ip!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

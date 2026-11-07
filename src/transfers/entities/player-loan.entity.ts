@@ -77,7 +77,7 @@ export class PlayerLoan {
    * Tournaments he was entered in for the parent club when the loan started: he can't
    * play in them for the borrowing club (his loan matches come from other tournaments).
    */
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   cupTiedTournamentIds!: string[];
 
   /** Who answers next while pending. */
@@ -96,7 +96,7 @@ export class PlayerLoan {
   @Column({ type: 'uuid' })
   createdByUserId!: string;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   expiresAt!: Date;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -105,26 +105,26 @@ export class PlayerLoan {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   paidAt!: Date | null;
 
   /** While scheduled / returning: the tournament he has to finish first. */
   @Column({ type: 'uuid', nullable: true })
   scheduledTournamentId!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   startedAt!: Date | null;
 
   /** startedAt + maxDays. */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endsBy!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

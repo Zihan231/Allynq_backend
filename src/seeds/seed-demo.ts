@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 import { Club } from '../clubs/entities/club.entity.js';
 import { Team } from '../clubs/entities/team.entity.js';
 import { ClubStage, JoinPolicy } from '../clubs/enums/club.enum.js';
@@ -13,13 +14,7 @@ import { CommunityMember } from '../communities/entities/community-member.entity
 import { CommunityJoinRequest } from '../communities/entities/community-join-request.entity.js';
 import { CommunityTier } from '../communities/enums/community.enum.js';
 
-const dataSource = new DataSource({
-  type: 'postgres',
-  url: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  entities: [User, EfootballProfile, Club, Team, Community, CommunityMember, CommunityJoinRequest],
-  synchronize: false,
-});
+const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
 
 async function seed() {
   await dataSource.initialize();

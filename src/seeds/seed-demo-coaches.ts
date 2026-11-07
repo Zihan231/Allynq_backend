@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
 /**
  * Demo coaches to look around the coaching feature: coach role + coach card, approved
@@ -76,12 +77,7 @@ const POSTS = [
 const PENDING_POST = 'New tutorial: reading the opponent’s formation in the first five minutes (waiting for review).';
 
 async function main() {
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
   const q = (sql: string, params: unknown[] = []) => dataSource.query(sql, params);
   const hash = await bcrypt.hash(PASSWORD, 10);

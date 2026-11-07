@@ -56,7 +56,7 @@ export class Notification {
   code!: string | null;
 
   /** Values the message needs: names, counts, and ISO times (keys ending in `At`). */
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   params!: NotificationParams | null;
 
   @Column({ type: 'boolean', default: false })

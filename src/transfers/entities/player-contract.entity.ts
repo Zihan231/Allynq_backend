@@ -47,30 +47,30 @@ export class PlayerContract {
   @Column({ type: 'int' })
   lockDays!: number;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   startAt!: Date;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   lockEndsAt!: Date;
 
   @Column({ type: 'varchar', length: 8, default: 'active' })
   status!: 'active' | 'ended';
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
   endReason!: ContractEndReason | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   notified7dAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   notified1dAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   notifiedFreeAt!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

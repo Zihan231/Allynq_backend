@@ -29,6 +29,6 @@ export class TransferOfferBid {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

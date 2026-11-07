@@ -24,6 +24,6 @@ export class AccountLabel {
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

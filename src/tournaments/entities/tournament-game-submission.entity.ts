@@ -40,7 +40,7 @@ export class TournamentGameSubmission {
   @Column({ type: 'int' })
   goalsB!: number;
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   screenshotPaths!: string[];
 
   @Column({ type: 'varchar', length: 512, nullable: true })

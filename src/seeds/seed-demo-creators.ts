@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
 /**
  * Demo creators to look around the creator marketplace: two creators (Creative artist role)
@@ -102,12 +103,7 @@ const CREATORS: Array<{ name: string; designs: Design[] }> = [
 ];
 
 async function main() {
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
   const q = (sql: string, params: unknown[] = []) => dataSource.query(sql, params);
   const hash = await bcrypt.hash(PASSWORD, 10);

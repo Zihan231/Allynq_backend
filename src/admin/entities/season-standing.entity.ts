@@ -22,9 +22,9 @@ export class SeasonStanding {
   name!: string;
 
   /** The full ranking line (points, played, wins, goals…) at closing time. */
-  @Column({ type: 'jsonb', default: () => "'{}'" })
+  @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   line!: Record<string, unknown>;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

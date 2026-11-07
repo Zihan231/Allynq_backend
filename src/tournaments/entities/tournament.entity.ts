@@ -108,7 +108,7 @@ export class Tournament {
   @Column({ type: 'timestamp with time zone', nullable: true })
   endAt!: Date | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   bracket!: BracketMatch[] | null;
 
   /** Daily play hours (minutes after local midnight, Dhaka time); null = default 19:00–01:00. */
@@ -119,7 +119,7 @@ export class Tournament {
   playHoursEnd!: number | null;
 
   /** User ids of the match officials (reviewers besides the President / Vice President). */
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   matchOfficialIds!: string[];
 
   /** The tournament banner (a store item its organizer owns) on its page and card. */
@@ -169,7 +169,7 @@ export class Tournament {
   updatedAt!: Date;
 
   /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
-  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  @DeleteDateColumn({ type: 'datetime', precision: 3, nullable: true })
   deletedAt!: Date | null;
 }
 

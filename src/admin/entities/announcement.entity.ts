@@ -26,7 +26,7 @@ export class Announcement {
   @Column({ type: 'varchar', length: 255, nullable: true })
   link!: string | null;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'json' })
   audience!: AnnouncementAudience;
 
   /** Human-readable audience, e.g. "Members of Padma Premier League". */
@@ -36,10 +36,10 @@ export class Announcement {
   @Column({ type: 'varchar', length: 16, default: 'scheduled' })
   status!: AnnouncementStatus;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   scheduledFor!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   sentAt!: Date | null;
 
   @Column({ type: 'int', default: 0 })
@@ -48,6 +48,6 @@ export class Announcement {
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

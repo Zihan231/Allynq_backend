@@ -6,9 +6,9 @@ export class AppSetting {
   @PrimaryColumn({ type: 'varchar', length: 64 })
   key!: string;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'json' })
   value!: Record<string, unknown>;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

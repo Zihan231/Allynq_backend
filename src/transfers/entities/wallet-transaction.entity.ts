@@ -74,6 +74,6 @@ export class WalletTransaction {
   @Column({ type: 'varchar', length: 32, nullable: true })
   reference!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

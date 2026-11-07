@@ -49,14 +49,14 @@ export class Club {
   @Column({ type: 'int', default: 8 })
   maxRoster!: number;
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   communityIds!: string[];
 
   /**
    * User ids of members nominated as match officials: together with the club
    * staff they can be picked to review evidence in the club's tournaments.
    */
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   matchOfficialIds!: string[];
 
   @Column({ type: 'enum', enum: ClubStage, default: ClubStage.FOUNDATION })
@@ -87,11 +87,11 @@ export class Club {
   updatedAt!: Date;
 
   /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
-  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  @DeleteDateColumn({ type: 'datetime', precision: 3, nullable: true })
   deletedAt!: Date | null;
 
   /** Set while ALLYNQ staff have frozen it: visible, but its activity is paused. */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   frozenAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })
@@ -101,13 +101,13 @@ export class Club {
   frozenById!: string | null;
 
   /** Club themes (store items) the club bought, and the one on its page. */
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   ownedThemeSkus!: string[];
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   equippedThemeSku!: string | null;
 
   /** Club themes the club keeps on an earlier look: SKU → version (missing = latest). */
-  @Column({ type: 'jsonb', default: () => "'{}'" })
+  @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   designVersions!: Record<string, number>;
 }

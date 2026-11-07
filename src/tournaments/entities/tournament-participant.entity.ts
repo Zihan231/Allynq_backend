@@ -35,8 +35,8 @@ export interface TournamentLineup {
 }
 
 @Entity('tournament_participants')
-@Index(['tournamentId', 'clubId'], { unique: true, where: '"clubId" IS NOT NULL' })
-@Index(['tournamentId', 'userId'], { unique: true, where: '"userId" IS NOT NULL' })
+@Index(['tournamentId', 'clubId'], { unique: true })
+@Index(['tournamentId', 'userId'], { unique: true })
 export class TournamentParticipant {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -75,7 +75,7 @@ export class TournamentParticipant {
   @Column({ type: 'enum', enum: ParticipantStatus, default: ParticipantStatus.REGISTERED })
   status!: ParticipantStatus;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   lineup!: TournamentLineup | null;
 
   @Column({ type: 'timestamp with time zone', nullable: true })
@@ -102,7 +102,7 @@ export class TournamentParticipant {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   paidAt!: Date | null;
 
   @CreateDateColumn()

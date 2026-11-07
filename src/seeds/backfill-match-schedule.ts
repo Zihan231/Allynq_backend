@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 import {
   assignRange,
   DAY_MS,
@@ -17,12 +18,7 @@ import {
  */
 async function main() {
   const [tournamentId] = process.argv.slice(2);
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
 
   try {

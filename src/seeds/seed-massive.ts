@@ -1,13 +1,9 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { DataSource } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 
-const dataSource = new DataSource({
-  type: 'postgres',
-  url: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  synchronize: false,
-});
+const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
 
 const FIRST_NAMES = [
   'Aarif', 'Abdullah', 'Abir', 'Adnan', 'Afif', 'Ahmed', 'Ahsan', 'Akash', 'Al-Amin', 'Ali',

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { DataSource, QueryRunner } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 import { EfootballPosition } from '../users/enums/efootball-position.enum.js';
 import { ClubRole, CommunityRole, LineupStatus } from '../users/enums/user-attributes.enum.js';
 
@@ -70,12 +71,7 @@ async function main() {
   const [tournamentId, ...existingClubIds] = args.filter((a) => !a.startsWith('--'));
   if (!tournamentId) throw new Error('Usage: seed-tournament-entries <tournamentId> [existingClubId ...]');
 
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    synchronize: false,
-  });
+  const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
   await dataSource.initialize();
   const runner = dataSource.createQueryRunner();
 

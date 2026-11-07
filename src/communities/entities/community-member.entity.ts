@@ -39,7 +39,7 @@ export class CommunityMember {
   @Column({ type: 'boolean', default: false })
   isDirectMember!: boolean;
 
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   sourceClubIds!: string[];
 
   @CreateDateColumn()

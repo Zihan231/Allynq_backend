@@ -67,7 +67,7 @@ export class StoreItem {
   @Column({ type: 'int', default: 0 })
   sortOrder!: number;
 
-  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   metadata!: Record<string, unknown>;
 
   /** The creator who designed it (null for ALLYNQ's own items). */
@@ -81,11 +81,11 @@ export class StoreItem {
   target!: StoreItemTarget;
 
   /** The approved design (creator items). */
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   assets!: DesignAssets | null;
 
   /** A design change waiting for review; the approved one keeps selling meanwhile. */
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   pendingAssets!: DesignAssets | null;
 
   /** The approved look's number (1 = first). Each approved change adds one. */
@@ -93,7 +93,7 @@ export class StoreItem {
   version!: number;
 
   /** Earlier approved looks, kept so owners can stay on the one they had. */
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   versions!: DesignVersion[];
 
   @Column({ type: 'text', nullable: true })
@@ -102,7 +102,7 @@ export class StoreItem {
   @Column({ type: 'uuid', nullable: true })
   reviewedById!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   reviewedAt!: Date | null;
 
   @Column({ type: 'int', default: 0 })
@@ -112,9 +112,9 @@ export class StoreItem {
   @Column({ type: 'int', default: 0 })
   revenueTk!: number;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { DataSource, type QueryRunner } from 'typeorm';
+import { buildDbOptions } from '../config/db-options.js';
 import { ClubStage, JoinPolicy } from '../clubs/enums/club.enum.js';
 import {
   CommunityJoinRequestStatus,
@@ -30,12 +31,7 @@ const PLAYERS_PER_CLUB = 20;
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 
-const dataSource = new DataSource({
-  type: 'postgres',
-  url: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  synchronize: false,
-});
+const dataSource = new DataSource(buildDbOptions(process.env.DATABASE_URL));
 
 // ---------------------------------------------------------------- reference data
 

@@ -19,24 +19,24 @@ export class Season {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   startsAt!: Date;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   endsAt!: Date;
 
   @Column({ type: 'varchar', length: 16, default: 'draft' })
   status!: SeasonStatus;
 
-  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   rules!: Record<string, unknown>;
 
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

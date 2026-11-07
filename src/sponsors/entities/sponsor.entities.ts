@@ -40,16 +40,16 @@ export class SponsorProfile {
   industry!: string | null;
 
   /** Set when staff have verified the brand (badge, listed first). */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   verifiedAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   verifiedById!: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }
 
@@ -124,7 +124,7 @@ export class Sponsorship {
   @Column({ type: 'varchar', length: 16 })
   turn!: SponsorshipParty;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   bids!: SponsorshipBid[];
 
   @Column({ type: 'text', nullable: true })
@@ -133,16 +133,16 @@ export class Sponsorship {
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: SponsorshipStatus;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime', precision: 3 })
   expiresAt!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   startedAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endsAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   endedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -158,13 +158,13 @@ export class Sponsorship {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   paidAt!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }
 
@@ -184,7 +184,7 @@ export class SponsorCall {
   communityId!: string | null;
 
   /** The tiers it's looking for. */
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   tiers!: SponsorTier[];
 
   @Column({ type: 'text', nullable: true })
@@ -200,10 +200,10 @@ export class SponsorCall {
   @Column({ type: 'uuid' })
   createdByUserId!: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }
 

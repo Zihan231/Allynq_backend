@@ -25,6 +25,6 @@ export class ReportMessage {
   @Column({ type: 'text' })
   body!: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

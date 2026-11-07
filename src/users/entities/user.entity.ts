@@ -97,13 +97,13 @@ export class User {
   @Column({ type: 'text', nullable: true })
   permanentAddress!: string | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   currentLocation!: LatLng | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   workExperience!: WorkExperienceEntry[] | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   education!: EducationEntry[] | null;
 
   @Column({ type: 'enum', enum: DocumentType, nullable: true })
@@ -126,7 +126,7 @@ export class User {
   @Column({ type: 'text', nullable: true })
   verificationNote!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   verificationReviewedAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
@@ -141,13 +141,13 @@ export class User {
   })
   systemRole!: SystemRole | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   suspendedUntil!: Date | null;
 
   @Column({ type: 'text', nullable: true })
   suspendReason!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   bannedAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })
@@ -168,7 +168,7 @@ export class User {
   @Column({ type: 'text', nullable: true, select: false })
   twoFactorSecretEncrypted!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   twoFactorEnabledAt!: Date | null;
 
   /** Rejects reuse of a code from an already accepted 30-second window. */
@@ -179,21 +179,21 @@ export class User {
   @Column({ type: 'int', default: 0 })
   twoFactorFailedAttempts!: number;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   twoFactorLockedUntil!: Date | null;
 
   /** Set while the account is in the recycle bin (hidden and unable to sign in). */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   deletedAt!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   lastLoginAt!: Date | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   ownedCosmeticIds!: string[] | null;
 
   /** Creator designs the user keeps on an earlier look: SKU → version (missing = latest). */
-  @Column({ type: 'jsonb', default: () => "'{}'" })
+  @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   designVersions!: Record<string, number>;
 
   @Column({ type: 'varchar', length: 128, nullable: true })
@@ -209,7 +209,7 @@ export class User {
   equippedThemeId!: string | null;
 
   /** What the user does on Allynq (player, organizer, coach, ...); see USER_ROLES. */
-  @Column({ type: 'jsonb', default: () => `'["player"]'::jsonb` })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY('player'))" })
   roles!: string[];
 
   /** The role the dashboard opens in: the first one picked. */
@@ -217,7 +217,7 @@ export class User {
   primaryRole!: string;
 
   /** When the "What suits you best?" picker was answered; null shows it (once). */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   rolesChosenAt!: Date | null;
 
   @OneToOne(() => EfootballProfile, (profile) => profile.user)

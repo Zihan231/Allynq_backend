@@ -27,6 +27,6 @@ export class NotificationTemplate {
   @Column({ type: 'uuid', nullable: true })
   updatedById!: string | null;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }

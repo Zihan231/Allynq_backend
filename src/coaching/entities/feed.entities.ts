@@ -12,7 +12,7 @@ export class CoachPostLike {
   @PrimaryColumn({ type: 'uuid' })
   userId!: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }
 
@@ -25,7 +25,7 @@ export class CoachPostSave {
   @PrimaryColumn({ type: 'uuid' })
   userId!: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }
 
@@ -38,7 +38,7 @@ export class CoachPostView {
   @PrimaryColumn({ type: 'uuid' })
   userId!: string;
 
-  @Column({ type: 'timestamptz', default: () => 'now()' })
+  @Column({ type: 'datetime', precision: 3, default: () => 'CURRENT_TIMESTAMP(3)' })
   seenAt!: Date;
 }
 
@@ -51,7 +51,7 @@ export class CoachFollow {
   @PrimaryColumn({ type: 'uuid' })
   followerUserId!: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }
 
@@ -78,9 +78,9 @@ export class CoachPostComment {
   @Column({ type: 'text' })
   body!: string;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   deletedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 }

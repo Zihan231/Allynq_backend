@@ -62,7 +62,7 @@ export class Report {
   details!: string;
 
   /** Proof images, served from /uploads/reports/…. */
-  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   attachments!: string[];
 
   @Column({ type: 'varchar', length: 16, default: 'open' })
@@ -86,12 +86,12 @@ export class Report {
   @Column({ type: 'uuid', nullable: true })
   resolvedById!: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', precision: 3, nullable: true })
   resolvedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'datetime', precision: 3 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'datetime', precision: 3 })
   updatedAt!: Date;
 }
