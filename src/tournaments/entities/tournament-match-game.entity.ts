@@ -45,7 +45,7 @@ export class TournamentMatchGame {
   @JoinColumn({ name: 'matchId' })
   match?: Relation<TournamentMatch>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   matchId!: string;
 
   /** 1-based pairing number (lineup slot). */
@@ -55,10 +55,10 @@ export class TournamentMatchGame {
   @Column({ type: 'boolean', default: false })
   isDecider!: boolean;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   playerAProfileId!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   playerAUserId!: string | null;
 
   @Column({ type: 'varchar', length: 255 })
@@ -67,10 +67,10 @@ export class TournamentMatchGame {
   @Column({ type: 'varchar', length: 512, nullable: true })
   playerADpUrl!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   playerBProfileId!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   playerBUserId!: string | null;
 
   @Column({ type: 'varchar', length: 255 })
@@ -93,28 +93,28 @@ export class TournamentMatchGame {
   resolution!: GameResolution | null;
 
   /** 3-hour playing range; evidence can be uploaded until `evidenceDeadline`. */
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   scheduledStart!: Date | null;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   scheduledEnd!: Date | null;
 
   /** The time the system picked (kept when a time-change request is declined). */
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   systemScheduledStart!: Date | null;
 
   @Index()
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   evidenceDeadline!: Date | null;
 
   /** When reviewers were told this game is ready (sent once, after the evidence window closes). */
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   reviewReadyNotifiedAt!: Date | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reviewedByUserId!: string | null;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   reviewedAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })

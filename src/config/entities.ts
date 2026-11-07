@@ -32,6 +32,7 @@ import { TournamentMatchGame } from '../tournaments/entities/tournament-match-ga
 import { TournamentMatch } from '../tournaments/entities/tournament-match.entity.js';
 import { TournamentParticipant } from '../tournaments/entities/tournament-participant.entity.js';
 import { Tournament } from '../tournaments/entities/tournament.entity.js';
+import { ContractCounter } from '../transfers/entities/contract-counter.entity.js';
 import { PlayerContract } from '../transfers/entities/player-contract.entity.js';
 import { PlayerLoanBid } from '../transfers/entities/player-loan-bid.entity.js';
 import { PlayerLoan } from '../transfers/entities/player-loan.entity.js';
@@ -68,6 +69,7 @@ export const ALL_ENTITIES = [
   PlayerLoan,
   PlayerLoanBid,
   PlayerContract,
+  ContractCounter,
   Wallet,
   WalletTransaction,
   ActivityEvent,

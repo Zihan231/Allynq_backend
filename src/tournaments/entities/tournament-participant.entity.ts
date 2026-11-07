@@ -45,7 +45,7 @@ export class TournamentParticipant {
   @JoinColumn({ name: 'tournamentId' })
   tournament!: Relation<Tournament>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   tournamentId!: string;
 
   @Column({ type: 'enum', enum: ParticipantType })
@@ -55,21 +55,21 @@ export class TournamentParticipant {
   @JoinColumn({ name: 'clubId' })
   club!: Relation<Club> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   clubId!: string | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user!: Relation<User> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   userId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'registeredByUserId' })
   registeredByUser!: Relation<User> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   registeredByUserId!: string | null;
 
   @Column({ type: 'enum', enum: ParticipantStatus, default: ParticipantStatus.REGISTERED })
@@ -78,14 +78,14 @@ export class TournamentParticipant {
   @Column({ type: 'json', nullable: true })
   lineup!: TournamentLineup | null;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   submittedAt!: Date | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'submittedByUserId' })
   submittedByUser!: Relation<User> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   submittedByUserId!: string | null;
 
   /** General tournaments: entry fee held from the entrant's wallet (player, or club for CvC). */
@@ -102,7 +102,7 @@ export class TournamentParticipant {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   paidAt!: Date | null;
 
   @CreateDateColumn()

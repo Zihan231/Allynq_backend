@@ -18,14 +18,14 @@ export class PlayerContract {
   @Column({ type: 'varchar', length: 24, unique: true })
   contractNo!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   userId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user?: Relation<User>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   clubId!: string;
 
   @ManyToOne(() => Club, { onDelete: 'CASCADE' })
@@ -33,7 +33,7 @@ export class PlayerContract {
   club?: Relation<Club>;
 
   /** The offer that created it (null for contracts created at launch). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   offerId!: string | null;
 
   /** The part of the fee that never decays: what he was paid, or what a buyer paid. */
@@ -47,30 +47,30 @@ export class PlayerContract {
   @Column({ type: 'int' })
   lockDays!: number;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   startAt!: Date;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   lockEndsAt!: Date;
 
   @Column({ type: 'varchar', length: 8, default: 'active' })
   status!: 'active' | 'ended';
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
   endReason!: ContractEndReason | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   notified7dAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   notified1dAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   notifiedFreeAt!: Date | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

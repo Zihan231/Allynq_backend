@@ -71,7 +71,7 @@ export class StoreItem {
   metadata!: Record<string, unknown>;
 
   /** The creator who designed it (null for ALLYNQ's own items). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   creatorUserId!: string | null;
 
   @Column({ type: 'varchar', length: 16, default: 'approved' })
@@ -99,10 +99,10 @@ export class StoreItem {
   @Column({ type: 'text', nullable: true })
   rejectReason!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reviewedById!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   reviewedAt!: Date | null;
 
   @Column({ type: 'int', default: 0 })
@@ -112,9 +112,9 @@ export class StoreItem {
   @Column({ type: 'int', default: 0 })
   revenueTk!: number;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

@@ -27,9 +27,9 @@ export class PlatformBackup {
   @Column({ type: 'text', nullable: true })
   failure!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

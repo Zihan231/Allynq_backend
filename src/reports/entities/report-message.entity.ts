@@ -6,10 +6,10 @@ export class ReportMessage {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   reportId!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   authorId!: string | null;
 
   @Column({ type: 'varchar', length: 255 })
@@ -25,6 +25,6 @@ export class ReportMessage {
   @Column({ type: 'text' })
   body!: string;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

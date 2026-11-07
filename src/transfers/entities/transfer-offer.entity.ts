@@ -27,7 +27,7 @@ export class TransferOffer {
   @Column({ type: 'varchar', length: 24 })
   kind!: TransferOfferKind;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   playerUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -35,14 +35,14 @@ export class TransferOffer {
   player?: Relation<User>;
 
   /** The player's club when the offer was made (null if he had none). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   fromClubId!: string | null;
 
   @ManyToOne(() => Club, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'fromClubId' })
   fromClub?: Relation<Club> | null;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   toClubId!: string;
 
   @ManyToOne(() => Club, { onDelete: 'CASCADE' })
@@ -69,22 +69,22 @@ export class TransferOffer {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   createdByUserId!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   respondedByUserId!: string | null;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   expiresAt!: Date;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   playerSignedAt!: Date | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   clubSignedByUserId!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   clubSignedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -93,7 +93,7 @@ export class TransferOffer {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   paidAt!: Date | null;
 
   /**
@@ -105,15 +105,15 @@ export class TransferOffer {
   heldTk!: number;
 
   /** While scheduled: the tournament the player has to finish first. */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   scheduledTournamentId!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   completedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

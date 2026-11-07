@@ -632,14 +632,17 @@ export class TournamentsService {
       dpUrl: string | null;
     }> = completedIds.length
       ? await this.participantsRepository.query(
-          `SELECT DISTINCT ON (m."tournamentId") m."tournamentId", COALESCE(c.name, u.name) AS name,
-                  COALESCE(c."dpUrl", u."dpUrl") AS "dpUrl"
-             FROM tournament_matches m
-             JOIN tournament_participants p ON p.id = m."winnerParticipantId"
-             LEFT JOIN clubs c ON c.id = p."clubId"
-             LEFT JOIN users u ON u.id = p."userId"
-            WHERE m."tournamentId" = ANY($1) AND m.stage = 'knockout'
-            ORDER BY m."tournamentId", m.round DESC`,
+          `SELECT r."tournamentId", r.name, r."dpUrl"
+             FROM (
+               SELECT m."tournamentId", COALESCE(c.name, u.name) AS name, COALESCE(c."dpUrl", u."dpUrl") AS "dpUrl",
+                      ROW_NUMBER() OVER (PARTITION BY m."tournamentId" ORDER BY m.round DESC) AS rn
+                 FROM tournament_matches m
+                 JOIN tournament_participants p ON p.id = m."winnerParticipantId"
+                 LEFT JOIN clubs c ON c.id = p."clubId"
+                 LEFT JOIN users u ON u.id = p."userId"
+                WHERE m."tournamentId" = ANY($1) AND m.stage = 'knockout'
+             ) r
+            WHERE r.rn = 1`,
           [completedIds],
         )
       : [];
@@ -1515,7 +1518,7 @@ export class TournamentsService {
         WHERE l.status IN ('active', 'returning')
           AND l."borrowClubId" = $1
           AND ep.id = ANY($2)
-          AND l."cupTiedTournamentIds" @> to_jsonb(ARRAY[$3::text])`,
+          AND JSON_CONTAINS(l."cupTiedTournamentIds", JSON_QUOTE($3))`,
       [clubId, players.map((p) => p.profileId), tournament.id],
     );
     if (rows.length) {
@@ -1537,7 +1540,7 @@ export class TournamentsService {
     const rows: Array<{ profileId: string; name: string }> =
       await this.participantsRepository.query(
         `SELECT ep.id AS "profileId", u.name FROM efootball_profiles ep JOIN users u ON u.id = ep."userId"
-        WHERE ep.id = ANY($1) AND u."gamingPlatform" IS DISTINCT FROM $2`,
+        WHERE ep.id = ANY($1) AND NOT (u."gamingPlatform" <=> $2)`,
         [players.map((p) => p.profileId), GamingPlatform.CONSOLE],
       );
     if (rows.length) {
@@ -1578,28 +1581,53 @@ export class TournamentsService {
     excludeTournamentId: string,
   ): Promise<PlayerCommitment[]> {
     if (!profileIds.length) return [];
-    return this.participantsRepository.query(
-      `SELECT DISTINCT ON (x."profileId") x."profileId", t.id AS "tournamentId", t.name AS "tournamentName"
-         FROM (
-           SELECT p."tournamentId", e->>'profileId' AS "profileId"
-             FROM tournament_participants p,
-                  jsonb_array_elements(
-                    COALESCE(p.lineup->'starters', '[]'::jsonb) || COALESCE(p.lineup->'substitutes', '[]'::jsonb)
-                  ) e
-            WHERE p.lineup IS NOT NULL
-           UNION ALL
-           SELECT p."tournamentId", ep.id::text
-             FROM tournament_participants p
-             JOIN efootball_profiles ep ON ep."userId" = p."userId"
-            WHERE p."participantType" = 'player'
-         ) x
-         JOIN tournaments t ON t.id = x."tournamentId"
-        WHERE t.status NOT IN ('completed', 'cancelled')
+    type Found = PlayerCommitment & { startAt?: Date | string | null };
+    // In a club lineup (starter or sub), as stored in the lineup JSON...
+    const inLineups: Array<{ tournamentId: string; tournamentName: string; startAt: Date | string | null; lineup: unknown }> =
+      await this.participantsRepository.query(
+        `SELECT t.id AS "tournamentId", t.name AS "tournamentName", t."startAt", p.lineup
+           FROM tournament_participants p
+           JOIN tournaments t ON t.id = p."tournamentId"
+          WHERE p.lineup IS NOT NULL
+            AND t.status NOT IN ('completed', 'cancelled')
+            AND t.id <> $1
+            AND (JSON_OVERLAPS(JSON_EXTRACT(p.lineup, '$.starters[*].profileId'), $2)
+              OR JSON_OVERLAPS(JSON_EXTRACT(p.lineup, '$.substitutes[*].profileId'), $2))`,
+        [excludeTournamentId, JSON.stringify(profileIds)],
+      );
+    // ...or registered on their own for a player-versus-player tournament.
+    const solo: Found[] = await this.participantsRepository.query(
+      `SELECT ep.id AS "profileId", t.id AS "tournamentId", t.name AS "tournamentName", t."startAt"
+         FROM tournament_participants p
+         JOIN efootball_profiles ep ON ep."userId" = p."userId"
+         JOIN tournaments t ON t.id = p."tournamentId"
+        WHERE p."participantType" = 'player'
+          AND t.status NOT IN ('completed', 'cancelled')
           AND t.id <> $1
-          AND x."profileId" = ANY($2)
-        ORDER BY x."profileId", t."startAt"`,
+          AND ep.id = ANY($2)`,
       [excludeTournamentId, profileIds],
     );
+    const wanted = new Set(profileIds);
+    const found: Found[] = [...solo];
+    for (const row of inLineups) {
+      const lineup = (typeof row.lineup === 'string' ? JSON.parse(row.lineup) : row.lineup) as {
+        starters?: Array<{ profileId: string }>;
+        substitutes?: Array<{ profileId: string }>;
+      };
+      for (const e of [...(lineup?.starters ?? []), ...(lineup?.substitutes ?? [])]) {
+        if (wanted.has(e.profileId)) found.push({ profileId: e.profileId, tournamentId: row.tournamentId, tournamentName: row.tournamentName, startAt: row.startAt });
+      }
+    }
+    // One row per player: the tournament that starts first (what DISTINCT ON did), ordered by player.
+    const time = (v?: Date | string | null) => (v ? new Date(v).getTime() : Number.POSITIVE_INFINITY);
+    const first = new Map<string, Found>();
+    for (const f of found) {
+      const best = first.get(f.profileId);
+      if (!best || time(f.startAt) < time(best.startAt)) first.set(f.profileId, f);
+    }
+    return [...first.values()]
+      .sort((a, b) => a.profileId.localeCompare(b.profileId))
+      .map(({ profileId, tournamentId, tournamentName }) => ({ profileId, tournamentId, tournamentName }));
   }
 
   /** Club members already taking part in another active tournament (for the team picker). */

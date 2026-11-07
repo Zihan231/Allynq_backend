@@ -9,7 +9,7 @@ export class PlayerLoanBid {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   loanId!: string;
 
   @ManyToOne(() => PlayerLoan, { onDelete: 'CASCADE' })
@@ -19,7 +19,7 @@ export class PlayerLoanBid {
   @Column({ type: 'varchar', length: 8 })
   party!: LoanParty;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   byUserId!: string;
 
   @Column({ type: 'int' })
@@ -28,6 +28,6 @@ export class PlayerLoanBid {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

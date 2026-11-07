@@ -23,14 +23,14 @@ export class CommunityMember {
   @JoinColumn({ name: 'communityId' })
   community?: Relation<Community>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   communityId!: string;
 
   @ManyToOne(() => EfootballProfile, (profile) => profile.communityMemberships, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'profileId' })
   profile?: Relation<EfootballProfile>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   profileId!: string;
 
   @Column({ type: 'enum', enum: CommunityRole, default: CommunityRole.MEMBER })

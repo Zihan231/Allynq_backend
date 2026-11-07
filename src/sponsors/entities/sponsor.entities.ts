@@ -7,7 +7,7 @@ import { User } from '../../users/entities/user.entity.js';
 /** A sponsor's brand card: shown on their page, in the directory and next to what they sponsor. */
 @Entity('sponsor_profiles')
 export class SponsorProfile {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   userId!: string;
 
   @OneToOne(() => User, { onDelete: 'CASCADE' })
@@ -40,16 +40,16 @@ export class SponsorProfile {
   industry!: string | null;
 
   /** Set when staff have verified the brand (badge, listed first). */
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   verifiedAt!: Date | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   verifiedById!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }
 
@@ -73,7 +73,7 @@ export class Sponsorship {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   sponsorUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -83,14 +83,14 @@ export class Sponsorship {
   @Column({ type: 'varchar', length: 16 })
   targetType!: SponsorTargetType;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   tournamentId!: string | null;
 
   @ManyToOne(() => Tournament, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'tournamentId' })
   tournament?: Relation<Tournament> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   communityId!: string | null;
 
   @ManyToOne(() => Community, { onDelete: 'CASCADE', nullable: true })
@@ -133,38 +133,38 @@ export class Sponsorship {
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: SponsorshipStatus;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   expiresAt!: Date;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   startedAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endsAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
   endReason!: 'time' | 'tournament' | 'sponsor' | 'host' | 'staff' | null;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   createdByUserId!: string;
 
   /** Who received the money (the organizer or the community President). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   paidToUserId!: string | null;
 
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   paidAt!: Date | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }
 
@@ -177,10 +177,10 @@ export class SponsorCall {
   @Column({ type: 'varchar', length: 16 })
   targetType!: SponsorTargetType;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   tournamentId!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   communityId!: string | null;
 
   /** The tiers it's looking for. */
@@ -197,20 +197,20 @@ export class SponsorCall {
   @Column({ type: 'boolean', default: true })
   open!: boolean;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   createdByUserId!: string;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }
 
 /** Daily views and clicks of a sponsor's logo and banner on a sponsored page. */
 @Entity('sponsor_impressions')
 export class SponsorImpression {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   sponsorshipId!: string;
 
   @PrimaryColumn({ type: 'date' })

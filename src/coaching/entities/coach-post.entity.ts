@@ -19,7 +19,7 @@ export class CoachPost {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   coachUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -46,13 +46,13 @@ export class CoachPost {
   @Column({ type: 'text', nullable: true })
   rejectReason!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reviewedById!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   reviewedAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   deletedAt!: Date | null;
 
   /** Kept in step with the likes / comments / saves tables, for ranking the feed. */
@@ -65,9 +65,9 @@ export class CoachPost {
   @Column({ type: 'int', default: 0 })
   saveCount!: number;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

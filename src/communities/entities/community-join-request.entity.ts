@@ -22,10 +22,10 @@ export class CommunityJoinRequest {
   @JoinColumn({ name: 'communityId' })
   community?: Relation<Community>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   communityId!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   requesterUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -35,7 +35,7 @@ export class CommunityJoinRequest {
   @Column({ type: 'enum', enum: CommunityJoinRequestType })
   targetType!: CommunityJoinRequestType;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   clubId!: string | null;
 
   @ManyToOne(() => Club, { nullable: true, onDelete: 'CASCADE' })
@@ -45,7 +45,7 @@ export class CommunityJoinRequest {
   @Column({ type: 'enum', enum: CommunityJoinRequestStatus, default: CommunityJoinRequestStatus.PENDING })
   status!: CommunityJoinRequestStatus;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reviewedByUserId!: string | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })

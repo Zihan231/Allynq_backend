@@ -140,21 +140,20 @@ export class AdminBackupsService {
     return { success: true };
   }
 
-  /** Reads every table from one repeatable-read, read-only PostgreSQL snapshot. */
+  /** Reads every table from one repeatable-read snapshot (it only ever SELECTs). */
   private async consistentSnapshot(): Promise<Record<string, unknown[]>> {
     const runner = this.dataSource.createQueryRunner();
     await runner.connect();
     try {
       await runner.startTransaction('REPEATABLE READ');
-      await runner.query('SET TRANSACTION READ ONLY');
       const tableRows: Array<{ tablename: string }> = await runner.query(
-        `SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename`,
+        `SELECT table_name AS tablename FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name`,
       );
       const tables: Record<string, unknown[]> = {};
       for (const { tablename } of tableRows) {
         if (tablename === 'platform_backups' || tablename === 'migrations')
           continue;
-        const quoted = `"${tablename.replaceAll('"', '""')}"`;
+        const quoted = `\`${tablename.replaceAll('`', '``')}\``;
         tables[tablename] = await runner.query(`SELECT * FROM ${quoted}`);
       }
       await runner.commitTransaction();

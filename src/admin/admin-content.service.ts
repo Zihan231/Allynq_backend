@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import type { BinEntityType } from '../recycle-bin/recycle-bin-item.entity.js';
 import { RecycleBinService } from '../recycle-bin/recycle-bin.service.js';
 import { AuditService } from './audit.service.js';
+import { isForeignKeyViolation } from '../common/db-errors.js';
 import type { Actor, ActionContext } from './admin-users.service.js';
 import type { BinQueryDto, EntityListQueryDto } from './dto/admin.dto.js';
 
@@ -94,8 +95,8 @@ export class AdminContentService {
     try {
       item = await this.bin.purge(type, id);
     } catch (error) {
-      // 23503: still referenced (e.g. a user who created a community).
-      if ((error as { code?: string }).code === '23503') {
+      // Still referenced by a foreign key (e.g. a user who created a community).
+      if (isForeignKeyViolation(error)) {
         throw new BadRequestException('Other records still depend on this. Delete those first (e.g. a community this user created).');
       }
       throw error;

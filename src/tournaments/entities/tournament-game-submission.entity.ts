@@ -25,13 +25,13 @@ export class TournamentGameSubmission {
   @JoinColumn({ name: 'gameId' })
   game?: Relation<TournamentMatchGame>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   gameId!: string;
 
   @Column({ type: 'varchar', length: 1 })
   side!: 'A' | 'B';
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   submittedByUserId!: string;
 
   @Column({ type: 'int' })

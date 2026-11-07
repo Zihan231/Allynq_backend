@@ -9,6 +9,6 @@ export class AppSetting {
   @Column({ type: 'json' })
   value!: Record<string, unknown>;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

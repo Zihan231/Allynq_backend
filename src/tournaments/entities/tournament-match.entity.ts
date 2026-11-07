@@ -29,7 +29,7 @@ export class TournamentMatch {
   @JoinColumn({ name: 'tournamentId' })
   tournament?: Relation<Tournament>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   tournamentId!: string;
 
   @Column({ type: 'varchar', length: 16 })
@@ -53,18 +53,18 @@ export class TournamentMatch {
   @JoinColumn({ name: 'participantAId' })
   participantA?: Relation<TournamentParticipant> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   participantAId!: string | null;
 
   @ManyToOne(() => TournamentParticipant, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'participantBId' })
   participantB?: Relation<TournamentParticipant> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   participantBId!: string | null;
 
   /** Knockout: the fixture the winner moves into, and on which side. */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   nextMatchId!: string | null;
 
   @Column({ type: 'varchar', length: 1, nullable: true })
@@ -87,14 +87,14 @@ export class TournamentMatch {
   @Column({ type: 'int', nullable: true })
   goalsB!: number | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   winnerParticipantId!: string | null;
 
   /** Neither side uploaded evidence for any game: both lose, nobody advances. */
   @Column({ type: 'boolean', default: false })
   doubleForfeit!: boolean;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   completedAt!: Date | null;
 
   @OneToMany(() => TournamentMatchGame, (game) => game.match)

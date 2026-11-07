@@ -32,7 +32,8 @@ export function installMysqlSession(): void {
     pool.on('connection', (connection) => {
       const query = connection.query.bind(connection) as (...a: any[]) => unknown;
       // Issued first, so it is in force before the connection is handed to anyone.
-      query("SET SESSION sql_mode = CONCAT(@@sql_mode, ',ANSI_QUOTES')");
+      // time_zone: NOW() / CURRENT_DATE and the date maths in our queries are UTC whatever the server's own zone is.
+      query("SET SESSION sql_mode = CONCAT(@@sql_mode, ',ANSI_QUOTES'), time_zone = '+00:00'");
       connection.query = (sql: unknown, values?: unknown, callback?: Callback) => {
         if (typeof sql !== 'string') return query(sql, values, callback);
         const cb = typeof values === 'function' ? (values as Callback) : callback;

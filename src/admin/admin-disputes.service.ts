@@ -39,7 +39,7 @@ export class AdminDisputesService {
         where.push(waiting, `(g."evidenceDeadline" IS NULL OR g."evidenceDeadline" < now())`);
         break;
       case 'stale':
-        where.push(waiting, `g."updatedAt" < now() - interval '48 hours'`);
+        where.push(waiting, `g."updatedAt" < now() - INTERVAL 48 HOUR`);
         break;
       case 'rejected':
         where.push(`g.status = 'rejected'`);
@@ -69,9 +69,9 @@ export class AdminDisputesService {
               t.id AS "tournamentId", t.name AS "tournamentName", t.type AS "tournamentType",
               COALESCE((SELECT name FROM communities WHERE id = t."communityId"), (SELECT name FROM clubs WHERE id = t."hostClubId")) AS "hostName",
               (SELECT count(*)::int FROM tournament_game_submissions s WHERE s."gameId" = g.id) AS submissions,
-              jsonb_array_length(COALESCE(t."matchOfficialIds", '[]'::jsonb))::int AS officials,
+              JSON_LENGTH(COALESCE(t."matchOfficialIds", JSON_ARRAY())) AS officials,
               (g."evidenceDeadline" IS NULL OR g."evidenceDeadline" < now()) AS "reviewOpen",
-              (g."updatedAt" < now() - interval '48 hours') AS stale
+              (g."updatedAt" < now() - INTERVAL 48 HOUR) AS stale
          ${from}
         ORDER BY (g."evidenceDeadline" IS NULL OR g."evidenceDeadline" < now()) DESC, g."updatedAt" ASC
         LIMIT ${limit} OFFSET ${(page - 1) * limit}`,

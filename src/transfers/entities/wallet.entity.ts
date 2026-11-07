@@ -19,7 +19,7 @@ export class Wallet {
   @Column({ type: 'varchar', length: 8 })
   ownerType!: WalletOwnerType;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   ownerId!: string;
 
   @Column({ type: 'int', default: 0 })
@@ -28,9 +28,9 @@ export class Wallet {
   @Column({ type: 'int', default: 0 })
   heldTk!: number;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

@@ -26,6 +26,7 @@ import type {
 } from './dto/phase-six.dto.js';
 import { AccountLabel } from './entities/account-label.entity.js';
 import { AccountStaffNote } from './entities/account-staff-note.entity.js';
+import { isUniqueViolation } from '../common/db-errors.js';
 import { Season } from './entities/season.entity.js';
 import { StoreItem } from './entities/store-item.entity.js';
 import { SeasonStanding } from './entities/season-standing.entity.js';
@@ -495,7 +496,7 @@ export class AdminPhaseSixService {
     if (!items.length) return [];
     const stats: Array<{ sku: string; owners: number; revenueTk: number; sales: number }> = await this.dataSource.query(
       `SELECT i.sku,
-              (SELECT count(*)::int FROM users u WHERE u."ownedCosmeticIds" ? i.sku) AS owners,
+              (SELECT count(*)::int FROM users u WHERE JSON_CONTAINS(u."ownedCosmeticIds", JSON_QUOTE(i.sku))) AS owners,
               COALESCE((SELECT -sum(w."amountTk") FROM wallet_transactions w WHERE w."storeItemId" = i.id AND w.kind = 'purchase'), 0)::int AS "revenueTk",
               (SELECT count(*)::int FROM wallet_transactions w WHERE w."storeItemId" = i.id AND w.kind = 'purchase') AS sales
          FROM store_items i`,
@@ -561,7 +562,7 @@ export class AdminPhaseSixService {
     try {
       await this.storeItems.save(row);
     } catch (error) {
-      if ((error as { code?: string }).code === '23505')
+      if (isUniqueViolation(error))
         throw new ConflictException('That store SKU already exists');
       throw error;
     }

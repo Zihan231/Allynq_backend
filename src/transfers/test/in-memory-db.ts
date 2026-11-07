@@ -132,7 +132,7 @@ export function makeDb() {
   };
 
   const query = async (sql: string, params: unknown[] = []) => {
-    if (sql.includes('INSERT INTO wallets')) {
+    if (sql.includes('INSERT IGNORE INTO wallets')) {
       const [ownerType, ownerId] = params as [string, string];
       const wallets = table(Wallet);
       if (!wallets.some((w) => w.ownerType === ownerType && w.ownerId === ownerId)) {
@@ -140,7 +140,13 @@ export function makeDb() {
       }
       return [];
     }
-    if (sql.includes("nextval('contract_no_seq')")) return [{ seq: ++contractSeq }];
+    // The contract number counter (contracts.ts): one locked row.
+    if (sql.includes('INSERT IGNORE INTO contract_counters')) return [];
+    if (sql.includes('SELECT value FROM contract_counters')) return [{ value: contractSeq }];
+    if (sql.includes('UPDATE contract_counters')) {
+      contractSeq = params[0] as number;
+      return [];
+    }
     // Sponsorships of tournaments that are over (SponsorsService.tick).
     if (sql.includes('FROM sponsorships s JOIN tournaments t')) {
       const tournaments = tables.get('Tournament') ?? [];
@@ -169,7 +175,7 @@ export function makeDb() {
       return [];
     }
     // Owners of a creator design (notified when it gets a new look).
-    if (sql.includes('FROM users WHERE "ownedCosmeticIds" ?')) {
+    if (sql.includes('FROM users WHERE JSON_CONTAINS("ownedCosmeticIds"')) {
       return (tables.get('User') ?? []).filter((u) => (u.ownedCosmeticIds ?? []).includes(params[0])).map((u) => ({ id: u.id }));
     }
     if (sql.includes('UPDATE store_items SET "salesCount"')) {

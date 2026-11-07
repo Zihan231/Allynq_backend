@@ -29,6 +29,7 @@ export function buildDbOptions(url: string | undefined, extra: Partial<MysqlOpti
     entities: ALL_ENTITIES,
     synchronize: false,
     ...extra,
-    extra: { decimalNumbers: true, ...(extra.extra as object | undefined) },
+    // Keep-alive: a cloud database (TiDB Cloud) closes idle connections; mysql2 also drops idle ones after 60 s by default.
+    extra: { decimalNumbers: true, enableKeepAlive: true, keepAliveInitialDelay: 10_000, ...(extra.extra as object | undefined) },
   } as MysqlOptions;
 }

@@ -94,8 +94,9 @@ export class MyGamesService {
         'SELECT *',
         {},
         (param) => `ORDER BY (state = 'finished'),
-                   CASE WHEN state <> 'finished' THEN "scheduledStart" END ASC NULLS LAST,
-                   CASE WHEN state = 'finished' THEN "scheduledStart" END DESC NULLS LAST,
+                   (CASE WHEN state <> 'finished' THEN "scheduledStart" END IS NULL),
+                   CASE WHEN state <> 'finished' THEN "scheduledStart" END ASC,
+                   CASE WHEN state = 'finished' THEN "scheduledStart" END DESC,
                    id
           LIMIT ${param(limit)} OFFSET ${param((page - 1) * limit)}`,
       ),
@@ -162,6 +163,9 @@ interface GameRow {
   hostDpUrl: string | null;
 }
 
+/** Which side of a game the viewer ($1) played: A or B. (A lateral join did this in PostgreSQL.) */
+const SIDE = `(CASE WHEN g."playerAUserId" = $1 THEN 'A' ELSE 'B' END)`;
+
 /**
  * One row per game the player ($1) plays in, from their side, with its state:
  * - finished: approved, walkover or forfeited;
@@ -180,16 +184,16 @@ const GAMES_SQL = `
     FROM (
       SELECT g.id, g."matchId", g.status, g.resolution, g."goalsA", g."goalsB", g."reviewNote", g."isDecider",
              g."scheduledStart", g."scheduledEnd", g."evidenceDeadline",
-             s.side AS "mySide",
-             EXISTS (SELECT 1 FROM tournament_game_submissions sub WHERE sub."gameId" = g.id AND sub.side = s.side)
+             ${SIDE} AS "mySide",
+             EXISTS (SELECT 1 FROM tournament_game_submissions sub WHERE sub."gameId" = g.id AND sub.side = ${SIDE})
                AS "mySubmitted",
-             CASE WHEN s.side = 'A' THEN g."playerAName" ELSE g."playerBName" END AS "myName",
-             CASE WHEN s.side = 'A' THEN g."playerADpUrl" ELSE g."playerBDpUrl" END AS "myDpUrl",
-             CASE WHEN s.side = 'A' THEN g."playerBUserId" ELSE g."playerAUserId" END AS "opponentUserId",
-             CASE WHEN s.side = 'A' THEN g."playerBName" ELSE g."playerAName" END AS "opponentName",
-             CASE WHEN s.side = 'A' THEN g."playerBDpUrl" ELSE g."playerADpUrl" END AS "opponentDpUrl",
-             CASE WHEN s.side = 'A' THEN ca.name ELSE cb.name END AS "myClubName",
-             CASE WHEN s.side = 'A' THEN cb.name ELSE ca.name END AS "opponentClubName",
+             CASE WHEN ${SIDE} = 'A' THEN g."playerAName" ELSE g."playerBName" END AS "myName",
+             CASE WHEN ${SIDE} = 'A' THEN g."playerADpUrl" ELSE g."playerBDpUrl" END AS "myDpUrl",
+             CASE WHEN ${SIDE} = 'A' THEN g."playerBUserId" ELSE g."playerAUserId" END AS "opponentUserId",
+             CASE WHEN ${SIDE} = 'A' THEN g."playerBName" ELSE g."playerAName" END AS "opponentName",
+             CASE WHEN ${SIDE} = 'A' THEN g."playerBDpUrl" ELSE g."playerADpUrl" END AS "opponentDpUrl",
+             CASE WHEN ${SIDE} = 'A' THEN ca.name ELSE cb.name END AS "myClubName",
+             CASE WHEN ${SIDE} = 'A' THEN cb.name ELSE ca.name END AS "opponentClubName",
              m.stage, m."roundName", m."groupLabel",
              t.id AS "tournamentId", t.name AS "tournamentName", t.type AS "tournamentType",
              t.status AS "tournamentStatus", t."communityId", t."hostClubId",
@@ -198,9 +202,6 @@ const GAMES_SQL = `
              COALESCE(hc.name, co.name, org.name) AS "hostName",
              COALESCE(hc."dpUrl", co."dpUrl", org."dpUrl") AS "hostDpUrl"
         FROM tournament_match_games g
-        CROSS JOIN LATERAL (
-          SELECT CASE WHEN g."playerAUserId" = $1 THEN 'A' ELSE 'B' END AS side
-        ) s
         JOIN tournament_matches m ON m.id = g."matchId"
         JOIN tournaments t ON t.id = m."tournamentId"
         LEFT JOIN clubs hc ON hc.id = t."hostClubId"

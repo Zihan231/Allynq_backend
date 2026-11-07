@@ -29,21 +29,21 @@ export class PlayerLoan {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   playerUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'playerUserId' })
   player?: Relation<User>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   parentClubId!: string;
 
   @ManyToOne(() => Club, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'parentClubId' })
   parentClub?: Relation<Club>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   borrowClubId!: string;
 
   @ManyToOne(() => Club, { onDelete: 'CASCADE' })
@@ -51,7 +51,7 @@ export class PlayerLoan {
   borrowClub?: Relation<Club>;
 
   /** His contract with the parent club (unchanged by the loan). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   contractId!: string | null;
 
   /** The fee on the table now (changes with every counter-offer). */
@@ -93,10 +93,10 @@ export class PlayerLoan {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   createdByUserId!: string;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   expiresAt!: Date;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -105,26 +105,26 @@ export class PlayerLoan {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   paidAt!: Date | null;
 
   /** While scheduled / returning: the tournament he has to finish first. */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   scheduledTournamentId!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   startedAt!: Date | null;
 
   /** startedAt + maxDays. */
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endsBy!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

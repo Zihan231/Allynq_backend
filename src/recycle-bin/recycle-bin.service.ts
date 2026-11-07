@@ -164,7 +164,7 @@ export class RecycleBinService {
     const rows = await this.dataSource.query(
       `SELECT b.id, b."entityType", b."entityId", b.name, b.reason, b."deletedAt", b."purgeAfter",
               b."deletedById", u.name AS "deletedByName",
-              COALESCE(jsonb_array_length(b.snapshot->'members'), 0)::int AS "memberCount"
+              COALESCE(JSON_LENGTH(JSON_EXTRACT(b.snapshot, '$.members')), 0) AS "memberCount"
          FROM recycle_bin b LEFT JOIN users u ON u.id = b."deletedById"
          ${clause}
         ORDER BY b."deletedAt" DESC
@@ -222,13 +222,11 @@ export class RecycleBinService {
   }
 
   private async reattachCommunityMember(em: EntityManager, communityId: string, member: BinMember): Promise<boolean> {
-    const rows = await em.query(
+    const result: { affectedRows?: number } = await em.query(
       `UPDATE efootball_profiles SET "communityId" = $2, "communityRole" = $3
-        WHERE id = $1 AND "communityId" IS NULL RETURNING id`,
+        WHERE id = $1 AND "communityId" IS NULL`,
       [member.profileId, communityId, member.role],
     );
-    // For UPDATE … RETURNING, TypeORM's postgres driver returns [rows, affectedCount].
-    const affected = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0].length : Array.isArray(rows) ? rows.length : 0;
-    return affected > 0;
+    return Number(result?.affectedRows ?? 0) > 0;
   }
 }

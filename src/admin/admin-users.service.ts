@@ -134,7 +134,7 @@ export class AdminUsersService {
       newest: 'u."createdAt" DESC',
       oldest: 'u."createdAt" ASC',
       name: 'LOWER(u.name) ASC',
-      last_login: 'u."lastLoginAt" DESC NULLS LAST',
+      last_login: 'u."lastLoginAt" DESC', // MySQL sorts NULLs last in DESC order
       warnings: 'u."warningsCount" DESC, u."createdAt" DESC',
     }[query.sort ?? 'newest'];
 
@@ -202,7 +202,7 @@ export class AdminUsersService {
         `SELECT
            (SELECT count(*)::int FROM transfer_offers o WHERE o."playerUserId" = $1 AND o.status = 'completed') AS transfers,
            (SELECT count(*)::int FROM login_events l WHERE l."userId" = $1 AND l.success) AS logins,
-           (SELECT count(*)::int FROM login_events l WHERE l."userId" = $1 AND NOT l.success AND l."createdAt" > now() - interval '7 days') AS "failedLogins7d"`,
+           (SELECT count(*)::int FROM login_events l WHERE l."userId" = $1 AND NOT l.success AND l."createdAt" > now() - INTERVAL 7 DAY) AS "failedLogins7d"`,
         [id],
       ),
       // Other accounts that signed in from the same IP addresses (possible multi-accounting).

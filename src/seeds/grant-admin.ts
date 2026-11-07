@@ -19,15 +19,15 @@ async function main() {
   await dataSource.initialize();
   try {
     const role = roleArg === 'none' ? null : roleArg;
-    const rows = await dataSource.query(
-      `UPDATE users SET "systemRole" = $2 WHERE LOWER(email) = LOWER($1) RETURNING id, name, email, "systemRole"`,
-      [email.trim(), role],
+    await dataSource.query(`UPDATE users SET "systemRole" = $2 WHERE LOWER(email) = LOWER($1)`, [email.trim(), role]);
+    const [user] = await dataSource.query(
+      `SELECT id, name, email, "systemRole" FROM users WHERE LOWER(email) = LOWER($1)`,
+      [email.trim()],
     );
-    const [user] = Array.isArray(rows[0]) ? rows[0] : rows;
     if (!user) throw new Error(`No user with email ${email}`);
     await dataSource.query(
-      `INSERT INTO admin_audit_logs ("actorId", "actorName", "actorRole", action, "targetType", "targetId", "targetName", after, reason)
-       VALUES (NULL, 'CLI', 'system', 'user.role', 'user', $1, $2, $3, 'Granted from the command line')`,
+      `INSERT INTO admin_audit_logs (id, "actorId", "actorName", "actorRole", action, "targetType", "targetId", "targetName", after, reason)
+       VALUES (UUID(), NULL, 'CLI', 'system', 'user.role', 'user', $1, $2, $3, 'Granted from the command line')`,
       [user.id, user.name, JSON.stringify({ systemRole: role })],
     );
     console.log(`${user.name} <${user.email}> is now: ${user.systemRole ?? 'a normal user'}`);

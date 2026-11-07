@@ -682,7 +682,7 @@ export class LoansService {
         WHERE m.status = 'completed'
           AND m."completedAt" >= $3
           AND (g."playerAProfileId" = $1 OR g."playerBProfileId" = $1)
-          AND g.resolution IS DISTINCT FROM 'double_forfeit'
+          AND NOT (g.resolution <=> 'double_forfeit')
           AND p."clubId" = $2`,
       [profileId, loan.borrowClubId, loan.startedAt],
     );
@@ -1085,7 +1085,7 @@ export class LoansService {
   async forClub(caller: User | null, clubId: string) {
     const leader = caller ? await this.transfers.isClubLeader(this.dataSource.manager, clubId, caller.id) : false;
     const statuses = leader ? [...OPEN_LOAN_STATUSES] : RUNNING;
-    const recent = leader ? ` OR (l.status = 'completed' AND l."endedAt" > now() - interval '30 days')` : '';
+    const recent = leader ? ` OR (l.status = 'completed' AND l."endedAt" > now() - INTERVAL 30 DAY)` : '';
     const [loansIn, loansOut] = await Promise.all([
       this.views({ where: `l."borrowClubId" = $1 AND (l.status = ANY($2)${recent})`, params: [clubId, statuses] }),
       this.views({ where: `l."parentClubId" = $1 AND (l.status = ANY($2)${recent})`, params: [clubId, statuses] }),
@@ -1096,7 +1096,7 @@ export class LoansService {
   /** The signed-in player's loans: talks about him, a running loan, and recent ones. */
   async mine(caller: User): Promise<LoanView[]> {
     return this.views({
-      where: `l."playerUserId" = $1 AND (l.status = ANY($2) OR l."endedAt" > now() - interval '30 days')`,
+      where: `l."playerUserId" = $1 AND (l.status = ANY($2) OR l."endedAt" > now() - INTERVAL 30 DAY)`,
       params: [caller.id, [...OPEN_LOAN_STATUSES]],
       limit: 10,
     });

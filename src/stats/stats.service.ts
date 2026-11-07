@@ -18,11 +18,14 @@ import {
   CLUB_FIXTURES_SQL,
   CLUB_RANK_ORDER,
   clubTotalsSql,
+  localTime,
+  monthStart,
   PLAYER_GAMES_SQL,
   PLAYER_RANK_ORDER,
   periodCondition,
   playerTotalsSql,
   STATS_PERIODS,
+  weekStart,
   type RankingPeriod,
   type StatsPeriod,
 } from './stats.sql.js';
@@ -120,7 +123,7 @@ export class StatsService {
          GROUP BY "userId"
       ),
       ranked AS (
-        SELECT t.*, COALESCE(s.streak, 0) AS streak, RANK() OVER (ORDER BY ${PLAYER_RANK_ORDER})::int AS rank
+        SELECT t.*, COALESCE(s.streak, 0) AS streak, RANK() OVER (ORDER BY ${PLAYER_RANK_ORDER})::int AS "rank"
           FROM totals t
           LEFT JOIN streaks s USING ("userId")
       )`;
@@ -160,7 +163,7 @@ export class StatsService {
       this.run<Record<string, unknown>>(
         (param) =>
           `${from(param).replace('%SELECT%', 'u.id, u.name, u."dpUrl", c.name AS "clubName", r.*')}
-           ORDER BY r.rank ASC NULLS LAST, u.name ASC, u.id
+           ORDER BY (r.rank IS NULL), r.rank ASC, u.name ASC, u.id
            LIMIT ${param(limit)} OFFSET ${param((page - 1) * limit)}`,
       ),
       this.run<{ total: number }>((param) => from(param).replace('%SELECT%', 'count(*)::int AS total')),
@@ -227,7 +230,7 @@ export class StatsService {
     const [row] = await this.run<{ rank: number | null; rankedPlayers: number }>(
       (param) => `
         WITH ${this.rankedPlayersSql(period)}
-        SELECT (SELECT rank FROM ranked WHERE "userId" = ${param(userId)}) AS rank,
+        SELECT (SELECT "rank" FROM ranked WHERE "userId" = ${param(userId)}) AS "rank",
                (SELECT count(*)::int FROM ranked) AS "rankedPlayers"`,
     );
     return { rank: row?.rank ?? null, rankedPlayers: row?.rankedPlayers ?? 0 };
@@ -235,22 +238,25 @@ export class StatsService {
 
   /** The player's rank in each of the last 12 months / weeks (among everyone who played in it). */
   private async rankTrend(userId: string, unit: 'month' | 'week', now: Date): Promise<TrendPoint[]> {
+    // Buckets are Bangladesh-local weeks / months (a DATE); `unit` is 'week' or 'month', never user input.
+    const truncate = unit === 'week' ? weekStart : monthStart;
+    const sqlUnit = unit === 'week' ? 'WEEK' : 'MONTH';
     const rows = await this.run<{ start: Date | string; rank: number; players: number }>(
       (param) => `
         WITH games AS (
-               SELECT pg.*, date_trunc('${unit}', pg."playedAt" AT TIME ZONE 'Asia/Dhaka') AS bucket
+               SELECT pg.*, ${truncate(localTime('pg."playedAt"'))} AS bucket
                  FROM (${PLAYER_GAMES_SQL}) pg
-                WHERE (pg."playedAt" AT TIME ZONE 'Asia/Dhaka')
-                      >= date_trunc('${unit}', now() AT TIME ZONE 'Asia/Dhaka') - interval '${TREND_BUCKETS - 1} ${unit}'
+                WHERE ${localTime('pg."playedAt"')}
+                      >= DATE_SUB(${truncate(localTime('NOW()'))}, INTERVAL ${TREND_BUCKETS - 1} ${sqlUnit})
              ),
              totals AS (${playerTotalsSql('games', ['bucket'])}),
              ranked AS (
                SELECT bucket, "userId",
-                      RANK() OVER (PARTITION BY bucket ORDER BY ${PLAYER_RANK_ORDER})::int AS rank,
+                      RANK() OVER (PARTITION BY bucket ORDER BY ${PLAYER_RANK_ORDER})::int AS "rank",
                       count(*) OVER (PARTITION BY bucket)::int AS players
                  FROM totals
              )
-        SELECT bucket AT TIME ZONE 'Asia/Dhaka' AS start, rank, players
+        SELECT CONVERT_TZ(bucket, '+06:00', '+00:00') AS start, "rank", players
           FROM ranked
          WHERE "userId" = ${param(userId)}`,
     );
@@ -268,7 +274,7 @@ export class StatsService {
     return `
       fixtures AS (SELECT * FROM (${CLUB_FIXTURES_SQL}) cf WHERE ${periodCondition(period)}),
       totals AS (${clubTotalsSql('fixtures')}),
-      ranked AS (SELECT t.*, RANK() OVER (ORDER BY ${CLUB_RANK_ORDER})::int AS rank FROM totals t)`;
+      ranked AS (SELECT t.*, RANK() OVER (ORDER BY ${CLUB_RANK_ORDER})::int AS "rank" FROM totals t)`;
   }
 
   async clubRankings(query: ClubRankingsQueryDto): Promise<PaginatedResult<ClubRankingRow>> {
@@ -297,7 +303,7 @@ export class StatsService {
       this.run<Record<string, unknown>>(
         (param) =>
           `${from(param).replace('%SELECT%', 'c.id, c.name, c.color, c.initials, c."dpUrl", c.stage, r.*')}
-           ORDER BY r.rank ASC NULLS LAST, c.name ASC, c.id
+           ORDER BY (r.rank IS NULL), r.rank ASC, c.name ASC, c.id
            LIMIT ${param(limit)} OFFSET ${param((page - 1) * limit)}`,
       ),
       this.run<{ total: number }>((param) => from(param).replace('%SELECT%', 'count(*)::int AS total')),

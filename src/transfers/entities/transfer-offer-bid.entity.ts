@@ -9,7 +9,7 @@ export class TransferOfferBid {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   offerId!: string;
 
   @ManyToOne(() => TransferOffer, { onDelete: 'CASCADE' })
@@ -20,7 +20,7 @@ export class TransferOfferBid {
   @Column({ type: 'varchar', length: 8 })
   party!: TransferOfferParty;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   byUserId!: string;
 
   @Column({ type: 'int' })
@@ -29,6 +29,6 @@ export class TransferOfferBid {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

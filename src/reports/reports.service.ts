@@ -69,7 +69,7 @@ export class ReportsService {
         throw new ForbiddenException('You can no longer send reports because several of your reports were found to be false.');
       }
       const [{ n }] = await this.dataSource.query(
-        `SELECT count(*)::int AS n FROM reports WHERE "reporterId" = $1 AND "createdAt" > now() - interval '24 hours'`,
+        `SELECT count(*)::int AS n FROM reports WHERE "reporterId" = $1 AND "createdAt" > now() - INTERVAL 24 HOUR`,
         [user.id],
       );
       if (n >= reportDailyLimit) {
@@ -212,7 +212,7 @@ export class ReportsService {
     const [{ total }] = await this.dataSource.query(`SELECT count(*)::int AS total ${from}`, params);
     const data = await this.dataSource.query(
       `SELECT r.id, r."targetType", r."targetId", r."targetName", r.reason, r.details, r.status, r."reportedAs",
-              r."createdAt", r."updatedAt", r."resolvedAt", jsonb_array_length(r.attachments)::int AS "attachmentCount",
+              r."createdAt", r."updatedAt", r."resolvedAt", JSON_LENGTH(r.attachments) AS "attachmentCount",
               r."reporterId", rep.name AS "reporterName", rep."dpUrl" AS "reporterDpUrl",
               r."assigneeId", a.name AS "assigneeName",
               (SELECT name FROM clubs WHERE id = r."reporterClubId") AS "reporterClubName",
@@ -344,9 +344,9 @@ export class ReportsService {
   /** Queue counts for the dashboard and the sidebar badge. */
   async counts(actor: Actor) {
     const [row] = await this.dataSource.query(
-      `SELECT count(*) FILTER (WHERE status IN ('open', 'in_review'))::int AS active,
-              count(*) FILTER (WHERE status = 'open' AND "assigneeId" IS NULL)::int AS unassigned,
-              count(*) FILTER (WHERE status IN ('open', 'in_review') AND "assigneeId" = $1)::int AS mine
+      `SELECT COUNT(CASE WHEN status IN ('open', 'in_review') THEN 1 END)::int AS active,
+              COUNT(CASE WHEN status = 'open' AND "assigneeId" IS NULL THEN 1 END)::int AS unassigned,
+              COUNT(CASE WHEN status IN ('open', 'in_review') AND "assigneeId" = $1 THEN 1 END)::int AS mine
          FROM reports`,
       [actor.id],
     );
@@ -385,7 +385,7 @@ export class ReportsService {
                FROM clubs c WHERE c.id = $1 AND c."deletedAt" IS NULL`,
       community: `SELECT co.name, NULL::uuid AS "clubId", co.id AS "communityId" FROM communities co WHERE co.id = $1 AND co."deletedAt" IS NULL`,
       tournament: `SELECT t.name, t."hostClubId" AS "clubId", t."communityId" FROM tournaments t WHERE t.id = $1 AND t."deletedAt" IS NULL`,
-      match: `SELECT t.name || ' · ' || m."roundName" || ' #' || m."matchNumber" AS name, t."hostClubId" AS "clubId", t."communityId"
+      match: `SELECT CONCAT(t.name, ' · ', m."roundName", ' #', m."matchNumber") AS name, t."hostClubId" AS "clubId", t."communityId"
                 FROM tournament_matches m JOIN tournaments t ON t.id = m."tournamentId"
                WHERE m.id = $1 AND t."deletedAt" IS NULL`,
     };

@@ -26,22 +26,22 @@ export class Report {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   reporterId!: string;
 
   @Column({ type: 'varchar', length: 16, default: 'self' })
   reportedAs!: ReportedAs;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reporterClubId!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reporterCommunityId!: string | null;
 
   @Column({ type: 'varchar', length: 16 })
   targetType!: ReportTarget;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   targetId!: string;
 
   /** The target's name when reported, kept even if it is renamed or deleted later. */
@@ -49,10 +49,10 @@ export class Report {
   targetName!: string;
 
   /** Club / community the target belongs to, so staff can filter reports by them. */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   contextClubId!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   contextCommunityId!: string | null;
 
   @Column({ type: 'varchar', length: 32 })
@@ -68,7 +68,7 @@ export class Report {
   @Column({ type: 'varchar', length: 16, default: 'open' })
   status!: ReportStatus;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   assigneeId!: string | null;
 
   /** What staff tell the reporter when closing it. */
@@ -83,15 +83,15 @@ export class Report {
   @Column({ type: 'boolean', default: false })
   falseReport!: boolean;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   resolvedById!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   resolvedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

@@ -29,7 +29,7 @@ export class WalletTransaction {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   walletId!: string;
 
   /**
@@ -43,27 +43,27 @@ export class WalletTransaction {
   @Column({ type: 'varchar', length: 16 })
   kind!: WalletTransactionKind;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   offerId!: string | null;
 
   /** The loan it belongs to, for loan fees. */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   loanId!: string | null;
 
   /** The tournament it belongs to: entry fees and prize money of general tournaments. */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   tournamentId!: string | null;
 
   /** The store item it paid for (purchases). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   storeItemId!: string | null;
 
   /** The coaching deal it belongs to (coach fees). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   coachingDealId!: string | null;
 
   /** The sponsorship it belongs to (sponsor payments). */
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   sponsorshipId!: string | null;
 
   /** Who the money went to / came from (display name). */
@@ -74,6 +74,6 @@ export class WalletTransaction {
   @Column({ type: 'varchar', length: 32, nullable: true })
   reference!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

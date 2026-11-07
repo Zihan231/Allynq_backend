@@ -87,7 +87,8 @@ export class FeedService {
     if ((tab === 'following' || tab === 'saved') && !viewerId) throw new ForbiddenException('Sign in to see this');
     const limit = Math.min(MAX_LIMIT, Math.max(1, rawLimit ?? 10));
     const cursor = decodeCursor(rawCursor);
-    const params: unknown[] = [viewerId, cursor.asOf, limit + 1, cursor.offset];
+    // Dates go in as Date objects: MySQL doesn't read ISO strings with a "T" and a "Z" as datetimes.
+    const params: unknown[] = [viewerId, new Date(cursor.asOf), limit + 1, cursor.offset];
 
     const base = `
       FROM coach_posts p
@@ -106,6 +107,8 @@ export class FeedService {
       sql = `SELECT p.id ${base.replace('WHERE', 'JOIN coach_post_saves s ON s."postId" = p.id AND s."userId" = $1 WHERE')}
              ORDER BY s."createdAt" DESC, p.id LIMIT $3 OFFSET $4`;
     } else {
+      // The specialities of coaches whose posts this viewer liked or saved, as one JSON array ($5): MySQL can't turn a JSON array into rows.
+      params.push(JSON.stringify(viewerId ? await this.likedSpecialities(viewerId) : []));
       sql = `
         WITH followed AS (SELECT "coachUserId" FROM coach_follows WHERE "followerUserId" = $1),
              club_coach AS (
@@ -116,21 +119,13 @@ export class FeedService {
                SELECT s."sponsorUserId" FROM sponsorships s
                 WHERE s.status = 'active' AND (
                   s."communityId" IN (SELECT "communityId" FROM efootball_profiles WHERE "userId" = $1)
-                  OR s."tournamentId" IN (SELECT "tournamentId" FROM tournament_participants WHERE "userId" = $1))),
-             liked_specs AS (
-               SELECT DISTINCT jsonb_array_elements_text(cp2.specialities) AS spec
-                 FROM coach_posts p2
-                 JOIN coach_profiles cp2 ON cp2."userId" = p2."coachUserId"
-                WHERE p2.id IN (SELECT "postId" FROM coach_post_likes WHERE "userId" = $1
-                                UNION SELECT "postId" FROM coach_post_saves WHERE "userId" = $1))
+                  OR s."tournamentId" IN (SELECT "tournamentId" FROM tournament_participants WHERE "userId" = $1)))
         SELECT p.id,
-          (1 + p."likeCount" + 2 * p."commentCount" + 3 * p."saveCount")::float
-            / power(GREATEST(extract(epoch FROM ($2::timestamptz - p."createdAt")) / 3600, 0) + 2, 1.2)
+          (1 + p."likeCount" + 2 * p."commentCount" + 3 * p."saveCount")
+            / power(GREATEST(TIMESTAMPDIFF(SECOND, p."createdAt", $2) / 3600, 0) + 2, 1.2)
             * (CASE WHEN p."coachUserId" IN (SELECT "coachUserId" FROM followed) THEN 3 ELSE 1 END)
             * (CASE WHEN p."coachUserId" IN (SELECT "coachUserId" FROM club_coach) THEN 2.5 ELSE 1 END)
-            * (CASE WHEN EXISTS (
-                 SELECT 1 FROM jsonb_array_elements_text(COALESCE(cp.specialities, '[]'::jsonb)) sp WHERE sp IN (SELECT spec FROM liked_specs)
-               ) THEN 1.5 ELSE 1 END)
+            * (CASE WHEN JSON_OVERLAPS(COALESCE(cp.specialities, JSON_ARRAY()), $5) THEN 1.5 ELSE 1 END)
             * (CASE WHEN p."authorRole" = 'sponsor' AND p."coachUserId" IN (SELECT "sponsorUserId" FROM my_sponsors) THEN 2 ELSE 1 END)
             * (CASE WHEN EXISTS (
                  SELECT 1 FROM coach_post_views v WHERE v."postId" = p.id AND v."userId" = $1 AND v."seenAt" < $2::timestamptz
@@ -234,16 +229,35 @@ export class FeedService {
     return post;
   }
 
+  /** The specialities of the coaches whose posts the viewer liked or saved (the "for you" ranking prefers those topics). */
+  private async likedSpecialities(userId: string): Promise<string[]> {
+    const rows: Array<{ specialities: unknown }> = await this.dataSource.query(
+      `SELECT cp2.specialities
+         FROM coach_posts p2
+         JOIN coach_profiles cp2 ON cp2."userId" = p2."coachUserId"
+        WHERE p2.id IN (SELECT "postId" FROM coach_post_likes WHERE "userId" = $1
+                        UNION SELECT "postId" FROM coach_post_saves WHERE "userId" = $1)`,
+      [userId],
+    );
+    const specs = new Set<string>();
+    for (const row of rows) {
+      const list = typeof row.specialities === 'string' ? JSON.parse(row.specialities) : row.specialities;
+      if (Array.isArray(list)) for (const s of list) specs.add(String(s));
+    }
+    return [...specs];
+  }
+
   /** Like / unlike, save / unsave: idempotent, and the post's counter moves only on a real change. */
   async toggle(kind: 'like' | 'save', user: User, postId: string, on: boolean) {
     const post = await this.approvedPost(postId);
     const table = kind === 'like' ? 'coach_post_likes' : 'coach_post_saves';
     const counter = kind === 'like' ? 'likeCount' : 'saveCount';
     const changed = await this.dataSource.transaction(async (em) => {
-      const rows: unknown[] = on
-        ? await em.query(`INSERT INTO ${table} ("postId", "userId") VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING "postId"`, [postId, user.id])
-        : await em.query(`DELETE FROM ${table} WHERE "postId" = $1 AND "userId" = $2 RETURNING "postId"`, [postId, user.id]);
-      const n = (Array.isArray(rows[0]) ? (rows[0] as unknown[]) : rows).length;
+      // INSERT IGNORE counts 0 rows when the like/save already exists; DELETE counts what it removed.
+      const result: { affectedRows?: number } = on
+        ? await em.query(`INSERT IGNORE INTO ${table} ("postId", "userId") VALUES ($1, $2)`, [postId, user.id])
+        : await em.query(`DELETE FROM ${table} WHERE "postId" = $1 AND "userId" = $2`, [postId, user.id]);
+      const n = Number(result?.affectedRows ?? 0);
       if (n) await em.query(`UPDATE coach_posts SET "${counter}" = GREATEST(0, "${counter}" + $2) WHERE id = $1`, [postId, on ? 1 : -1]);
       return n > 0;
     });
@@ -262,7 +276,7 @@ export class FeedService {
          FROM coach_post_comments c JOIN users u ON u.id = c."userId"
         WHERE c."postId" = $1 AND c."deletedAt" IS NULL AND ($2::timestamptz IS NULL OR c."createdAt" < $2::timestamptz)
         ORDER BY c."createdAt" DESC LIMIT $3`,
-      [postId, before ?? null, limit + 1],
+      [postId, before ? new Date(before) : null, limit + 1],
     );
     const page = rows.slice(0, limit).reverse();
     return {
@@ -323,16 +337,10 @@ export class FeedService {
       [coachUserId],
     );
     if (!author?.ok) throw new NotFoundException('Not found');
-    const rows: unknown[] = on
-      ? await this.dataSource.query(
-          `INSERT INTO coach_follows ("coachUserId", "followerUserId") VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING "coachUserId"`,
-          [coachUserId, user.id],
-        )
-      : await this.dataSource.query(`DELETE FROM coach_follows WHERE "coachUserId" = $1 AND "followerUserId" = $2 RETURNING "coachUserId"`, [
-          coachUserId,
-          user.id,
-        ]);
-    const changed = (Array.isArray(rows[0]) ? (rows[0] as unknown[]) : rows).length > 0;
+    const result: { affectedRows?: number } = on
+      ? await this.dataSource.query(`INSERT IGNORE INTO coach_follows ("coachUserId", "followerUserId") VALUES ($1, $2)`, [coachUserId, user.id])
+      : await this.dataSource.query(`DELETE FROM coach_follows WHERE "coachUserId" = $1 AND "followerUserId" = $2`, [coachUserId, user.id]);
+    const changed = Number(result?.affectedRows ?? 0) > 0;
     if (changed && on) await this.notify(coachUserId, 'coaching.followed', 'New follower', `${user.name} follows you now.`, { name: user.name });
     const [{ n }] = await this.dataSource.query(`SELECT count(*)::int AS n FROM coach_follows WHERE "coachUserId" = $1`, [coachUserId]);
     return { coachUserId, following: on, followers: n };
@@ -351,9 +359,8 @@ export class FeedService {
     const ids = [...new Set(postIds)].slice(0, 50);
     if (!ids.length) return { seen: 0 };
     await this.dataSource.query(
-      `INSERT INTO coach_post_views ("postId", "userId")
-       SELECT p.id, $2 FROM coach_posts p WHERE p.id = ANY($1)
-       ON CONFLICT ("postId", "userId") DO NOTHING`,
+      `INSERT IGNORE INTO coach_post_views ("postId", "userId")
+       SELECT p.id, $2 FROM coach_posts p WHERE p.id = ANY($1)`,
       [ids, user.id],
     );
     return { seen: ids.length };

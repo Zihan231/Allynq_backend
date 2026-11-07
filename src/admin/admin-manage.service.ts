@@ -291,7 +291,7 @@ export class AdminManageService {
       ),
       officialIds.length ? this.dataSource.query(`SELECT id, name, "dpUrl" FROM users WHERE id = ANY($1::uuid[]) ORDER BY name`, [officialIds]) : [],
       this.dataSource.query(
-        `SELECT count(*) FILTER (WHERE m.status = 'completed')::int AS "matchesDone",
+        `SELECT COUNT(CASE WHEN m.status = 'completed' THEN 1 END)::int AS "matchesDone",
                 count(*)::int AS matches,
                 (SELECT count(*)::int FROM tournament_match_games g JOIN tournament_matches m2 ON m2.id = g."matchId"
                   WHERE m2."tournamentId" = $1 AND g.status IN ('submitted', 'awaiting_opponent')) AS "gamesInReview"

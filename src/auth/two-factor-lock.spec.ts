@@ -38,9 +38,18 @@ function setup() {
       };
       return qb;
     },
-    query: async () => {
-      user.twoFactorFailedAttempts = Number(user.twoFactorFailedAttempts) + 1;
-      return [[{ twoFactorFailedAttempts: user.twoFactorFailedAttempts }], 1];
+    // The wrong-code counter runs as UPDATE then SELECT inside a transaction.
+    manager: {
+      transaction: async (work: (em: { query: (sql: string) => Promise<unknown> }) => Promise<unknown>) =>
+        work({
+          query: async (sql: string) => {
+            if (sql.startsWith('UPDATE')) {
+              user.twoFactorFailedAttempts = Number(user.twoFactorFailedAttempts) + 1;
+              return { affectedRows: 1 };
+            }
+            return [{ twoFactorFailedAttempts: user.twoFactorFailedAttempts }];
+          },
+        }),
     },
     update: async (_id: string, patch: Record<string, unknown>) => Object.assign(user, patch),
   };

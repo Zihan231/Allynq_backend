@@ -5,7 +5,7 @@ import { User } from '../../users/entities/user.entity.js';
 /** A coach's public card: who he is, his channel, what he asks, and whether clubs can sign him. */
 @Entity('coach_profiles')
 export class CoachProfile {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   userId!: string;
 
   @OneToOne(() => User, { onDelete: 'CASCADE' })
@@ -33,9 +33,9 @@ export class CoachProfile {
   @Column({ type: 'boolean', default: true })
   available!: boolean;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

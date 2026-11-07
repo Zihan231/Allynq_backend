@@ -180,13 +180,13 @@ export class TwoFactorService {
    * so a known password can't be paired with guessing codes. Always throws.
    */
   private async recordWrongCode(user: User): Promise<never> {
-    // Incremented in SQL so parallel guesses can't each see the old count.
-    // (For UPDATE … RETURNING the Postgres driver returns [rows, affectedCount].)
-    const [rows] = (await this.users.query(
-      `UPDATE users SET "twoFactorFailedAttempts" = "twoFactorFailedAttempts" + 1 WHERE id = $1 RETURNING "twoFactorFailedAttempts"`,
-      [user.id],
-    )) as [Array<{ twoFactorFailedAttempts: number }>, number];
-    const attempts = rows[0]?.twoFactorFailedAttempts ?? MAX_FAILED_CODES;
+    // Incremented in SQL so parallel guesses can't each see the old count: the UPDATE holds the row until the transaction
+    // has read the new value back (MySQL has no UPDATE ... RETURNING).
+    const attempts = await this.users.manager.transaction(async (em) => {
+      await em.query(`UPDATE users SET "twoFactorFailedAttempts" = "twoFactorFailedAttempts" + 1 WHERE id = $1`, [user.id]);
+      const [row] = (await em.query(`SELECT "twoFactorFailedAttempts" FROM users WHERE id = $1`, [user.id])) as Array<{ twoFactorFailedAttempts: number }>;
+      return row?.twoFactorFailedAttempts ?? MAX_FAILED_CODES;
+    });
     if (attempts >= MAX_FAILED_CODES) {
       const until = new Date(Date.now() + LOCK_MINUTES * 60_000);
       await this.users.update(user.id, { twoFactorFailedAttempts: 0, twoFactorLockedUntil: until });

@@ -19,10 +19,10 @@ export class Season {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   startsAt!: Date;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   endsAt!: Date;
 
   @Column({ type: 'varchar', length: 16, default: 'draft' })
@@ -31,12 +31,12 @@ export class Season {
   @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   rules!: Record<string, unknown>;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

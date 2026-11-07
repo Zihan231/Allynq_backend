@@ -35,7 +35,7 @@ export class EfootballProfile {
   @JoinColumn({ name: 'userId' })
   user!: Relation<User>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   userId!: string;
 
   @Column({ type: 'varchar', length: 64, nullable: true })
@@ -57,14 +57,14 @@ export class EfootballProfile {
   @JoinColumn({ name: 'clubId' })
   club?: Relation<Club> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   clubId!: string | null;
 
   @ManyToOne(() => Team, (team) => team.members, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'teamId' })
   team?: Relation<Team> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   teamId!: string | null;
 
   @Column({ type: 'enum', enum: LineupStatus, default: LineupStatus.NONE })
@@ -77,7 +77,7 @@ export class EfootballProfile {
   @JoinColumn({ name: 'communityId' })
   community?: Relation<Community> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   communityId!: string | null;
 
   @Column({ type: 'enum', enum: CommunityRole, nullable: true })

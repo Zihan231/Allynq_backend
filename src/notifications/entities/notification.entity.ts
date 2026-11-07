@@ -28,7 +28,7 @@ export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   userId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -63,9 +63,9 @@ export class Notification {
   read!: boolean;
 
   // With a time zone, so the moment reads the same whatever the server's local zone is.
-  @CreateDateColumn({ type: 'timestamp with time zone' })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamp with time zone' })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

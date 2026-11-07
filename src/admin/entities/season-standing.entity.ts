@@ -6,7 +6,7 @@ export class SeasonStanding {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   seasonId!: string;
 
   @Column({ type: 'varchar', length: 8 })
@@ -15,7 +15,7 @@ export class SeasonStanding {
   @Column({ type: 'int' })
   rank!: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   entityId!: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -25,6 +25,6 @@ export class SeasonStanding {
   @Column({ type: 'json', default: () => "(JSON_OBJECT())" })
   line!: Record<string, unknown>;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

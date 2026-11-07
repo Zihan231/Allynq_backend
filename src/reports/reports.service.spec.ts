@@ -30,7 +30,7 @@ function setup(options: { reportsToday?: number; target?: Record<string, unknown
   const users = { increment: vi.fn(async () => undefined), findOne: vi.fn(async () => null) };
   const dataSource = {
     query: vi.fn(async (sql: string) => {
-      if (sql.includes(`"createdAt" > now() - interval '24 hours'`)) return [{ n: options.reportsToday ?? 0 }];
+      if (sql.includes(`"createdAt" > now() - INTERVAL 24 HOUR`)) return [{ n: options.reportsToday ?? 0 }];
       if (sql.startsWith('SELECT u.id AS "userId"') || sql.includes('FROM clubs c WHERE c.id = $1 AND')) {
         return options.target === null ? [] : [options.target ?? { userId: 'target-user', name: 'Bad Player', clubId: 'club-x', communityId: 'comm-x' }];
       }

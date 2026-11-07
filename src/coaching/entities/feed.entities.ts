@@ -6,52 +6,52 @@ import { CoachPost } from './coach-post.entity.js';
 /** A user liked a post. */
 @Entity('coach_post_likes')
 export class CoachPostLike {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   postId!: string;
 
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   userId!: string;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }
 
 /** A user saved a post to watch later (private). */
 @Entity('coach_post_saves')
 export class CoachPostSave {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   postId!: string;
 
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   userId!: string;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }
 
 /** A post scrolled into view: seen posts sink in the user's feed. */
 @Entity('coach_post_views')
 export class CoachPostView {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   postId!: string;
 
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   userId!: string;
 
-  @Column({ type: 'datetime', precision: 3, default: () => 'CURRENT_TIMESTAMP(3)' })
+  @Column({ type: 'datetime', precision: 6, default: () => 'CURRENT_TIMESTAMP(6)' })
   seenAt!: Date;
 }
 
 /** A user follows a coach: his posts rank higher for them. */
 @Entity('coach_follows')
 export class CoachFollow {
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   coachUserId!: string;
 
-  @PrimaryColumn({ type: 'uuid' })
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   followerUserId!: string;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }
 
@@ -61,14 +61,14 @@ export class CoachPostComment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   postId!: string;
 
   @ManyToOne(() => CoachPost, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'postId' })
   post?: Relation<CoachPost>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   userId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -78,9 +78,9 @@ export class CoachPostComment {
   @Column({ type: 'text' })
   body!: string;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   deletedAt!: Date | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

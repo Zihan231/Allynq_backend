@@ -27,19 +27,19 @@ export class TournamentGameTimeRequest {
   @JoinColumn({ name: 'gameId' })
   game?: Relation<TournamentMatchGame>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   gameId!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   requestedByUserId!: string;
 
-  @Column({ type: 'timestamp with time zone' })
+  @Column({ type: 'datetime', precision: 6 })
   proposedStart!: Date;
 
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: TimeRequestStatus;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   respondedAt!: Date | null;
 
   @CreateDateColumn()

@@ -96,16 +96,16 @@ export class Tournament {
   @Column({ type: 'int', default: 0 })
   prizeHeldTk!: number;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   registrationDeadline!: Date | null;
 
-  @Column({ type: 'timestamp with time zone' })
+  @Column({ type: 'datetime', precision: 6 })
   teamSubmissionDeadline!: Date;
 
-  @Column({ type: 'timestamp with time zone' })
+  @Column({ type: 'datetime', precision: 6 })
   startAt!: Date;
 
-  @Column({ type: 'timestamp with time zone', nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endAt!: Date | null;
 
   @Column({ type: 'json', nullable: true })
@@ -140,7 +140,7 @@ export class Tournament {
   community!: Relation<Community> | null;
 
   @Index()
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   communityId!: string | null;
 
   /** Hosting club (club tournaments are PvP, for the club's members). */
@@ -149,14 +149,14 @@ export class Tournament {
   hostClub!: Relation<Club> | null;
 
   @Index()
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   hostClubId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'creatorId' })
   creator!: Relation<User> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   creatorId!: string | null;
 
   @OneToMany(() => TournamentParticipant, (p) => p.tournament)
@@ -169,7 +169,7 @@ export class Tournament {
   updatedAt!: Date;
 
   /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
-  @DeleteDateColumn({ type: 'datetime', precision: 3, nullable: true })
+  @DeleteDateColumn({ type: 'datetime', precision: 6, nullable: true })
   deletedAt!: Date | null;
 }
 

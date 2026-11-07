@@ -1,11 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { localTime, monthStart, weekStart } from '../stats/stats.sql.js';
 import type { DashboardQueryDto } from './dto/admin.dto.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Buckets follow Bangladesh time, so a "day" matches what players see. */
-const TZ = 'Asia/Dhaka';
+// Buckets follow Bangladesh time (a fixed +06:00 offset, see stats.sql.ts), so a "day" matches what players see.
 const MAX_BUCKETS = 400;
 
 interface Range {
@@ -17,8 +17,8 @@ interface Range {
 class Params {
   readonly values: unknown[] = [];
   add(value: unknown): string {
-    // ISO strings (UTC) compare correctly with both timestamp and timestamptz columns.
-    this.values.push(value instanceof Date ? value.toISOString() : value);
+    // Dates stay Date objects: the MySQL driver writes them as UTC datetimes (it doesn't read ISO "T...Z" strings).
+    this.values.push(value);
     return `$${this.values.length}`;
   }
 }
@@ -185,19 +185,18 @@ export class AdminDashboardService {
     const p = new Params();
     const from = p.add(range.from);
     const to = p.add(range.to);
-    const unit = p.add(groupBy);
-    const step = p.add(`1 ${groupBy}`);
-    const tz = p.add(TZ);
     const users = this.userScope(query, p);
     const tournaments = this.tournamentScope(query, p);
     const transfers = this.transferScope(query, p);
-    const bucket = (column: string) => `date_trunc(${unit}, (${column})::timestamptz AT TIME ZONE ${tz})`;
+    // The start of the day / week / month (a DATE) that a moment falls in, in Bangladesh time. `unit` is from a fixed union, so safe to inline.
+    const unit = groupBy.toUpperCase() as 'DAY' | 'WEEK' | 'MONTH';
+    const truncate = (local: string) => (groupBy === 'day' ? `DATE(${local})` : groupBy === 'week' ? weekStart(local) : monthStart(local));
+    const bucket = (column: string) => truncate(localTime(column));
     return this.dataSource.query(
-      `WITH buckets AS (
-         SELECT generate_series(
-           date_trunc(${unit}, ${from}::timestamptz AT TIME ZONE ${tz}),
-           date_trunc(${unit}, ${to}::timestamptz AT TIME ZONE ${tz}),
-           ${step}::interval) AS b
+      `WITH RECURSIVE buckets AS (
+         SELECT ${bucket(from)} AS b
+         UNION ALL
+         SELECT DATE_ADD(b, INTERVAL 1 ${unit}) FROM buckets WHERE DATE_ADD(b, INTERVAL 1 ${unit}) <= ${bucket(to)}
        ),
        signups AS (
          SELECT ${bucket('u."createdAt"')} AS b, count(*)::int AS n
@@ -222,7 +221,7 @@ export class AdminDashboardService {
          SELECT ${bucket('o."completedAt"')} AS b, count(*)::int AS n, COALESCE(sum(o."amountTk"), 0)::int AS tk
            FROM transfer_offers o WHERE ${transfers} AND o."completedAt" >= ${from} AND o."completedAt" < ${to} GROUP BY 1
        )
-       SELECT to_char(buckets.b, 'YYYY-MM-DD') AS date,
+       SELECT DATE_FORMAT(buckets.b, '%Y-%m-%d') AS date,
               COALESCE(signups.n, 0) AS signups,
               COALESCE(logins.n, 0) AS "activeUsers",
               COALESCE(matches.n, 0) AS matches,
@@ -289,17 +288,17 @@ export class AdminDashboardService {
          (SELECT count(*)::int FROM tournament_matches m JOIN tournaments t ON t.id = m."tournamentId"
            WHERE t."deletedAt" IS NULL AND m.status = 'in_review') AS "openDisputes",
          (SELECT count(*)::int FROM tournament_matches m JOIN tournaments t ON t.id = m."tournamentId"
-           WHERE t."deletedAt" IS NULL AND m.status = 'in_review' AND m."updatedAt" < now() - interval '48 hours') AS "staleDisputes",
-         (SELECT count(*)::int FROM recycle_bin WHERE "purgeAfter" < now() + interval '3 days') AS "binExpiringSoon",
+           WHERE t."deletedAt" IS NULL AND m.status = 'in_review' AND m."updatedAt" < now() - INTERVAL 48 HOUR) AS "staleDisputes",
+         (SELECT count(*)::int FROM recycle_bin WHERE "purgeAfter" < now() + INTERVAL 3 DAY) AS "binExpiringSoon",
          (SELECT count(*)::int FROM reports WHERE status IN ('open', 'in_review')) AS "openReports",
          (SELECT count(*)::int FROM reports WHERE status = 'open' AND "assigneeId" IS NULL) AS "unassignedReports",
          (SELECT count(*)::int FROM reports WHERE status IN ('open', 'in_review') AND "reportedAs" <> 'self') AS "leaderReports",
-         (SELECT count(*)::int FROM users WHERE "suspendedUntil" BETWEEN now() AND now() + interval '24 hours') AS "suspensionsEndingToday",
+         (SELECT count(*)::int FROM users WHERE "suspendedUntil" BETWEEN now() AND now() + INTERVAL 24 HOUR) AS "suspensionsEndingToday",
          (SELECT count(*)::int FROM (
-            SELECT l.ip FROM login_events l WHERE NOT l.success AND l."createdAt" > now() - interval '24 hours' AND l.ip IS NOT NULL
+            SELECT l.ip FROM login_events l WHERE NOT l.success AND l."createdAt" > now() - INTERVAL 24 HOUR AND l.ip IS NOT NULL
              GROUP BY l.ip HAVING count(*) >= 10) x) AS "suspiciousIps",
          (SELECT count(*)::int FROM (
-            SELECT l.ip FROM login_events l WHERE l.success AND l."createdAt" > now() - interval '30 days' AND l.ip IS NOT NULL
+            SELECT l.ip FROM login_events l WHERE l.success AND l."createdAt" > now() - INTERVAL 30 DAY AND l.ip IS NOT NULL
              GROUP BY l.ip HAVING count(DISTINCT l."userId") >= 3) x) AS "sharedIps"`,
     );
     const oldestDisputes = await this.dataSource.query(

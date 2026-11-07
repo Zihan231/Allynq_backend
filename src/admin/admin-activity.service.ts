@@ -68,7 +68,7 @@ export class AdminActivityService {
     const [{ total }] = await this.dataSource.query(`SELECT count(*)::int AS total ${from}`, params);
     const data = await this.dataSource.query(
       `SELECT l.id, l."userId", u.name AS "userName", l.email, l.success, l."failureReason", l.ip, l."userAgent", l."createdAt",
-              (SELECT count(DISTINCT x."userId")::int FROM login_events x WHERE x.ip = l.ip AND x.success AND x."createdAt" > now() - interval '30 days') AS "accountsOnIp"
+              (SELECT count(DISTINCT x."userId")::int FROM login_events x WHERE x.ip = l.ip AND x.success AND x."createdAt" > now() - INTERVAL 30 DAY) AS "accountsOnIp"
          ${from}
         ORDER BY l."createdAt" DESC
         LIMIT ${limit} OFFSET ${(page - 1) * limit}`,

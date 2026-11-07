@@ -60,7 +60,7 @@ export class Community {
   @Column({ type: 'varchar', length: 512, nullable: true })
   facebookUrl!: string | null;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   creatorId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
@@ -88,16 +88,16 @@ export class Community {
   updatedAt!: Date;
 
   /** Set while it sits in the recycle bin: hidden everywhere, restorable until purged. */
-  @DeleteDateColumn({ type: 'datetime', precision: 3, nullable: true })
+  @DeleteDateColumn({ type: 'datetime', precision: 6, nullable: true })
   deletedAt!: Date | null;
 
   /** Set while ALLYNQ staff have frozen it: visible, but its activity is paused. */
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   frozenAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })
   frozenReason!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   frozenById!: string | null;
 }

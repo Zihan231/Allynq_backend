@@ -133,9 +133,9 @@ export class CommunitiesService {
     const freeAgentCountSql = `(SELECT COUNT(*) FROM community_members m
         LEFT JOIN efootball_profiles p ON p.id = m."profileId"
         WHERE m."communityId" = community.id
-          AND COALESCE(jsonb_array_length(m."sourceClubIds"), 0) = 0
+          AND COALESCE(JSON_LENGTH(m."sourceClubIds"), 0) = 0
           AND p."clubId" IS NULL)`;
-    const clubIdsSql = `COALESCE((SELECT json_agg(cc."clubId") FROM community_clubs cc WHERE cc."communityId" = community.id), '[]'::json)`;
+    const clubIdsSql = `COALESCE((SELECT JSON_ARRAYAGG(cc."clubId") FROM community_clubs cc WHERE cc."communityId" = community.id), JSON_ARRAY())`;
 
     const qb = this.communitiesRepository.createQueryBuilder('community').select('community.id', 'id');
     for (const column of [

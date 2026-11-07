@@ -18,14 +18,14 @@ export class ClubJoinRequest {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   clubId!: string;
 
   @ManyToOne(() => Club, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'clubId' })
   club?: Relation<Club>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   requesterUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
@@ -35,7 +35,7 @@ export class ClubJoinRequest {
   @Column({ type: 'varchar', length: 32, default: 'pending' })
   status!: ClubJoinRequestStatus;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   reviewedByUserId!: string | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })

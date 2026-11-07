@@ -281,9 +281,9 @@ export class CreatorsService {
       ? await this.dataSource.query(`SELECT id, name FROM users WHERE id = ANY($1)`, [[...new Set(rows.map((r) => r.creatorUserId))]])
       : [];
     const [counts] = await this.dataSource.query(
-      `SELECT count(*) FILTER (WHERE "reviewStatus" = 'pending' OR "pendingAssets" IS NOT NULL)::int AS pending,
-              count(*) FILTER (WHERE "reviewStatus" = 'approved')::int AS approved,
-              count(*) FILTER (WHERE "reviewStatus" = 'rejected')::int AS rejected
+      `SELECT COUNT(CASE WHEN "reviewStatus" = 'pending' OR "pendingAssets" IS NOT NULL THEN 1 END)::int AS pending,
+              COUNT(CASE WHEN "reviewStatus" = 'approved' THEN 1 END)::int AS approved,
+              COUNT(CASE WHEN "reviewStatus" = 'rejected' THEN 1 END)::int AS rejected
          FROM store_items WHERE "creatorUserId" IS NOT NULL`,
     );
     return {
@@ -366,11 +366,13 @@ export class CreatorsService {
   private async pinOwners(sku: string, version: number) {
     const pin = JSON.stringify({ [sku]: version });
     await this.dataSource.query(
-      `UPDATE users SET "designVersions" = "designVersions" || $2::jsonb WHERE "ownedCosmeticIds" ? $1 AND NOT ("designVersions" ? $1)`,
+      `UPDATE users SET "designVersions" = JSON_MERGE_PATCH("designVersions", $2)
+        WHERE JSON_CONTAINS("ownedCosmeticIds", JSON_QUOTE($1)) AND NOT JSON_CONTAINS_PATH("designVersions", 'one', CONCAT('$."', $1, '"'))`,
       [sku, pin],
     );
     await this.dataSource.query(
-      `UPDATE clubs SET "designVersions" = "designVersions" || $2::jsonb WHERE "ownedThemeSkus" ? $1 AND NOT ("designVersions" ? $1)`,
+      `UPDATE clubs SET "designVersions" = JSON_MERGE_PATCH("designVersions", $2)
+        WHERE JSON_CONTAINS("ownedThemeSkus", JSON_QUOTE($1)) AND NOT JSON_CONTAINS_PATH("designVersions", 'one', CONCAT('$."', $1, '"'))`,
       [sku, pin],
     );
     await this.dataSource.query(`UPDATE tournaments SET "bannerVersion" = $2 WHERE "bannerSku" = $1 AND "bannerVersion" IS NULL`, [sku, version]);
@@ -385,7 +387,7 @@ export class CreatorsService {
               WHERE c."ownedThemeSkus" ? $1 AND c."deletedAt" IS NULL`,
             [item.sku],
           )
-        : await this.dataSource.query(`SELECT id FROM users WHERE "ownedCosmeticIds" ? $1 AND "deletedAt" IS NULL`, [item.sku]);
+        : await this.dataSource.query(`SELECT id FROM users WHERE JSON_CONTAINS("ownedCosmeticIds", JSON_QUOTE($1)) AND "deletedAt" IS NULL`, [item.sku]);
     for (const { id } of owners) {
       await this.notifications
         .createNotification(id, {

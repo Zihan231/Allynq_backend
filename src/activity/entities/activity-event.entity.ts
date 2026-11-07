@@ -6,7 +6,7 @@ export class ActivityEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   userId!: string | null;
 
   @Column({ type: 'varchar', length: 48 })
@@ -15,7 +15,7 @@ export class ActivityEvent {
   @Column({ type: 'varchar', length: 24, nullable: true })
   targetType!: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   targetId!: string | null;
 
   @Column({ type: 'text' })
@@ -27,6 +27,6 @@ export class ActivityEvent {
   @Column({ type: 'varchar', length: 64, nullable: true })
   ip!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

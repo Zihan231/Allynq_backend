@@ -33,14 +33,14 @@ export class CoachingDeal {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   coachUserId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'coachUserId' })
   coach?: Relation<User>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   clubId!: string;
 
   @ManyToOne(() => Club, { onDelete: 'CASCADE' })
@@ -81,10 +81,10 @@ export class CoachingDeal {
   @Column({ type: 'json', default: () => "(JSON_ARRAY())" })
   bids!: CoachingBid[];
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   createdByUserId!: string;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   expiresAt!: Date;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
@@ -93,24 +93,24 @@ export class CoachingDeal {
   @Column({ type: 'varchar', length: 32, nullable: true })
   paymentRef!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   paidAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   startedAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endsAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   endedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 16, nullable: true })
   endReason!: 'time' | 'coach' | 'club' | 'staff' | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

@@ -27,14 +27,14 @@ export class Team {
   @JoinColumn({ name: 'clubId' })
   club!: Relation<Club>;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   clubId!: string;
 
   @ManyToOne(() => EfootballProfile, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'captainProfileId' })
   captain?: Relation<EfootballProfile> | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   captainProfileId!: string | null;
 
   @OneToMany(() => EfootballProfile, (profile) => profile.team)

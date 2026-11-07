@@ -12,7 +12,7 @@ export class AccountLabel {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   userId!: string;
 
   @Column({ type: 'varchar', length: 48 })
@@ -21,9 +21,9 @@ export class AccountLabel {
   @Column({ type: 'varchar', length: 7, default: '#64748b' })
   color!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

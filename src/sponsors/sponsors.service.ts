@@ -329,11 +329,11 @@ export class SponsorsService {
       .createQueryBuilder('sp')
       .innerJoinAndSelect('sp.user', 'u')
       .where(`u."deletedAt" IS NULL AND u."bannedAt" IS NULL AND sp."brandName" <> ''`)
-      .andWhere(`u.roles @> '["sponsor"]'::jsonb`);
+      .andWhere(`JSON_CONTAINS(u.roles, '"sponsor"')`);
     if (query.verified === 'true') qb.andWhere('sp."verifiedAt" IS NOT NULL');
     if (query.search?.trim()) qb.andWhere('(sp."brandName" ILIKE :q OR sp.tagline ILIKE :q OR sp.industry ILIKE :q)', { q: `%${query.search.trim()}%` });
     const [rows, total] = await qb
-      .orderBy('sp.verifiedAt', 'DESC', 'NULLS LAST')
+      .orderBy('sp.verifiedAt', 'DESC') // verified first; MySQL sorts the NULLs (unverified) last in DESC order
       .addOrderBy('sp.updatedAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
@@ -800,7 +800,7 @@ export class SponsorsService {
     for (const i of clean.filter((x) => ok.has(x.id))) {
       await this.dataSource.query(
         `INSERT INTO sponsor_impressions ("sponsorshipId", day, views, clicks) VALUES ($1, CURRENT_DATE, $2, $3)
-         ON CONFLICT ("sponsorshipId", day) DO UPDATE SET views = sponsor_impressions.views + $2, clicks = sponsor_impressions.clicks + $3`,
+         ON DUPLICATE KEY UPDATE views = views + $2, clicks = clicks + $3`,
         [i.id, i.views, i.clicks],
       );
       recorded += 1;
@@ -817,9 +817,9 @@ export class SponsorsService {
       [sponsorUserId],
     );
     const daily: Array<{ day: string; views: number; clicks: number }> = await this.dataSource.query(
-      `SELECT to_char(i.day, 'YYYY-MM-DD') AS day, sum(i.views)::int AS views, sum(i.clicks)::int AS clicks
+      `SELECT DATE_FORMAT(i.day, '%Y-%m-%d') AS day, sum(i.views)::int AS views, sum(i.clicks)::int AS clicks
          FROM sponsor_impressions i JOIN sponsorships s ON s.id = i."sponsorshipId"
-        WHERE s."sponsorUserId" = $1 AND i.day > CURRENT_DATE - 14 GROUP BY 1 ORDER BY 1`,
+        WHERE s."sponsorUserId" = $1 AND i.day > DATE_SUB(CURRENT_DATE, INTERVAL 14 DAY) GROUP BY 1 ORDER BY 1`,
       [sponsorUserId],
     );
     const [posts]: Array<{ reach: number; likes: number; comments: number; saves: number }> = await this.dataSource.query(

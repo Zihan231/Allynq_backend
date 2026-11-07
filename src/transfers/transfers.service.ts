@@ -32,6 +32,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** A tournament blocks a move while it runs, or once it starts within this many days. */
 const COMMITMENT_WINDOW_DAYS = 3;
 
+/** SQL condition: the profile in `$2` is a starter or a substitute in the participant's lineup (`p.lineup`, a JSON column). */
+const IN_LINEUP = `(JSON_SEARCH(p.lineup, 'one', $2, NULL, '$.starters[*].profileId') IS NOT NULL
+  OR JSON_SEARCH(p.lineup, 'one', $2, NULL, '$.substitutes[*].profileId') IS NOT NULL)`;
+
 type NoticeTarget = 'player' | 'clubLeaders' | 'fromClubLeaders' | 'clubMembers' | 'fromClubMembers';
 
 /** An active tournament the player is playing with his current club (blocks the move until it ends). */
@@ -226,12 +230,9 @@ export class TransfersService {
          JOIN tournament_participants p ON p."tournamentId" = t.id
         WHERE t.status NOT IN ('completed', 'cancelled')
           AND t."deletedAt" IS NULL
-          AND (t.status = 'ongoing' OR t."startAt" <= now() + make_interval(days => $4))
+          AND (t.status = 'ongoing' OR t."startAt" <= now() + INTERVAL $4 DAY)
           AND (
-            (p."participantType" = 'club' AND p."clubId" = $1 AND EXISTS (
-               SELECT 1 FROM jsonb_array_elements(
-                 COALESCE(p.lineup->'starters', '[]'::jsonb) || COALESCE(p.lineup->'substitutes', '[]'::jsonb)
-               ) e WHERE e->>'profileId' = $2))
+            (p."participantType" = 'club' AND p."clubId" = $1 AND ${IN_LINEUP})
             OR (t."hostClubId" = $1 AND p."participantType" = 'player' AND p."userId" = $3)
           )
         ORDER BY t."startAt"
@@ -262,10 +263,7 @@ export class TransfersService {
         WHERE tr.status IN ('registration_open', 'submission_phase')
           AND tr."deletedAt" IS NULL
           AND (
-            (p."participantType" = 'club' AND p."clubId" = $1 AND EXISTS (
-               SELECT 1 FROM jsonb_array_elements(
-                 COALESCE(p.lineup->'starters', '[]'::jsonb) || COALESCE(p.lineup->'substitutes', '[]'::jsonb)
-               ) e WHERE e->>'profileId' = $2))
+            (p."participantType" = 'club' AND p."clubId" = $1 AND ${IN_LINEUP})
             OR (tr."hostClubId" = $1 AND p."participantType" = 'player' AND p."userId" = $3)
           )
         ORDER BY tr."startAt"`,
@@ -276,13 +274,14 @@ export class TransfersService {
   /** Takes the player out of the given club lineups (starters and substitutes). */
   async removeFromLineups(em: EntityManager, participantIds: string[], profileId: string): Promise<void> {
     if (!participantIds.length) return;
+    // JSON_SEARCH finds the player's path ("$.starters[1].profileId"); dropping ".profileId" leaves the entry's path, which JSON_REMOVE
+    // deletes. No match gives a path that doesn't exist ("$.none"), which JSON_REMOVE ignores. A player is in a lineup at most once.
     await em.query(
       `UPDATE tournament_participants p
-          SET lineup = p.lineup || jsonb_build_object(
-            'starters', COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(COALESCE(p.lineup->'starters', '[]'::jsonb)) e
-                                   WHERE e->>'profileId' IS DISTINCT FROM $2), '[]'::jsonb),
-            'substitutes', COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(COALESCE(p.lineup->'substitutes', '[]'::jsonb)) e
-                                      WHERE e->>'profileId' IS DISTINCT FROM $2), '[]'::jsonb))
+          SET lineup = JSON_REMOVE(
+            p.lineup,
+            COALESCE(REPLACE(JSON_UNQUOTE(JSON_SEARCH(p.lineup, 'one', $2, NULL, '$.starters[*].profileId')), '.profileId', ''), '$.none'),
+            COALESCE(REPLACE(JSON_UNQUOTE(JSON_SEARCH(p.lineup, 'one', $2, NULL, '$.substitutes[*].profileId')), '.profileId', ''), '$.none'))
         WHERE p.id = ANY($1) AND p.lineup IS NOT NULL`,
       [participantIds, profileId],
     );

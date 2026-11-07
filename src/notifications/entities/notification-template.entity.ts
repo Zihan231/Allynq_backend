@@ -24,9 +24,9 @@ export class NotificationTemplate {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   updatedById!: string | null;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 3 })
+  @UpdateDateColumn({ type: 'datetime', precision: 6 })
   updatedAt!: Date;
 }

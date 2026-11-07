@@ -126,10 +126,10 @@ export class User {
   @Column({ type: 'text', nullable: true })
   verificationNote!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   verificationReviewedAt!: Date | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   verificationReviewedById!: string | null;
 
   /** Allync staff role (moderator / admin / super admin); null for everyone else. */
@@ -141,13 +141,13 @@ export class User {
   })
   systemRole!: SystemRole | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   suspendedUntil!: Date | null;
 
   @Column({ type: 'text', nullable: true })
   suspendReason!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   bannedAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })
@@ -168,7 +168,7 @@ export class User {
   @Column({ type: 'text', nullable: true, select: false })
   twoFactorSecretEncrypted!: string | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   twoFactorEnabledAt!: Date | null;
 
   /** Rejects reuse of a code from an already accepted 30-second window. */
@@ -179,14 +179,14 @@ export class User {
   @Column({ type: 'int', default: 0 })
   twoFactorFailedAttempts!: number;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   twoFactorLockedUntil!: Date | null;
 
   /** Set while the account is in the recycle bin (hidden and unable to sign in). */
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   deletedAt!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   lastLoginAt!: Date | null;
 
   @Column({ type: 'json', nullable: true })
@@ -217,7 +217,7 @@ export class User {
   primaryRole!: string;
 
   /** When the "What suits you best?" picker was answered; null shows it (once). */
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   rolesChosenAt!: Date | null;
 
   @OneToOne(() => EfootballProfile, (profile) => profile.user)

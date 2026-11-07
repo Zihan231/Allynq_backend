@@ -36,18 +36,18 @@ export class Announcement {
   @Column({ type: 'varchar', length: 16, default: 'scheduled' })
   status!: AnnouncementStatus;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   scheduledFor!: Date | null;
 
-  @Column({ type: 'datetime', precision: 3, nullable: true })
+  @Column({ type: 'datetime', precision: 6, nullable: true })
   sentAt!: Date | null;
 
   @Column({ type: 'int', default: 0 })
   recipients!: number;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   createdById!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

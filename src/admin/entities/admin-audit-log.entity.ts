@@ -6,7 +6,7 @@ export class AdminAuditLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   actorId!: string | null;
 
   @Column({ type: 'varchar', length: 255 })
@@ -22,7 +22,7 @@ export class AdminAuditLog {
   @Column({ type: 'varchar', length: 24 })
   targetType!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   targetId!: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -40,6 +40,6 @@ export class AdminAuditLog {
   @Column({ type: 'varchar', length: 64, nullable: true })
   ip!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

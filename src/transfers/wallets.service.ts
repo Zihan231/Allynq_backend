@@ -51,8 +51,7 @@ export class WalletsService {
     const start =
       owner.type === 'club' ? settings.clubStartingBalanceTk : owner.type === 'user' ? settings.playerStartingBalanceTk : 0;
     await em.query(
-      `INSERT INTO wallets ("ownerType", "ownerId", "balanceTk") VALUES ($1, $2, $3)
-       ON CONFLICT ("ownerType", "ownerId") DO NOTHING`,
+      `INSERT IGNORE INTO wallets (id, "ownerType", "ownerId", "balanceTk") VALUES (UUID(), $1, $2, $3)`,
       [owner.type, owner.id, start],
     );
     return em

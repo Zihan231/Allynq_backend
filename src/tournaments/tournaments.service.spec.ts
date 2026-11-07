@@ -750,8 +750,8 @@ describe('TournamentsService.join (CvC team submission)', () => {
       findOne: vi.fn().mockResolvedValue(null),
       create: vi.fn((p) => p),
       save: vi.fn((p) => Promise.resolve(p)),
-      // Only the "already in another tournament" lookup returns these rows.
-      query: vi.fn(async (sql: string) => (sql.includes('DISTINCT ON') ? commitments : [])),
+      // Only the "already in another tournament" lookup returns these rows (players registered on their own).
+      query: vi.fn(async (sql: string) => (sql.includes(`p."participantType" = 'player'`) ? commitments : [])),
     };
     const clubsRepository = {
       findOne: vi.fn().mockResolvedValue({
@@ -863,7 +863,7 @@ describe('TournamentsService.join (CvC team submission)', () => {
       platform: GamingPlatform.CONSOLE,
     });
     participantsRepository.query.mockImplementation(async (sql: string) =>
-      sql.includes('"gamingPlatform" IS DISTINCT FROM')
+      sql.includes('NOT (u."gamingPlatform" <=>')
         ? [{ profileId: 'p2', name: 'Rakib' }]
         : [],
     );

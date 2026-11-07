@@ -412,18 +412,18 @@ export class AdminPlatformService {
   async health() {
     const memory = process.memoryUsage();
     const [db] = await this.dataSource.query(
-      `SELECT pg_database_size(current_database())::bigint AS bytes,
-              (SELECT count(*)::int FROM pg_stat_activity WHERE datname = current_database()) AS connections`,
+      `SELECT (SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.TABLES WHERE table_schema = DATABASE()) AS bytes,
+              (SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE db = DATABASE()) AS connections`,
     );
     const tables = await this.dataSource.query(
-      `SELECT relname AS name, n_live_tup::int AS rows, pg_total_relation_size(relid)::bigint AS bytes
-         FROM pg_stat_user_tables WHERE schemaname = 'public' ORDER BY pg_total_relation_size(relid) DESC LIMIT 12`,
+      `SELECT table_name AS name, COALESCE(table_rows, 0) AS "rows", (COALESCE(data_length, 0) + COALESCE(index_length, 0)) AS bytes
+         FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY bytes DESC LIMIT 12`,
     );
     const [activity] = await this.dataSource.query(
-      `SELECT (SELECT count(*)::int FROM notifications WHERE "createdAt" > now() - interval '24 hours') AS "notifications24h",
-              (SELECT count(*)::int FROM login_events WHERE "createdAt" > now() - interval '24 hours') AS "signIns24h",
-              (SELECT count(*)::int FROM login_events WHERE NOT success AND "createdAt" > now() - interval '24 hours') AS "failedSignIns24h",
-              (SELECT count(*)::int FROM activity_events WHERE "createdAt" > now() - interval '24 hours') AS "actions24h"`,
+      `SELECT (SELECT count(*)::int FROM notifications WHERE "createdAt" > now() - INTERVAL 24 HOUR) AS "notifications24h",
+              (SELECT count(*)::int FROM login_events WHERE "createdAt" > now() - INTERVAL 24 HOUR) AS "signIns24h",
+              (SELECT count(*)::int FROM login_events WHERE NOT success AND "createdAt" > now() - INTERVAL 24 HOUR) AS "failedSignIns24h",
+              (SELECT count(*)::int FROM activity_events WHERE "createdAt" > now() - INTERVAL 24 HOUR) AS "actions24h"`,
     );
     return {
       server: {

@@ -293,7 +293,7 @@ export class CoachingService {
       .createQueryBuilder('cp')
       .innerJoinAndSelect('cp.user', 'u')
       .where('u."deletedAt" IS NULL AND u."bannedAt" IS NULL')
-      .andWhere(`u.roles @> '["coach"]'::jsonb`);
+      .andWhere(`JSON_CONTAINS(u.roles, '"coach"')`);
     if (query.available === 'true') qb.andWhere('cp.available = true');
     if (query.search?.trim()) {
       qb.andWhere('(u.name ILIKE :q OR cp.headline ILIKE :q)', { q: `%${query.search.trim()}%` });

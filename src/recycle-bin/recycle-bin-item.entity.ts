@@ -24,13 +24,13 @@ export class RecycleBinItem {
   @Column({ type: 'varchar', length: 16 })
   entityType!: BinEntityType;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 36 })
   entityId!: string;
 
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   deletedById!: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -39,9 +39,9 @@ export class RecycleBinItem {
   @Column({ type: 'json', nullable: true })
   snapshot!: BinSnapshot | null;
 
-  @Column({ type: 'datetime', precision: 3, default: () => 'CURRENT_TIMESTAMP(3)' })
+  @Column({ type: 'datetime', precision: 6, default: () => 'CURRENT_TIMESTAMP(6)' })
   deletedAt!: Date;
 
-  @Column({ type: 'datetime', precision: 3 })
+  @Column({ type: 'datetime', precision: 6 })
   purgeAfter!: Date;
 }

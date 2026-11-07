@@ -332,13 +332,12 @@ export class TournamentMatchesService {
    * once their start time arrives.
    */
   async startDueTournaments(now = new Date()): Promise<number> {
-    const started: unknown[] = await this.dataSource.query(
+    const result: { affectedRows?: number } = await this.dataSource.query(
       `UPDATE tournaments SET status = $1
-        WHERE status = $2 AND format IS NOT NULL AND "startAt" <= $3
-        RETURNING id`,
+        WHERE status = $2 AND format IS NOT NULL AND "startAt" <= $3`,
       [TournamentStatus.ONGOING, TournamentStatus.SUBMISSION_PHASE, now],
     );
-    return (started[0] as unknown[] | undefined)?.length ?? 0;
+    return Number(result?.affectedRows ?? 0);
   }
 
   /**

@@ -14,15 +14,26 @@ export type RankingPeriod = (typeof RANKING_PERIODS)[number];
 /** Games / fixtures whose result is final: reviewed by officials, or decided by the system. */
 export const CONFIRMED_GAME_STATUSES = `('approved', 'walkover', 'forfeited')`;
 
-/** Calendar buckets are in Bangladesh time; weeks start on Monday (Postgres `date_trunc('week')`). */
-const TZ = `'Asia/Dhaka'`;
-const LOCAL_NOW = `(now() AT TIME ZONE ${TZ})`;
+/**
+ * Calendar buckets are in Bangladesh time (UTC+6, no daylight saving, so a fixed offset is exact); weeks start on Monday.
+ * Dates are stored in UTC and the session time zone is UTC (see mysql-session.ts), so `CONVERT_TZ(x, '+00:00', '+06:00')` is local time.
+ */
+export const LOCAL_OFFSET = `'+06:00'`;
 
-/** SQL condition keeping rows of `column` (a timestamptz) inside the period. */
+/** `expr` (a UTC datetime) as Bangladesh local time. */
+export const localTime = (expr: string) => `CONVERT_TZ(${expr}, '+00:00', ${LOCAL_OFFSET})`;
+/** Midnight on the Monday of `expr`'s week (`expr` already in local time): MySQL's replacement for `date_trunc('week', ...)`. */
+export const weekStart = (expr: string) => `DATE_SUB(DATE(${expr}), INTERVAL WEEKDAY(${expr}) DAY)`;
+/** Midnight on the first day of `expr`'s month (`expr` already in local time): replaces `date_trunc('month', ...)`. */
+export const monthStart = (expr: string) => `DATE_SUB(DATE(${expr}), INTERVAL DAYOFMONTH(${expr}) - 1 DAY)`;
+
+const LOCAL_NOW = localTime('NOW()');
+
+/** SQL condition keeping rows of `column` (a UTC datetime) inside the period. */
 export function periodCondition(period: RankingPeriod, column = '"playedAt"'): string {
-  const local = `(${column} AT TIME ZONE ${TZ})`;
-  const unit = period.endsWith('week') ? 'week' : 'month';
-  const start = `date_trunc('${unit}', ${LOCAL_NOW})`;
+  const local = localTime(column);
+  const unit = period.endsWith('week') ? 'WEEK' : 'MONTH';
+  const start = period.endsWith('week') ? weekStart(LOCAL_NOW) : monthStart(LOCAL_NOW);
   switch (period) {
     case 'all-time':
       return 'TRUE';
@@ -33,7 +44,7 @@ export function periodCondition(period: RankingPeriod, column = '"playedAt"'): s
       return `${local} >= ${start}`;
     case 'last-week':
     case 'last-month':
-      return `${local} >= ${start} - interval '1 ${unit}' AND ${local} < ${start}`;
+      return `${local} >= DATE_SUB(${start}, INTERVAL 1 ${unit}) AND ${local} < ${start}`;
   }
 }
 
@@ -56,23 +67,25 @@ export const PLAYER_GAMES_SQL = `
            ELSE 'D'
          END AS result
     FROM (
-      SELECT g.id AS "gameId", g.status, m."tournamentId",
-             COALESCE(g."scheduledStart", g."createdAt") AS "playedAt",
-             sd."userId", sd."opponentUserId", sd."opponentName", sd."myGoals", sd."oppGoals", sd."clubId"
-        FROM tournament_match_games g
-        JOIN tournament_matches m ON m.id = g."matchId"
-        JOIN tournaments t ON t.id = m."tournamentId" AND t.status <> 'cancelled' AND t."deletedAt" IS NULL
-        LEFT JOIN tournament_participants pa ON pa.id = m."participantAId"
-        LEFT JOIN tournament_participants pb ON pb.id = m."participantBId"
-        CROSS JOIN LATERAL (
-          VALUES
-            (g."playerAUserId", g."playerBUserId", g."playerBName",
-             COALESCE(g."goalsA", 0), COALESCE(g."goalsB", 0), pa."clubId"),
-            (g."playerBUserId", g."playerAUserId", g."playerAName",
-             COALESCE(g."goalsB", 0), COALESCE(g."goalsA", 0), pb."clubId")
-        ) AS sd("userId", "opponentUserId", "opponentName", "myGoals", "oppGoals", "clubId")
-       WHERE g.status IN ${CONFIRMED_GAME_STATUSES}
-         AND sd."userId" IS NOT NULL
+      SELECT u.* FROM (
+        -- Each game gives two rows, one per side (side 0 = player A, side 1 = player B).
+        SELECT g.id AS "gameId", g.status, m."tournamentId",
+               COALESCE(g."scheduledStart", g."createdAt") AS "playedAt",
+               CASE x.side WHEN 0 THEN g."playerAUserId" ELSE g."playerBUserId" END AS "userId",
+               CASE x.side WHEN 0 THEN g."playerBUserId" ELSE g."playerAUserId" END AS "opponentUserId",
+               CASE x.side WHEN 0 THEN g."playerBName" ELSE g."playerAName" END AS "opponentName",
+               CASE x.side WHEN 0 THEN COALESCE(g."goalsA", 0) ELSE COALESCE(g."goalsB", 0) END AS "myGoals",
+               CASE x.side WHEN 0 THEN COALESCE(g."goalsB", 0) ELSE COALESCE(g."goalsA", 0) END AS "oppGoals",
+               CASE x.side WHEN 0 THEN pa."clubId" ELSE pb."clubId" END AS "clubId"
+          FROM tournament_match_games g
+          JOIN tournament_matches m ON m.id = g."matchId"
+          JOIN tournaments t ON t.id = m."tournamentId" AND t.status <> 'cancelled' AND t."deletedAt" IS NULL
+          LEFT JOIN tournament_participants pa ON pa.id = m."participantAId"
+          LEFT JOIN tournament_participants pb ON pb.id = m."participantBId"
+          CROSS JOIN (SELECT 0 AS side UNION ALL SELECT 1) x
+         WHERE g.status IN ${CONFIRMED_GAME_STATUSES}
+      ) u
+      WHERE u."userId" IS NOT NULL
     ) s`;
 
 /**
@@ -86,18 +99,18 @@ export function playerTotalsSql(source: string, groupBy: string[] = []): string 
   return `
     SELECT ${keys},
            count(*)::int AS "PL",
-           count(*) FILTER (WHERE result = 'W')::int AS "W",
-           count(*) FILTER (WHERE result = 'D')::int AS "D",
-           count(*) FILTER (WHERE result = 'L')::int AS "L",
-           COALESCE(sum("myGoals") FILTER (WHERE "countsGoals"), 0)::int AS "GF",
-           COALESCE(sum("oppGoals") FILTER (WHERE "countsGoals"), 0)::int AS "GA",
-           count(*) FILTER (WHERE "countsGoals" AND "oppGoals" = 0)::int AS "CS",
-           count(*) FILTER (WHERE "countsGoals" AND "myGoals" BETWEEN 3 AND 5)::int AS "HT",
-           count(*) FILTER (WHERE "countsGoals" AND "myGoals" >= 6)::int AS "DHT",
-           (count(*) FILTER (WHERE result = 'W') * 3
-             + count(*) FILTER (WHERE result = 'D')
-             + count(*) FILTER (WHERE "countsGoals" AND "myGoals" BETWEEN 3 AND 5) * 2
-             + count(*) FILTER (WHERE "countsGoals" AND "myGoals" >= 6) * 5)::int AS "PTS"
+           COUNT(CASE WHEN result = 'W' THEN 1 END)::int AS "W",
+           COUNT(CASE WHEN result = 'D' THEN 1 END)::int AS "D",
+           COUNT(CASE WHEN result = 'L' THEN 1 END)::int AS "L",
+           COALESCE(SUM(CASE WHEN "countsGoals" THEN "myGoals" END), 0)::int AS "GF",
+           COALESCE(SUM(CASE WHEN "countsGoals" THEN "oppGoals" END), 0)::int AS "GA",
+           COUNT(CASE WHEN "countsGoals" AND "oppGoals" = 0 THEN 1 END)::int AS "CS",
+           COUNT(CASE WHEN "countsGoals" AND "myGoals" BETWEEN 3 AND 5 THEN 1 END)::int AS "HT",
+           COUNT(CASE WHEN "countsGoals" AND "myGoals" >= 6 THEN 1 END)::int AS "DHT",
+           (COUNT(CASE WHEN result = 'W' THEN 1 END) * 3
+             + COUNT(CASE WHEN result = 'D' THEN 1 END)
+             + COUNT(CASE WHEN "countsGoals" AND "myGoals" BETWEEN 3 AND 5 THEN 1 END) * 2
+             + COUNT(CASE WHEN "countsGoals" AND "myGoals" >= 6 THEN 1 END) * 5)::int AS "PTS"
       FROM ${source}
      GROUP BY ${keys}`;
 }
@@ -112,29 +125,35 @@ export const PLAYER_RANK_ORDER = `"PTS" DESC, "W" DESC, ("GF" - "GA") DESC, "GF"
 export const CLUB_FIXTURES_SQL = `
   SELECT f."matchId", f."playedAt", f."clubId", f."opponentClubId", f."GF", f."GA", f.result
     FROM (
-      SELECT m.id AS "matchId", COALESCE(m."completedAt", m."updatedAt") AS "playedAt",
-             sd."clubId", sd."opponentClubId", sd."GF", sd."GA", sd.result
-        FROM tournament_matches m
-        JOIN tournaments t ON t.id = m."tournamentId" AND t.type = 'cvc' AND t.status <> 'cancelled' AND t."deletedAt" IS NULL
-        JOIN tournament_participants pa ON pa.id = m."participantAId"
-        JOIN tournament_participants pb ON pb.id = m."participantBId"
-        CROSS JOIN LATERAL (
-          SELECT COALESCE(sum(g."goalsA") FILTER (WHERE g.status = 'approved'), 0)::int AS a,
-                 COALESCE(sum(g."goalsB") FILTER (WHERE g.status = 'approved'), 0)::int AS b
-            FROM tournament_match_games g
-           WHERE g."matchId" = m.id
-        ) goals
-        CROSS JOIN LATERAL (
-          VALUES
-            (pa."clubId", pb."clubId", goals.a, goals.b,
-             CASE WHEN m."doubleForfeit" OR m."winnerParticipantId" = pb.id THEN 'L'
-                  WHEN m."winnerParticipantId" = pa.id THEN 'W' ELSE 'D' END),
-            (pb."clubId", pa."clubId", goals.b, goals.a,
-             CASE WHEN m."doubleForfeit" OR m."winnerParticipantId" = pa.id THEN 'L'
-                  WHEN m."winnerParticipantId" = pb.id THEN 'W' ELSE 'D' END)
-        ) AS sd("clubId", "opponentClubId", "GF", "GA", result)
-       WHERE m.status = 'completed'
-         AND sd."clubId" IS NOT NULL
+      SELECT u.* FROM (
+        -- Each fixture gives two rows, one per club (side 0 = club A, side 1 = club B).
+        SELECT m.id AS "matchId", COALESCE(m."completedAt", m."updatedAt") AS "playedAt",
+               CASE x.side WHEN 0 THEN pa."clubId" ELSE pb."clubId" END AS "clubId",
+               CASE x.side WHEN 0 THEN pb."clubId" ELSE pa."clubId" END AS "opponentClubId",
+               CASE x.side WHEN 0 THEN COALESCE(goals.a, 0) ELSE COALESCE(goals.b, 0) END AS "GF",
+               CASE x.side WHEN 0 THEN COALESCE(goals.b, 0) ELSE COALESCE(goals.a, 0) END AS "GA",
+               CASE x.side
+                 WHEN 0 THEN CASE WHEN m."doubleForfeit" OR m."winnerParticipantId" = pb.id THEN 'L'
+                                  WHEN m."winnerParticipantId" = pa.id THEN 'W' ELSE 'D' END
+                 ELSE CASE WHEN m."doubleForfeit" OR m."winnerParticipantId" = pa.id THEN 'L'
+                           WHEN m."winnerParticipantId" = pb.id THEN 'W' ELSE 'D' END
+               END AS result
+          FROM tournament_matches m
+          JOIN tournaments t ON t.id = m."tournamentId" AND t.type = 'cvc' AND t.status <> 'cancelled' AND t."deletedAt" IS NULL
+          JOIN tournament_participants pa ON pa.id = m."participantAId"
+          JOIN tournament_participants pb ON pb.id = m."participantBId"
+          -- Goals of the fixture's reviewed games only (walkovers / forfeits add none).
+          LEFT JOIN (
+            SELECT g."matchId",
+                   SUM(CASE WHEN g.status = 'approved' THEN g."goalsA" END) AS a,
+                   SUM(CASE WHEN g.status = 'approved' THEN g."goalsB" END) AS b
+              FROM tournament_match_games g
+             GROUP BY g."matchId"
+          ) goals ON goals."matchId" = m.id
+          CROSS JOIN (SELECT 0 AS side UNION ALL SELECT 1) x
+         WHERE m.status = 'completed'
+      ) u
+      WHERE u."clubId" IS NOT NULL
     ) f`;
 
 /** Per-club totals over `source` (rows shaped like CLUB_FIXTURES_SQL); PTS = W×3 + D. */
@@ -142,13 +161,13 @@ export function clubTotalsSql(source: string): string {
   return `
     SELECT "clubId",
            count(*)::int AS "M",
-           count(*) FILTER (WHERE result = 'W')::int AS "W",
-           count(*) FILTER (WHERE result = 'D')::int AS "D",
-           count(*) FILTER (WHERE result = 'L')::int AS "L",
+           COUNT(CASE WHEN result = 'W' THEN 1 END)::int AS "W",
+           COUNT(CASE WHEN result = 'D' THEN 1 END)::int AS "D",
+           COUNT(CASE WHEN result = 'L' THEN 1 END)::int AS "L",
            COALESCE(sum("GF"), 0)::int AS "GF",
            COALESCE(sum("GA"), 0)::int AS "GA",
-           count(*) FILTER (WHERE "GA" = 0)::int AS "CS",
-           (count(*) FILTER (WHERE result = 'W') * 3 + count(*) FILTER (WHERE result = 'D'))::int AS "PTS"
+           COUNT(CASE WHEN "GA" = 0 THEN 1 END)::int AS "CS",
+           (COUNT(CASE WHEN result = 'W' THEN 1 END) * 3 + COUNT(CASE WHEN result = 'D' THEN 1 END))::int AS "PTS"
       FROM ${source}
      GROUP BY "clubId"`;
 }

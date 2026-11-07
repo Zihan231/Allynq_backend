@@ -11,7 +11,7 @@ export class LoginEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   userId!: string | null;
 
   @Column({ type: 'varchar', length: 255 })
@@ -37,6 +37,6 @@ export class LoginEvent {
   @Column({ type: 'varchar', length: 128, nullable: true })
   deviceHint!: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 3 })
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }
